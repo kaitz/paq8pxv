@@ -546,17 +546,15 @@ and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
 which computes 8 elements at a time, is not any faster).
 
 
-DIFFERENCES FROM PAQ8PXD_V17V2
-- update all base classes from PAQ8PXD_V62
-- disable zlib recomrpession and detection
-- some fixes in vm
-- change cfg files
+DIFFERENCES FROM PAQ8PXV_V1
+-vm: global array with values
+- fix some output info
 */
 
-#define PROGNAME "paq8pxdv1"  // Please change this if you change the program.
+#define PROGNAME "paq8pxdv2"  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 //#define MT            //uncomment for multithreading, compression only
-//#define VMJIT  // uncomment to compile with x86 JIT
+#define VMJIT  // uncomment to compile with x86 JIT
 #define SIMD_CM_R       // SIMD ContextMap byterun
 
 #ifdef WINDOWS                       
@@ -689,8 +687,8 @@ public:
     assert(sizeof(int)==4);  
   }
   void print() const {  // print time and memory used
-    printf("Time %1.2f sec, used %0lu MB (%0lu bytes) of memory\n",
-      double(clock()-start_time)/CLOCKS_PER_SEC, ((maxmem)/1024)/1024,(maxmem));
+    printf("Time %1.2f sec, used %d MB (%d bytes) of memory\n",
+      double(clock()-start_time)/CLOCKS_PER_SEC, (U32)((maxmem)/1024)/1024,(U32)(maxmem));
   }
 } programChecker;
 
@@ -759,7 +757,7 @@ template<class T, const int Align> void Array<T,Align>::create(U64 requested_siz
   U64 bytes_to_allocate=allocated_bytes();
   ptr=(char*)calloc(bytes_to_allocate,1);
   if(!ptr){
-      printf("Requested size %0lu MB\n",((bytes_to_allocate)/1024)/1024);
+      printf("Requested size %d MB\n",(U32)((bytes_to_allocate)/1024)/1024);
       quit("Out of memory.");
   }
   U64 pad=padding();
@@ -2380,9 +2378,6 @@ class SmallStationaryContextMap {
   U16 *cp;
 public:
   SmallStationaryContextMap(int BitsOfContext, int InputBits = 8) : Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), Context(0), Mask((1<<BitsOfContext)-1), Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0) {
-    if (BitsOfContext>16){
-        printf("dff");
-    }
     assert(BitsOfContext<=16);
     assert(InputBits>0 && InputBits<=8);
     Reset();
@@ -3892,7 +3887,7 @@ public:
 // uncompressed data is 1.  Methods:
 // p() returns P(1) as a 12 bit number (0-4095).
 // update(y) trains the predictor with the actual bit (0 or 1).
-#include "vm.cpp"
+#include "vm_v2.cpp"
 //base class
 class Predictors {
 public:
@@ -8708,7 +8703,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
                     else quit("Config file not found.");
                       
                     threadpredict=new Predictor((char *)p);
-                    
+                    //threadpredict->setdebug(1);
                     switch(i) {
                         case 0: {
                               printf("Compressing default stream(0).  Total %0.0f  \n",datasegmentsize +0.0);
@@ -9181,7 +9176,7 @@ printf("\n");
             en->compress(0); // block type 0
             en->compress(len>>24); en->compress(len>>16); en->compress(len>>8); en->compress(len); // block length
             for (int i=0; i<len; i++) en->compress(header_string[i]);
-            printf("Compressed from %d to %0lu bytes.\n",len,en->size()-start);
+            printf("Compressed from %d to %d bytes.\n",len,(U32)en->size()-start);
         }
 
         // Deompress header
@@ -9227,7 +9222,7 @@ printf("\n");
                 filestreams[i]=new FileTmp();
             }
             for (int i=0; i<files; ++i) {
-                printf("\n%d/%d  Filename: %s (%0lu bytes)\n", i+1, files, fname[i], fsize[i]);
+                printf("\n%d/%d  Filename: %s (%d bytes)\n", i+1, files, fname[i], (U32)fsize[i]);
                 DetectStreams(fname[i], fsize[i]);
             }
             segment.put1(0xff); //end marker
@@ -9240,9 +9235,9 @@ printf("\n");
                 printf("\n %-2s |%-9s |%-10s |%-10s\n","TN","Type name", "Count","Total size");
                 printf("-----------------------------------------\n");
                 ttc=0,tts=0;
-                for (int i=0; i<datatypecount; ++i)   if (typenamess[i][j]) printf(" %2d |%-9s |%10d |%10.0I64i\n",i,typenames[i], typenamesc[i][j],typenamess[i][j]),ttc+=typenamesc[i][j],tts+=typenamess[i][j];
+                for (int i=0; i<datatypecount; ++i)   if (typenamess[i][j]) printf(" %2d |%-9s |%10d |%10d\n",i,typenames[i], typenamesc[i][j],(U32)typenamess[i][j]),ttc+=typenamesc[i][j],tts+=typenamess[i][j];
                 printf("-----------------------------------------\n");
-                printf("%-13s%1d |%10d |%10.0I64i\n\n","Total level",j, ttc,tts);
+                printf("%-13s%1d |%10d |%10d\n\n","Total level",j, ttc,(U32)tts);
             }
             
 #ifdef MT
@@ -9257,28 +9252,28 @@ printf("\n");
                 if (datasegmentsize>0){                       //if segment contains data
                     switch(i) {
                         case 0: {
-                            printf("default   stream(0).  Total %0lu\n",datasegmentsize); break;}
+                            printf("default   stream(0).  Total %d\n",(U32)datasegmentsize); break;}
                         case 1: {
-                            printf("jpeg      stream(1).  Total %0lu\n",datasegmentsize); break;}        
+                            printf("jpeg      stream(1).  Total %d\n",(U32)datasegmentsize); break;}        
                         case 2: {
-                            printf("image1    stream(2).  Total %0lu\n",datasegmentsize); break;}
+                            printf("image1    stream(2).  Total %d\n",(U32)datasegmentsize); break;}
                         case 3: {
-                            printf("image4    stream(3).  Total %0lu\n",datasegmentsize); break;}    
+                            printf("image4    stream(3).  Total %d\n",(U32)datasegmentsize); break;}    
                         case 4: {
-                            printf("image8    stream(4).  Total %0lu\n",datasegmentsize); break;}
+                            printf("image8    stream(4).  Total %d\n",(U32)datasegmentsize); break;}
                         case 5: {
-                            printf("image24   stream(5).  Total %0lu\n",datasegmentsize); break;}        
+                            printf("image24   stream(5).  Total %d\n",(U32)datasegmentsize); break;}        
                         case 6: {
-                            printf("audio     stream(6).  Total %0lu\n",datasegmentsize); break;}
+                            printf("audio     stream(6).  Total %d\n",(U32)datasegmentsize); break;}
                         case 7: {
-                            printf("exe       stream(7).  Total %0lu\n",datasegmentsize); break;}
+                            printf("exe       stream(7).  Total %d\n",(U32)datasegmentsize); break;}
                         case 8: {
-                            printf("text0 wrt stream(8).  Total %0lu\n",datasegmentsize); break;}
+                            printf("text0 wrt stream(8).  Total %d\n",(U32)datasegmentsize); break;}
                         case 9: 
                         case 10: {
-                            printf("%stext wrt stream(%d). Total %0lu\n",i==10?"big":"",i,datasegmentsize); break;}   
+                            printf("%stext wrt stream(%d). Total %d\n",i==10?"big":"",i,(U32)datasegmentsize); break;}   
                         case 11: {
-                            printf("dec       stream(11). Total %0lu\n",datasegmentsize); break;}
+                            printf("dec       stream(11). Total %d\n",(U32)datasegmentsize); break;}
                     }
 #ifdef MT
                                                               // add streams to job list
@@ -9450,7 +9445,7 @@ printf("\n");
             for (int i=0;i<streamc;i++){
                 if (filestreamsize[i]>0) archive->put64(filestreamsize[i]);
             }
-            printf("Total %0lu bytes compressed to %0lu bytes.\n", total_size,  archive->curpos()); 
+            printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  (U32)archive->curpos()); 
             
         }
         // Decompress files to dir2: paq8pxd -d dir1/archive.paq8pxd dir2
