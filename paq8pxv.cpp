@@ -546,12 +546,12 @@ and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
 which computes 8 elements at a time, is not any faster).
 
 
-DIFFERENCES FROM PAQ8PXV_V1
--vm: global array with values
-- fix some output info
+DIFFERENCES FROM PAQ8PXV_V2
+-jpeg model cfg
 */
 
-#define PROGNAME "paq8pxdv2"  // Please change this if you change the program.
+#define VERSION "v3"
+#define PROGNAME "paq8pxd" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 //#define MT            //uncomment for multithreading, compression only
 #define VMJIT  // uncomment to compile with x86 JIT
@@ -559,7 +559,7 @@ DIFFERENCES FROM PAQ8PXV_V1
 
 #ifdef WINDOWS                       
 #ifdef MT
-//#define PTHREAD       //uncomment to force pthread to igore windows native threads
+#define PTHREAD       //uncomment to force pthread to igore windows native threads
 #endif
 #endif
 
@@ -1975,6 +1975,7 @@ void train(short *t, short *w, int n, int err) {
     nx=base=ncxt=0;
   }
   void update2() {
+      if (nx==0) return;
       if (x.filetype==EXE || x.filetype==IMAGE24 || x.filetype==DECA )update1();
     else     if(x.filetype==DICTTXT) train(&tx[0], &wx[0], nx, ((x.y<<12)-base)*3/2), reset();
     else             update();
@@ -3887,7 +3888,7 @@ public:
 // uncompressed data is 1.  Methods:
 // p() returns P(1) as a 12 bit number (0-4095).
 // update(y) trains the predictor with the actual bit (0 or 1).
-#include "vm_v2.cpp"
+#include "vm.cpp"
 //base class
 class Predictors {
 public:
@@ -8602,13 +8603,7 @@ char *pp ="int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
 "int main() { \n int i; \n if (!(t=malloc(0x2000000*sizeof(int)))) exit(-1); \n"
 "vms(0,1,0,0,0,0,0,0,0); \n vmi(2,0,256,0,-1);\nc1=0,c=1; \n"
 "for (i=0; i<0x2000000; i++) t[i]=32768;}";
-/* "int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
-                                    "if (y) t[c+c1]=t[c+c1]+((65536-t[c+c1])>>5); \n"
-                                    "else t[c+c1]=t[c+c1]-(t[c+c1]>>5); \n"
-                                    "if ((c=c*2+y)>=512) c1=(c1+(c&255)<<9)&0x1ffffff,c=1; \n"
-                                    "return (t[c+c1]>>4);} \n void block(int a,int b){} \n"
-                                    "int main() { \n int i; \n if (!(t=malloc(0x2000000*sizeof(int)))) exit(-1); \n"
-                                    "c1=0,c=1; \n for (i=0; i<0x2000000; i++) t[i]=32768;}";*/
+
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
     i=streamid;
@@ -8633,7 +8628,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
                     
                     switch(i) {
                         case 0:
-                        case 1: 
+                        //case 1: 
                         case 3: 
                         case 6: 
                         case 7:  
@@ -8646,6 +8641,9 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
                         //    else 
                             moin=fopen("test3d.cfg", "rb");
                         break;}  
+                        case 1: {
+                            moin=fopen("jpeg.cfg", "rb");
+                            break;}
                         case 2: {
                             moin=fopen("test3img.cfg", "rb");
                             break;}

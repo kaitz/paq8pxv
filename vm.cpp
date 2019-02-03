@@ -78,7 +78,7 @@ char *p, *lp, // current position in source code
      *data,*data0,   // data/bss pointer
      *jitmem, // executable memory for JIT-compiled native code
      *je;     // current position in emitted native code
-int *e, *le, *text,  // current position in emitted code
+int *e, *le, *text,*codestart,  // current position in emitted code
     *id,      // currently parsed indentifier
     *sym,     // symbol table (simple list of identifiers)
     tk,       // current token
@@ -87,6 +87,7 @@ int *e, *le, *text,  // current position in emitted code
     loc,      // local variable offset
     line;     // current line number
     int fd, bt,   poolsz, *idmain,*idp,*idupdate;
+    //int *iddetect,*iddecode,*idencode; //
     int *pc, *sp,*sp0, *bp, cycle; // vm registers
     int i, *t,*pc0,tmp; // temps
     unsigned int a;
@@ -125,6 +126,7 @@ int block(int info1,int info2);
 int doupdate(int y, int c0, int bpos,U32 c4,int pos);
 void  killvm( );
 void emit(int op,int val);
+void decompile();
 };
 char* vmmalloc(VM* v,size_t i){
   programChecker.alloc(U64(i));
@@ -449,17 +451,17 @@ void VM::next(){
 }
 void VM::emit(int op,int val=0){
     *++e =op;
-dprintf("%d: ",e);
+/*dprintf("%d: ",e);*/
 switch (op){
-case LEA: { dprintf(" LEA: %d\n",val);*++e=val; break;}
-case IMM: { dprintf(" IMM: %d\n",val);*++e=val; break;}
-case JMP: { dprintf(" JMP: %d\n",val);*++e=val; break;}
-case JSR: { dprintf(" JSR: %d\n",val);*++e=val; break;}
-case BZ : { dprintf(" BZ   %d\n",val);*++e=val; break;}
-case BNZ: { dprintf(" BNZ: %d\n",val);*++e=val; break;}
-case ENT: { dprintf(" ENT: \n"); break;} 
-case ADJ: { dprintf(" ADJ: %d\n",val);*++e=val; break;} 
-case LEV: { dprintf(" LEV: \n"); break;} 
+case LEA: { /*dprintf(" LEA: %d\n",val);*/*++e=val; break;}
+case IMM: { /*dprintf(" IMM: %d\n",val);*/*++e=val; break;}
+case JMP: { /*dprintf(" JMP: %d\n",val);*/*++e=val; break;}
+case JSR: { /*dprintf(" JSR: %d\n",val);*/*++e=val; break;}
+case BZ : { /*dprintf(" BZ   %d\n",val);*/*++e=val; break;}
+case BNZ: { /*dprintf(" BNZ: %d\n",val);*/*++e=val; break;}
+case ENT: { /*dprintf(" ENT: \n");*/ break;} 
+case ADJ: { /*dprintf(" ADJ: %d\n",val);*/*++e=val; break;} 
+/*case LEV: { dprintf(" LEV: \n"); break;} 
 case LI: { dprintf(" LI: \n"); break;} 
 case LS: { dprintf(" LS: \n"); break;} 
 case LC : dprintf(" LC \n"); { break;}
@@ -510,7 +512,7 @@ case H2: { dprintf(" H2: \n"); break;}
 case H3: { dprintf(" H3: \n"); break;} 
 case H4: { dprintf(" H4: \n"); break;} 
 case H5: { dprintf(" H5: \n"); break;} 
-case EXIT: { dprintf(" EXIT: \n"); break;} 
+case EXIT: { dprintf(" EXIT: \n"); break;} */
 default:
 {break;}
 }
@@ -622,14 +624,14 @@ void VM::expr(int lev){
   }
   else if (tk == Inc || tk == Dec) {
     t = tk; next(); expr(Inc);
-    if (*e == LC) { *e = PSH; *++e = LC; }
-    else if (*e == LI) { *e = PSH; *++e = LI; }
-    else if (*e == LS) { *e = PSH; *++e = LS; }
+    if (*e == LC) { *e = PSH; emit(LC);/**++e = LC;*/ }
+    else if (*e == LI) { *e = PSH; emit(LI);/**++e = LI; */}
+    else if (*e == LS) { *e = PSH; emit(LS);/**++e = LS;*/ }
     else { kprintf("%d: bad lvalue in pre-increment\n", line); exit(-1); }
-    *++e = PSH;
-    *++e = IMM; *++e = (ty > PTR) ? sizeof(int) : (ty > iINT) ?  sizeof(short) : sizeof(char);;
-    *++e = (t == Inc) ? ADD : SUB;
-    *++e = (ty == rCHAR) ? SC : (ty == sSHORT) ? SS : SI;
+    emit(PSH);/**++e = PSH;*/
+    emit(IMM,(ty > PTR) ? sizeof(int) : (ty > iINT) ?  sizeof(short) : sizeof(char));/**++e = IMM; *++e = (ty > PTR) ? sizeof(int) : (ty > iINT) ?  sizeof(short) : sizeof(char);*/
+    emit((t == Inc) ? ADD : SUB);/**++e = (t == Inc) ? ADD : SUB;*/
+    emit((ty == rCHAR) ? SC : (ty == sSHORT) ? SS : SI);/**++e = (ty == rCHAR) ? SC : (ty == sSHORT) ? SS : SI;*/
   }
  
   else { kprintf("%d: bad expression\n", line); exit(-1); }
@@ -795,8 +797,8 @@ int VM::dovm(int *ttt){
  if (debug) {
       kprintf("%d>%x  %.4s", cycle,pc-pc0,
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
-         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,ABS ,"
-         "PRTF,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXA ,MXS ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
+         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
+         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
     if (i < JMP) kprintf(" %d\n",*pc); //? +1
      else if (i <= ADJ) kprintf(" %x\n",(int *)*pc-pc0+1); else kprintf("\n");
     }
@@ -877,12 +879,19 @@ int VM::dojit(){
   int u;
   // setup jit memory
   jitmem = (char*)mmap(0, poolsz, PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-  if (!jitmem) { kprintf("could not mmap(%d) jit executable memory\n", poolsz); return -1; }
+  if (!jitmem) { dprintf("could not mmap(%d) jit executable memory\n", poolsz); return -1; }
 
   // first pass: emit native code
   pc = text + 1; je = jitmem; line = 0;
   while (pc <= e) {
     i = *pc;
+  /*  kprintf("// %x: ",pc);
+    kprintf("   %.4s",  
+        &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
+         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
+         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
+    if (i < JMP) kprintf(" %d\n",*(pc+1)); //? +1
+     else if (i <= ADJ) kprintf(" %x\n",(int *)*pc); else kprintf("\n");*/
     *pc++ = ((int)je << 8) | i; // for later relocation of JMP/JSR/BZ/BNZ
  
     if (i == LEA) {
@@ -1188,6 +1197,7 @@ int VM::initvm() {
     }
     next();
   }
+
 #ifdef VMJIT
 if (dojit()!=0) return -1;
  // run jitted code
