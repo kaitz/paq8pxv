@@ -1,0 +1,73 @@
+int soi, sof, sos, app,eoi; 
+int type,state,jstart,jend;
+int buf0,buf1;
+enum {DEFAULT=1,JPEG}; //internal enum
+enum {NONE=0,START,INFO,END,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+int detect(int c4,int i) {
+    int c1;
+    
+    //if state parameters recuested
+    if (i==REQUEST){
+        //printf("DETECT: State requested %d\n",state);
+        if (state==NONE){return 0xffffffff;}
+        if (state==START) return jstart;
+        if (state==END) return jend;
+        if (state==INFO) return 0xffffffff;
+    }
+    c1=c4&255;
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=buf0<<8|c1;
+    //detect header
+    if (!soi && i>=3 && ((
+    ((c4&0xffffff00)==0xffd8ff00 && (c1==0xC0 || c1==0xC4 || (c1>=0xDB && c1<=0xFE)))
+    ||(c4&0xfffffff0)==0xffd8ffe0  ) )    
+    ) soi=i, app=i+2, sos=sof=0;
+    if (soi) {
+      if (app==i && (c4>>24)==0xff &&
+         ((c4>>16)&0xff)>0xc0 && ((c4>>16)&0xff)<0xff) app=i+(c4&0xffff)+2;
+      if (app<i && (buf1&0xff)==0xff && (c4&0xff0000ff)==0xc0000008) sof=i;
+      
+      if (sof && sof>soi && i-sof<0x1000 && (c4&0xffff)==0xffda) {
+        sos=i;
+        if (type!=JPEG){
+            type=JPEG;
+            state=START; 
+            jstart=soi-3; 
+            soi=buf0=buf1=0; 
+            //printf("DETECT: JPEG start %d\n",jstart);
+            return state;
+        }
+      }
+      if (i-soi>0x40000 && !sos) soi=0;
+    }
+    if (type==JPEG && soi && (c4&0xffff)==0xffd9) {
+        eoi=i;
+    }
+    if (type==JPEG &&  soi  && sos && eoi && (c4&0xffff)==0xffd8) {
+         state=END;
+		 type=DEFAULT;
+		 jend=i;//-1;
+		 soi=buf0=buf1=0;
+		  //printf("DETECT: JPEG end-1 %d\n",jend);
+        return state; 
+    }
+    if (type==JPEG && sos && i>sos && (c4&0xff00)==0xff00
+        && (c4&0xff)!=0 && ((c4&0xf8)!=0xd0 )) {
+         state=END;
+		 type=DEFAULT;
+		 jend=i+1;
+		 soi=buf0=buf1=0;
+          //printf("DETECT: JPEG end %d\n",jend);
+        return state;
+    }
+    return NONE;
+}
+
+int main() {
+ soi=sof=sos=app=eoi=jstart=jend=buf0=buf1=0; 
+ type=DEFAULT;
+ state=NONE;
+}

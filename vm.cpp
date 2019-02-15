@@ -87,10 +87,11 @@ int *e, *le, *text,*codestart,  // current position in emitted code
     loc,      // local variable offset
     line;     // current line number
     int fd, bt,   poolsz, *idmain,*idp,*idupdate;
+    int *iddetect, *iddecode, *idencode;//functions detect,decode and encode
     //int *iddetect,*iddecode,*idencode; //
     int *pc, *sp,*sp0, *bp, cycle; // vm registers
     int i, *t,*pc0,tmp; // temps
-    unsigned int a;
+     int a;
     int  initvm( ) ; 
 char *mod;
 public:
@@ -111,8 +112,9 @@ public:
     int currentc; //current component, used in vmi
     int *mcomp;  //component list set in vmi
     int initdone; //set to 1 after main exits
-    Array<char*> mem;
+    //Array<char*> mem;
     int mindex;
+    //Array<int> vmmem;//array of allocated memory
 VM(char* m,BlockData& bd);
 ~VM() ;
 void next();
@@ -122,17 +124,18 @@ int dovm(int *ttt);
 #ifdef VMJIT
 int  dojit();
  #endif
+ int detect(int c4,int pos);
 int block(int info1,int info2);
 int doupdate(int y, int c0, int bpos,U32 c4,int pos);
 void  killvm( );
 void emit(int op,int val);
 void decompile();
 };
-char* vmmalloc(VM* v,size_t i){
-  programChecker.alloc(U64(i));
+char* vmmalloc(VM* v,size_t i,int w){
+  programChecker.alloc(U64(i*w));
   
-  char*ptr= (char*)calloc(i,1);
-  v->mem[v->mindex++]=ptr;
+  char*ptr= (char*)calloc(i*w,1);
+  //v->mem[v->mindex++]=ptr;
   if (ptr==0) perror("mem error "),printf("%d ",i),quit("VM mem alloc fail");
   return ptr;//malloc(i);
 }
@@ -147,9 +150,9 @@ if ( smc>0 ) delete[]  smC;
   if ( mx>0 ) delete[]  mxC;
   if ( mc>0 ) delete[]  mcC;
  if ( totalc>0 ) free(  mcomp);
-  for (int i=0;i<mindex;i++){
-     free(mem[i]);
- }
+  //for (int i=0;i<mindex;i++){
+  //   free(mem[i]);
+// }
  }
 //vms - set number of components
 void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i){
@@ -251,7 +254,7 @@ void setcomponent(VM* v,int c,int i, U32 f){
     }
 }
 int smn(VM* v,int state){ // get next state
-    assert(state>=0) ;
+    assert(state>=0 && state<256) ;
     return nex(state,v->x.y);
 }
 int smp(VM* v,int a,int cx,int limit){ // StateMap predict
@@ -347,7 +350,7 @@ int gcr(VM* v,int a,int b,int c){  //this,mixer,index,component type
     }
     return 0;
 }
-VM::VM(char* m,BlockData& bd):x(bd),mem(20) {
+VM::VM(char* m,BlockData& bd):x(bd)/*,mem(20) */{
     mod=m;
     smc=apm1=apm2=rcm=scm=mcm=cm=mx=mc=currentc=totalc=initdone=mindex=0;
     debug=0;
@@ -539,7 +542,7 @@ void VM::expr(int lev){
   else if (tk == Id) {
     d = id; next();
     if (tk == '(') {      
-      if (d[Val]>ABS &&  d[Val]<MALC ||  d[Val]==MALC){//for special functions in vm
+      if (d[Val]>ABS &&  d[Val]<MALC || d[Val]==MALC){//for special functions in vm
             emit(VTHIS);//*++e = VTHIS;
             next();
             t = 1; //adjust stack
@@ -550,6 +553,7 @@ void VM::expr(int lev){
       }
       fc=0;
     if (d[Val] == ABS ) {fc=1 ;} //args count
+    else if ( d[Val]==MALC) {fc=3 ;}
     else if (d[Val] == SMP  ) {fc=4 ;}
     else if (d[Val] == SMN  ) {fc=2 ;}
     else if (d[Val] == APM  ) {fc=5 ;}
@@ -574,7 +578,7 @@ void VM::expr(int lev){
       next();
       if (d[Class] == Sys) {*++e = d[Val];
       
-    if (t!=fc && fc!=0){ kprintf("%d: wrong number of arguments\n", line); exit(-1);}
+    if (t!=fc && fc!=0){ kprintf("%d: wrong number of arguments, (%d) expected %d\n", line,t,fc); exit(-1);}
       }
       else if (d[Class] == Fun) { emit(JSR,d[Val]);/**++e = JSR; *++e = d[Val];*/ }
       else { kprintf("%d: bad function call\n", line); exit(-1); }
@@ -790,20 +794,20 @@ int VM::dovm(int *ttt){
   if (!(pc = ttt)) { kprintf("main() not defined\n"); return -1; }
   pc0=pc;
  
-  // run...
   cycle = 0;
+  a=0;
   while (1) {
     i = *pc++; ++cycle;
- if (debug) {
+ /*if (debug) {
       kprintf("%d>%x  %.4s", cycle,pc-pc0,
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
          "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
-         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
+         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXC ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
     if (i < JMP) kprintf(" %d\n",*pc); //? +1
      else if (i <= ADJ) kprintf(" %x\n",(int *)*pc-pc0+1); else kprintf("\n");
-    }
-    if      (i == LEA) a = (int)(bp + *pc++);                             // load local address
-    else if (i == IMM) a = *pc++;                                         // load global address or immediate
+    }*/
+    if      (i == LEA) a = (unsigned int)(bp + *pc++);                             // load local address
+    else if (i == IMM) a = (unsigned int)*pc++;                                         // load global address or immediate
     else if (i == JMP) pc = (int *)*pc;                                   // jump
     else if (i == JSR) { *--sp = (int)(pc + 1); pc = (int *)*pc; }        // jump to subroutine
     else if (i == BZ)  pc = a ? pc + 1 : (int *)*pc;                      // branch if zero
@@ -811,36 +815,33 @@ int VM::dovm(int *ttt){
     else if (i == ENT) { *--sp = (int)bp; bp = sp; sp = sp - *pc++; }     // enter subroutine
     else if (i == ADJ) sp = sp + *pc++;                                   // stack adjust
     else if (i == LEV) { sp = bp; bp = (int *)*sp++; pc = (int *)*sp++; } // leave subroutine
-    else if (i == LI)  a = *(int *)a;                                     // load int
-    else if (i == LS)  a = *(short *)a;                                     // load short
-    else if (i == LC)  a = *(char *)a;                                    // load char
-    else if (i == SI)  *(int *)*sp++ = a;                                 // store int
-    else if (i == SC)  a = *(char *)*sp++ = a;                            // store char
-    else if (i == SS)  a = *(short *)*sp++ = a;                            // store short
+    else if (i == LI)  a = *(unsigned int *)a;                                     // load int
+    else if (i == LS)  a = *(unsigned short *)a;                                     // load short
+    else if (i == LC)  a = *(unsigned char *)a;                                    // load char
+    else if (i == SI) *(unsigned int *)*sp++ = (unsigned int)a;                                 // store int
+    else if (i == SC)   a = *(unsigned char *)*sp++ = (unsigned char)a;                            // store char
+    else if (i == SS)   a = *(unsigned short *)*sp++ =(unsigned short) a;                            // store short
     else if (i == PSH) *--sp = a;                                         // push
 
-    else if (i == OR)  a = (unsigned int)*sp++ |  a;
-    else if (i == XOR)  a = (unsigned int)*sp++ ^  a;
-    else if (i == AND)   a = (unsigned int)*sp++ & a;
-    else if (i == EQ)  a = (unsigned int)*sp++ == a;
-    else if (i == NE)   a = (unsigned int)*sp++ !=a;
-    else if (i == LT)   a = (unsigned int)*sp++ <  a;
-    else if (i == GT)   a = (unsigned int)*sp++ >  a;
-    else if (i == LE)   a = (unsigned int)*sp++ <= a;
-    else if (i == GE)   a = (unsigned int)*sp++ >= a;
-    else if (i == SHL)  a = (unsigned int)*sp++ << a;
-    else if (i == SHR) a = (unsigned int)*sp++ >> a;
-    else if (i == ADD)  a = (unsigned int)*sp++ +  a;
-    else if (i == SUB) a = (unsigned int)*sp++ -  a;
-    else if (i == MUL) a = (unsigned int)*sp++ * a;
-    else if (i == DIV) a = (unsigned int)*sp++ /  a;
-    else if (i == MOD) a = (unsigned int)*sp++ %  a;
+    else if (i == OR)  a = (unsigned int)*sp++ |  (unsigned int)a;
+    else if (i == XOR)  a = (unsigned int)*sp++ ^  (unsigned int)a;
+    else if (i == AND)   a = (unsigned int)*sp++ & (unsigned int)a;
+    else if (i == EQ)  a = *sp++ == a;
+    else if (i == NE)   a = *sp++ !=a;
+    else if (i == LT)   a = *sp++ <  a;
+    else if (i == GT)   a = *sp++ >  a;
+    else if (i == LE)   a = *sp++ <= a;
+    else if (i == GE)   a = *sp++ >= a;
+    else if (i == SHL) a = (unsigned int)*sp++ << (unsigned int)a;
+    else if (i == SHR) a = (unsigned int)*sp++ >> (unsigned int)a;
+    else if (i == ADD)  a =*sp++ +  a;
+    else if (i == SUB) a = *sp++ -  a;
+    else if (i == MUL) a = *sp++ * a;
+    else if (i == DIV) a = *sp++ /   a;
+    else if (i == MOD) a = *sp++ % a;
 
-    //else if (i == OPEN) a = fopen((char *)sp[1], *sp);
-    //else if (i == READ) a = fread( (char *)sp[1],sp[2],1, *sp);
-    //else if (i == CLOS) a = fclose(*sp);
     else if (i == PRTF) { t = sp + pc[1]; a = printf((char *)t[-1], t[-2], t[-3], t[-4], t[-5], t[-6]); }
-    else if (i == MALC) a = (int)vmmalloc(this,*sp);
+    else if (i == MALC) a = (int)vmmalloc(this,sp[1],*sp);
     else if (i == MSET) a = (int)memset((char *)sp[2], sp[1], *sp);
     else if (i == MCMP) a = memcmp((char *)sp[2], (char *)sp[1], *sp);
     else if (i == MCPY) a = (int)memcpy((char *)sp[2], (char *)sp[1], *sp);
@@ -868,7 +869,7 @@ int VM::dovm(int *ttt){
     else if (i == VTHIS)  *--sp;  //ignore
     else if (i == EXIT) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return *sp; }
     else { kprintf("unknown instruction = %d! cycle = %d\n", i, cycle); return -1; }
-     if (debug) printf("a=%d ",a);
+    // if (debug) printf("a=%d ",a);
   }
 
 }
@@ -885,13 +886,15 @@ int VM::dojit(){
   pc = text + 1; je = jitmem; line = 0;
   while (pc <= e) {
     i = *pc;
-  /*  kprintf("// %x: ",pc);
-    kprintf("   %.4s",  
+     //if (debug) {
+    //dprintf("// %x: ",pc);
+    dprintf("   %.4s",  
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
          "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
-         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
-    if (i < JMP) kprintf(" %d\n",*(pc+1)); //? +1
-     else if (i <= ADJ) kprintf(" %x\n",(int *)*pc); else kprintf("\n");*/
+         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXC ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,EXIT,"[i * 5]);
+    if (i < JMP) dprintf(" 0x%x\n",*(pc+1)); //? +1
+     else if (i <= ADJ) dprintf(" 0x%x\n",(int *)*pc); else dprintf("\n");
+    // }
     *pc++ = ((int)je << 8) | i; // for later relocation of JMP/JSR/BZ/BNZ
  
     if (i == LEA) {
@@ -906,10 +909,58 @@ int VM::dojit(){
       dprintf("\tpush ebp\n\tmov ebp, esp\n",i);
       if (i > 0) { *(int *)je = 0xec83; je = je + 2; *(int*)je++ = i; dprintf("\tsub esp,BYTE %x\n",i); *(int *)je++ = 0x56;dprintf("\tpush esi\n"); }
     }
-    else if (i == IMM) { *je++ = 0xb8; *(int *)je = i=*pc++; je = je + 4; dprintf("\tmov eax,DWORD %x\n",i);} 
+    else if (i == IMM) { 
+    if (*(pc+1)==LI){
+        dprintf("// %x:    LI\n",pc);
+        *je++ = 0xa1; *(int *)je = i=*pc++; je = je + 4; dprintf("\tmov eax,DWORD [0x%x]\n",i);
+        i = *pc;*pc++ = ((int)je << 8) | i; 
+    }
+    else {
+    *je++ = 0xb8; *(int *)je = i=*pc++; je = je + 4; dprintf("\tmov eax,DWORD 0x%x\n",i);}
+    } 
     else if (i == ADJ) { i = 4 * *pc++; *(int *)je = 0xc483; je = je + 2; *(int *)je = i; je++; } // add esp,BYTE (n * 4)
-    else if (i == PSH) {  *(int *)je++ = 0x50;dprintf("\tpush eax\n"); }                   
+	else if (i == PSH && *(pc)==IMM && *(pc+1)==4 && *(pc+2)==MUL && *(pc+3)==ADD){	//array index*int
+        *(int*)je = 0x59    ;je = je + 1; //pop ecx 
+        dprintf("   IMM 0x4\n");
+        dprintf("   MUL\n");
+        dprintf("   ADD\n");
+        dprintf("\tpop ecx\n");
+        dprintf("\tlea    eax,[ecx+eax*4]\n");
+        i = *pc;//IMM
+        *pc++ = ((int)je << 8) | i; *pc++;
+        i = *pc;//mul
+        *pc++ = ((int)je << 8) | i; 
+        i = *pc;//add
+        *pc++ = ((int)je << 8) | i; 
+        *(int *)je = 0x81048d;     je = je + 3; // lea    eax,[ecx+eax*4]
+	}
+    else if (i == PSH) {  *(int *)je++ = 0x50;dprintf("\tpush eax\n"); }
     else if (i == LEV) { *(int *)je++ = 0x5e;dprintf("\tpop esi\n");  *(int *)je = 0xc35dec89; je = je + 4; dprintf("\tmov esp, ebp\n\tpop ebp\n\tret\n"); }
+    else if ((i == LI ||i == LC ||i == LS )&& *(pc)==PSH && *(pc+1)==IMM && 
+	    (*(pc+3)==SHR || *(pc+3)==SHL || *(pc+3)==SUB|| *(pc+3)==ADD|| 
+		(*(pc+3)==MUL && *(pc+4)!=ADD) ||
+		*(pc+3)==OR || *(pc+3)==XOR || *(pc+3)==AND	)){
+        
+		if (i == LI )*(int *)je = 0x008b,     je = je + 2; //LI
+		else if (i == LC )*(int *)je = 0x00b60f,     je = je + 3; //LC
+		else if (i == LS )*(int *)je = 0x00B70F,     je = je + 3; //LS
+        i = *pc;//PSH
+        *pc++ = ((int)je << 8) | i;    
+        i = *pc;//IMM
+        *pc++ = ((int)je << 8) | i; 
+        *je++ = 0xb9; *(int *)je = i=*pc++; je = je + 4; 
+        dprintf("    PSH\n");
+        dprintf("    IMM 0x%x\n",i);
+        dprintf("    XXX\n");
+        dprintf("\tmov eax,DWORD PTR [eax]\n");
+        dprintf("\tmov ecx,DWORD 0x%x\n",i);
+        i = *pc;//XXX
+        *pc++ = ((int)je << 8) | i; 
+		
+        *(int*)je = i==SHR?0xe8d3:i==SHL?0xe0d3:i==SUB?0xc829:i==ADD?0xc801:i==MUL?0xc1af0f:i==OR?0xc809:i==XOR?0xc831:0xc821; 
+		je = je + 2;dprintf("\tXXX  ;optimized\n");  
+		if (i==MUL) je=je+1;
+    }
     else if (i == LI)  { *(int *)je = 0x008b;     je = je + 2; dprintf("\tmov eax,DWORD PTR [eax]\n");} 
     else if (i == LC)  { *(int *)je = 0x00b60f;   je = je + 3; dprintf("\tmovzx eax,BYTE PTR [eax]\n"); } 
     else if (i == LS)  { *(int *)je = 0x00B70F;   je = je + 3; dprintf("\tmovzx eax,WORD PTR [eax]\n"); } 
@@ -920,24 +971,23 @@ int VM::dojit(){
     else if (i == XOR) { *(int *)je = 0xc83159;   je = je + 3; dprintf("\tpop ecx\n\txor eax, ecx\n"); }
     else if (i == AND) { *(int *)je = 0xc82159;   je = je + 3; dprintf("\tpop ecx\n\tand eax, ecx\n"); }
     else if (EQ <= i && i <= GE) {
-        *(int*)je=0x0fc13959; je+=4; *(int*)je=0xB60Fc094;
-        dprintf("\tpop ecx\n\tcmp ecx, eax");
+        *(int*)je=0x0fc13959; je+=4; *(int*)je=0x9866c094;        dprintf("\tpop ecx\n\tcmp ecx, eax");
         if      (i == NE)  { *je = 0x95; dprintf("\n\tsetne al");} // setne al
-        else if (i == LT)  { *je = 0x92; dprintf("\n\tsetb al");} // setb al
-        else if (i == GT)  { *je = 0x97; dprintf("\n\tseta al");} // seta al
-        else if (i == LE)  { *je = 0x96; dprintf("\n\tsetbe al");} // setbe al
-        else if (i == GE)  { *je = 0x93; dprintf("\n\tsetae al");} // setae al
+        else if (i == LT)  { *je = 0x9c; dprintf("\n\tsetb al");} // setb al
+        else if (i == GT)  { *je = 0x9f; dprintf("\n\tseta al");} // seta al
+        else if (i == LE)  { *je = 0x9e; dprintf("\n\tsetbe al");} // setbe al
+        else if (i == GE)  { *je = 0x9d; dprintf("\n\tsetae al");} // setae al
         else dprintf("\n\tsete al");
-        dprintf("\n\tmovzx  eax,al\n");
-        je+=4; *je++=0xC0; 
+        dprintf("\n\tcwde\n");
+        je+=4; *je++=0x98;
     }
     else if (i == SHL) { *(int*)je = 0xe0d39159; je = je + 4;dprintf("\tpop ecx\n\txchg ecx, eax\n\tshl eax, cl\n"); } // pop ecx; xchg ecx, eax; shl eax, cl
     else if (i == SHR) { *(int*)je = 0xe8d39159; je = je + 4;dprintf("\tpop ecx\n\txchg ecx, eax\n\tshr eax, cl\n");  } // pop ecx; xchg ecx, eax; shr eax, cl
     else if (i == ADD) { *(int*)je = 0xc80159;   je = je + 3;dprintf("\tpop ecx\n\tadd eax, ecx\n"); } // pop ecx; add eax, ecx
     else if (i == SUB) { *(int*)je = 0xc8299159; je = je + 4;dprintf("\tpop ecx\n\txchg ecx, eax\n\tsub eax, ecx\n");  } // pop ecx; xchg ecx,eax; sub eax,ecx
     else if (i == MUL) { *(int*)je = 0xc1af0f59; je = je + 4;dprintf("\tpop ecx\n\txchg ecx, eax\n\t imul eax, ecx\n");  } // pop ecx; imul eax,ecx
-    else if (i == DIV) {*je = 0x31;  je = je + 1;*je = 0xd2;  je = je + 1; *(int*)je = 0xf1f79159; je = je + 4;dprintf("\tpop ecx\n\txchg ecx, eax\n\tdiv eax, ecx\n"); } // pop ecx; xchg ecx,eax; idiv eax,ecx
-    else if (i == MOD) { *(int*)je = 0xd2319159; je += 4; *(int *)je = 0x92f1f7; je += 3; dprintf("\txor edx,edx\n\tpop ecx\n\txchg ecx,eax\n\tdiv ecx\n\txchg   edx,eax" ); }
+    else if (i == DIV) { *je++=0x59; *(int*)je = 0xF9F79991; je = je + 4;dprintf("\txor edx,edx\tpop ecx\n\txchg ecx, eax\n\tdiv eax, ecx\n"); } // pop ecx; xchg ecx,eax; idiv eax,ecx
+    else if (i == MOD) { *(int*)je = 0x999159; je += 3; *(int *)je = 0x92f9f7; je += 3; dprintf("\txor edx,edx\n\tpop ecx\n\txchg ecx,eax\n\tdiv ecx\n\txchg   edx,eax" ); }
     else if (i == JMP) { ++pc; *je       = 0xe9;     je = je + 5; dprintf("\tjmp  %x\n", *(pc-1) ); } // jmp <off32>
     else if (i == JSR) { ++pc; *je       = 0xe8;     je = je + 5; dprintf("\tcall  %x\n", *(pc-1) ); } // call <off32>
     else if (i == BZ)  { ++pc; *(int*)je = 0x840fc085; je = je + 8;dprintf("\ttest eax, eax\n\tjz  %x\n", *(pc-1) ); } // test %eax, %eax; jz <off32>
@@ -946,56 +996,61 @@ int VM::dojit(){
     *je++ = 0xb8; 
     *(int*)je =i=(unsigned int)(size_t(this));je += 4; *(int *)je++ = 0x50;dprintf("\tmov eax,DWORD %x\n\tpush eax    ;this\n",i); } //mov ecx,this b9
     else if (i >= PRTF) {
-    /*  if      (i == OPEN) { tmp = (int)open; dprintf("\topen\n"); }  else if (i == READ) { tmp = (int)read;dprintf("\tread\n"); }
-      else if (i == CLOS) { tmp = (int)close;dprintf("\tclose\n"); }  else 
+        /*  if      (i == OPEN) { tmp = (int)open; dprintf("\topen\n"); }  else if (i == READ) { tmp = (int)read;dprintf("\tread\n"); }
+          else if (i == CLOS) { tmp = (int)close;dprintf("\tclose\n"); }  else 
 */ 
-    if (i == PRTF) { tmp = (int)printf;  }
-    else if (i == MALC) { tmp = (int)vmmalloc;  } //else if (i == MSET) { tmp = (int)memset;  }
-    else if (i == SMP) { tmp = (int)smp;  } else if (i == SMN) { tmp = (int)smn;  }
-    else if (i == MCMP) { tmp = (int)memcmp;  } else if (i == MCPY) { tmp = (int)memcpy;  }
-    else if (i == EXIT) { tmp = (int)exit;  }else if (i == APM) { tmp = (int)ap;  }
-    else if (i == VMS) { tmp = (int)components;  }else if (i == VMI) { tmp = (int)initcomponent;  }
-    else if (i == VMX) { tmp = (int)setcomponent;  }else if (i == MXP) { tmp = (int)mxp;  }
-    else if (i == STRE) { tmp = (int)stre;  }else if (i == SQUA) { tmp = (int)squa;  }
-    else if (i == BUF) { tmp = (int)bf;  }else if (i == BUFR) { tmp = (int)bfr;  }
-    else if (i == ILOG) { tmp = (int)il;  }else if (i == MXC) { tmp = (int)mxc;  }
-    else if (i == MXA) { tmp = (int)mxa;  }else if (i == MXS) { tmp = (int)mxs;  }
-    else if (i == GCR) { tmp = (int)gcr;  }else if (i == ABS) { tmp = (int)absolute;  }
-    else if (i == H2) { tmp = (int)h2;  }else if (i == H3) { tmp = (int)h3;  }else if (i == H4) { tmp = (int)h4;  }
-    else if (i == H5) { tmp = (int)h5;  }
-    u=i;
-      if (*pc++ == ADJ) { i = *pc++; } else { kprintf("no ADJ after native proc!\n"); exit(2); }
-      *je++ = 0xb9; *(int*)je = i << 2; je += 4; dprintf("\tmov ecx, %x\n", i << 2 );  // movl $(4 * n), %ecx;
-      *(int*)je = 0xce29e689; je += 4; dprintf("\tmov esi,esp\n\tsub esi,ecx\n"); // mov %esp, %esi; sub %ecx, %esi;  -- %esi will adjust the stack
-      *(int*)je = 0x8302e9c1; je += 4; dprintf("\tshr ecx,2\n");// shr $2, %ecx; and                -- alignment of %esp for OS X
-      *(int*)je = 0x895af0e6; je += 4; // $0xfffffff0, %esi; pop %edx; mov..
-      *(int*)je = 0xe2fc8e54; je += 4; // ..%edx, -4(%esi,%ecx,4); loop..  -- reversing args order
-     
-      *(int*)je = 0xe8f487f9; je += 4; // ..<'pop' offset>; xchg %esi, %esp; call    -- saving old stack in %esi
-      dprintf("\tand esi,0xfffffff0\n"); 
-      dprintf("\tpop edx\n\tmov DWORD PTR [esi+ecx*4-0x4],edx\n"); 
-      dprintf("\tloop 0x00000006\n\tcall "); 
-      if (u == PRTF) {  dprintf("printf\n"); }
-      else if (u == MALC) {  dprintf("malloc\n"); }// else if (u == MSET) { dprintf("memset\n"); }
-      else if (u == MCMP) {  dprintf("memcmp\n"); } else if (u == MCPY) {  dprintf("memcpy\n"); }
-     else if (u == EXIT) {  dprintf("exit\n"); }else if (u == SMP) {  dprintf("smp\n"); }
-     else if (u == SMN) {  dprintf("smn\n"); }else if (u == APM) {  dprintf("apm\n"); }
-     else if (u == VMS) {  dprintf("vms\n"); }else if (u == VMI) {  dprintf("vmi\n"); }
-     else if (u == VMX) {  dprintf("vmx\n"); }else if (u == MXP) {  dprintf("mxp\n"); }
-     else if (u == STRE) { dprintf("stretch\n");   }else if (u == SQUA) {  dprintf("squash\n");  }
-     else if (u == BUF) {  dprintf("buf\n");  } else if (u == BUFR) {  dprintf("bufr\n");  }
-     else if (u == ILOG) {  dprintf("ilog\n");  }
-     else if (u == MXA) {  dprintf("mxa\n");  } else if (u == MXS) {  dprintf("mxs\n");  }
-     else if (u == MXC) {  dprintf("mxc\n");  } else if (u == GCR) {  dprintf("gcr\n");  }
-      else if (u == H2) {  dprintf("h1\n");  } else if (u == H3) {  dprintf("h2\n");  }
-       else if (u == H4) {  dprintf("h3\n");  }  else if (u == ABS) {  dprintf("abs\n");  }  
-       else if (u == H5) {  dprintf("h3\n");  }
-       *(int*)je = tmp - (int)(je + 4); je = je + 4; // <*tmp offset>;
-      *(int*)je = 0xf487; je += 2;     // xchg %esi, %esp  -- ADJ, back to old stack without arguments
-      dprintf("\txchg esp,esi\n");
+        if (i == PRTF) { tmp = (int)printf;  }
+        else if (i == MALC) { tmp = (int)vmmalloc;  } //else if (i == MSET) { tmp = (int)memset;  }
+        else if (i == SMP) { tmp = (int)smp;  } else if (i == SMN) { tmp = (int)smn;  }
+        else if (i == MCMP) { tmp = (int)memcmp;  } else if (i == MCPY) { tmp = (int)memcpy;  }
+        else if (i == EXIT) { tmp = (int)exit;  }else if (i == APM) { tmp = (int)ap;  }
+        else if (i == VMS) { tmp = (int)components;  }else if (i == VMI) { tmp = (int)initcomponent;  }
+        else if (i == VMX) { tmp = (int)setcomponent;  }else if (i == MXP) { tmp = (int)mxp;  }
+        else if (i == STRE) { tmp = (int)stre;  }else if (i == SQUA) { tmp = (int)squa;  }
+        else if (i == BUF) { tmp = (int)bf;  }else if (i == BUFR) { tmp = (int)bfr;  }
+        else if (i == ILOG) { tmp = (int)il;  }else if (i == MXC) { tmp = (int)mxc;  }
+        else if (i == MXA) { tmp = (int)mxa;  }else if (i == MXS) { tmp = (int)mxs;  }
+        else if (i == GCR) { tmp = (int)gcr;  }else if (i == ABS) { tmp = (int)absolute;  }
+        else if (i == H2) { tmp = (int)h2;  }else if (i == H3) { tmp = (int)h3;  }else if (i == H4) { tmp = (int)h4;  }
+        else if (i == H5) { tmp = (int)h5;  }
+        u=i;
+        if (*pc++ == ADJ) { i = *pc++; } else { kprintf("no ADJ after native proc!\n"); exit(2); }
+        *je++ = 0xb9; *(int*)je = i << 2; je += 4; dprintf("\tmov ecx, 0x%x\n", i << 2 );  // movl $(4 * n), %ecx;
+        *(int*)je = 0xce29e689; je += 4; dprintf("\tmov esi,esp\n\tsub esi,ecx\n"); // mov %esp, %esi; sub %ecx, %esi;  -- %esi will adjust the stack
+        *(int*)je = 0x8302e9c1; je += 4; dprintf("\tshr ecx,2\n");// shr $2, %ecx; and                -- alignment of %esp for OS X
+        *(int*)je = 0x895af0e6; je += 4; // $0xfffffff0, %esi; pop %edx; mov..
+        *(int*)je = 0xe2fc8e54; je += 4; // ..%edx, -4(%esi,%ecx,4); loop..  -- reversing args order
+
+        *(int*)je = 0xe8f487f9; je += 4; // ..<'pop' offset>; xchg %esi, %esp; call    -- saving old stack in %esi
+        dprintf("\tand esi,0xfffffff0\n"); 
+        dprintf("\tpop edx\n\tmov DWORD PTR [esi+ecx*4-0x4],edx\n"); 
+        dprintf("\tloop 0x00000006\n\tcall "); 
+        if (u == PRTF) {  dprintf("printf"); }
+        else if (u == MALC) {  dprintf("malloc"); }// else if (u == MSET) { dprintf("memset\n"); }
+        else if (u == MCMP) {  dprintf("memcmp"); } else if (u == MCPY) {  dprintf("memcpy"); }
+        else if (u == EXIT) {  dprintf("exit"); }else if (u == SMP) {  dprintf("smp"); }
+        else if (u == SMN) {  dprintf("smn"); }else if (u == APM) {  dprintf("apm"); }
+        else if (u == VMS) {  dprintf("vms"); }else if (u == VMI) {  dprintf("vmi"); }
+        else if (u == VMX) {  dprintf("vmx"); }else if (u == MXP) {  dprintf("mxp"); }
+        else if (u == STRE) { dprintf("stretch");   }else if (u == SQUA) {  dprintf("squash");  }
+        else if (u == BUF) {  dprintf("buf");  } else if (u == BUFR) {  dprintf("bufr");  }
+        else if (u == ILOG) {  dprintf("ilog");  }
+        else if (u == MXA) {  dprintf("mxa");  } else if (u == MXS) {  dprintf("mxs");  }
+        else if (u == MXC) {  dprintf("mxc");  } else if (u == GCR) {  dprintf("gcr");  }
+        else if (u == H2) {  dprintf("h2");  } else if (u == H3) {  dprintf("h3");  }
+        else if (u == H4) {  dprintf("h4");  }  else if (u == ABS) {  dprintf("abs");  }  
+        else if (u == H5) {  dprintf("h5");  }
+
+        *(int*)je = tmp - (int)(je + 4); je = je + 4; // <*tmp offset>;
+        dprintf(" //  %x\n", *(int*)(je-4) );  //print running memory address
+        dprintf("// %x: ",pc-2); dprintf("ADJ 0x%x\n",i<<2);
+        *(int*)je = 0xf487; je += 2;         // xchg %esi, %esp  -- ADJ, back to old stack without arguments
+        dprintf("\txchg esp,esi\n");
     }
     else { kprintf("code generation failed for %d!\n", i); return -1; }
   }
+  dprintf(" Code size %d \n",je -jitmem);
+
   // second pass, relocation
   pc = text + 1;
   while (pc <= e) {
@@ -1007,11 +1062,29 @@ int VM::dojit(){
         else if (i == BZ  || i == BNZ) { je += 4; *(int*)je = tmp - (int)(je + 4); }
     }
     else if (i < LEV) { ++pc; }
+    else if (i>EXIT) {kprintf("code generation failed. relocation error\n", i); return -1; }
   }
  return 0;
 }
 #endif
 
+int  VM::detect(int c4,int pos){
+#ifdef VMJIT
+  int (*jitmain)(int,int); // c4 vm pushes first argument first, unlike cdecl
+  jitmain = reinterpret_cast< int(*)( int,int) >(*(unsigned*)( iddetect[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
+  return  jitmain(pos,c4);
+#else
+  // setup stack
+  data =data0;
+  bp=sp = (int *)((int)sp0 + poolsz);
+  *--sp = EXIT; // call exit if main returns
+  *--sp = PSH; t = sp;
+  *--sp = c4;
+  *--sp = pos; 
+  *--sp = (int)t;
+  return   dovm((int *)iddetect[Val]);
+#endif
+}
 int  VM::block(int info1,int info2){
 #ifdef VMJIT
   int (*jitmain)(int,int); // c4 vm pushes first argument first, unlike cdecl
@@ -1065,13 +1138,16 @@ int VM::initvm() {
   memset(e,    0, poolsz);
   memset(data, 0, poolsz);
 
-   p = "char else enum if int short return for sizeof while printf abs smp smn apm vms vmi vmx mxp mxc mxa mxs gcr buf bufr malloc memset memcmp memcpy stretch squash ilog h2 h3 h4 h5 exit void block update main";
+   p = "char else enum if int short return for sizeof while printf abs smp smn apm vms vmi vmx mxp mxc mxa mxs gcr buf bufr malloc memset memcmp memcpy stretch squash ilog h2 h3 h4 h5 exit void block update main detect decode encode";
   i = Char; while (i <= While) { next(); id[Tk] = i++; } // add keywords to symbol table
   i = PRTF; while (i <= EXIT) { next(); id[Class] = Sys; id[Type] = iINT; id[Val] = i++; } // add library to symbol table
   next(); id[Tk] = Char; // handle void type  
   next(); idp = id;      // keep track of block
   next(); idupdate = id; // keep track of updater
   next(); idmain = id;   // keep track of main
+  next(); iddetect = id;
+  next(); iddecode = id;
+  next(); idencode = id;
   p=mod; //contains model
   // parse declarations
   line = 1;

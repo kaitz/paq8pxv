@@ -546,12 +546,18 @@ and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
 which computes 8 elements at a time, is not any faster).
 
 
-DIFFERENCES FROM PAQ8PXV_V2
--jpeg model cfg
+DIFFERENCES FROM PAQ8PXV_V3
+-jpeg cfg updated from paq8fthis4
+-vm jit optimize array access and other code
+-fix vm and jit compression differences
+-vm is now signed (int,short, char), only << and >> are unsigned
+-add jpeg detection as external code for vm, for testing
+-change all config files
+
 */
 
-#define VERSION "v3"
-#define PROGNAME "paq8pxd" VERSION  // Please change this if you change the program.
+#define VERSION "4"
+#define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 //#define MT            //uncomment for multithreading, compression only
 #define VMJIT  // uncomment to compile with x86 JIT
@@ -3527,180 +3533,13 @@ op_1c:   // FPTI
 
 // All of the models below take a Mixer as a parameter and write
 // predictions to it.
-/*
-  
-const U8 AsciiGroupC0[254] ={
-  0, 10,
-  0, 1, 10, 10,
-  0, 4, 2, 3, 10, 10, 10, 10,
-  0, 0, 5, 4, 2, 2, 3, 3, 10, 10, 10, 10, 10, 10, 10, 10,
-  0, 0, 0, 0, 5, 5, 9, 4, 2, 2, 2, 2, 3, 3, 3, 3, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
-  0, 0, 0, 0, 0, 0, 0, 0, 5, 8, 8, 5, 9, 9, 6, 5, 2, 2, 2, 2, 2, 2, 2, 8, 3, 3, 3, 3, 3, 3, 3, 8, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 8, 8, 8, 8, 8, 5, 5, 9, 9, 9, 9, 9, 7, 8, 5, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8, 8, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 8, 8, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10
-};
-const U8 AsciiGroup[128] = {
-  0,  5,  5,  5,  5,  5,  5,  5,
-  5,  5,  4,  5,  5,  4,  5,  5,
-  5,  5,  5,  5,  5,  5,  5,  5,
-  5,  5,  5,  5,  5,  5,  5,  5,
-  6,  7,  8, 17, 17,  9, 17, 10,
-  11, 12, 17, 17, 13, 14, 15, 16,
-  1,  1,  1,  1,  1,  1,  1,  1,
-  1,  1, 18, 19, 20, 23, 21, 22,
-  23,  2,  2,  2,  2,  2,  2,  2,
-  2,  2,  2,  2,  2,  2,  2,  2,
-  2,  2,  2,  2,  2,  2,  2,  2,
-  2,  2,  2, 24, 27, 25, 27, 26,
-  27,  3,  3,  3,  3,  3,  3,  3,
-  3,  3,  3,  3,  3,  3,  3,  3,
-  3,  3,  3,  3,  3,  3,  3,  3,
-  3,  3,  3, 28, 30, 29, 30, 30
-};*/
+
 class Model {
 public:
   virtual  int p(Mixer& m,int val1,int val2)=0;
   virtual  int inputs()=0;
 };
-/*
-class SparseMatchModel {
-private:
-    BlockData& x;
-    Buf& buffer;
-  enum Parameters : U32 {
-    MaxLen    = 0xFFFF, // longest allowed match
-    MinLen    = 3,      // default minimum required match length
-    NumHashes = 4,      // number of hashes used
-  };
-  struct sparseConfig {
-    U32 offset;//    = 0;      // number of last input bytes to ignore when searching for a match
-    U32 stride ;//    = 1;      // look for a match only every stride bytes after the offset
-    U32 deletions;//  = 0;      // when a match is found, ignore these many initial post-match bytes, to model deletions
-    U32 minLen ;//    = MinLen;
-    U32 bitMask ;//   = 0xFF;   // match every byte according to this bit mask
-  };
-  const sparseConfig sparse[NumHashes] = { {0,1,0,5,0xDF},{1,1,0,4,0xFF}, {0,2,0,4,0xDF}, {0,1,0,5,0x0F}};
-  Array<U32> Table;
-  StationaryMap Maps[4];
-  IndirectContext<U8> iCtx8;
-  IndirectContext<U16> iCtx16;
-  MTFList list;
-  U32 hashes[NumHashes];
-  U32 hashIndex;   // index of hash used to find current match
-  U32 length;      // rebased length of match (length=1 represents the smallest accepted match length), or 0 if no match
-  U32 index;       // points to next byte of match in buffer, 0 when there is no match
-  U32 mask;
-  U8 expectedByte; // prediction is based on this byte (buffer[index]), valid only when length>0
-  bool valid;
-  void Update() {
-    // update sparse hashes
-    for (U32 i=0; i<NumHashes; i++) {
-      hashes[i] = (i+1)*PHI;
-      for (U32 j=0, k=sparse[i].offset+1; j<sparse[i].minLen; j++, k+=sparse[i].stride)
-        hashes[i] = combine(hashes[i], (buffer(k)&sparse[i].bitMask)<<i);
-      hashes[i]&=mask;
-    }
-    // extend current match, if available
-    if (length) {
-      index++;
-      if (length<MaxLen)
-        length++;
-    }
-    // or find a new match
-    else {     
-      for (int i=list.GetFirst(); i>=0; i=list.GetNext()) {
-        index = Table[hashes[i]];
-        if (index>0) {
-          U32 offset = sparse[i].offset+1;
-          while (length<sparse[i].minLen && ((buffer(offset)^buffer[index-offset])&sparse[i].bitMask)==0) {
-            length++;
-            offset+=sparse[i].stride;
-          }
-          if (length>=sparse[i].minLen) {
-            length-=(sparse[i].minLen-1);
-            index+=sparse[i].deletions;
-            hashIndex = i;
-            list.MoveToFront(i);
-            break;
-          }
-        }
-        length = index = 0;
-      }
-    }
-    // update position information in hashtable
-    for (U32 i=0; i<NumHashes; i++)
-      Table[hashes[i]] = buffer.pos;
-    
-    expectedByte = buffer[index];
-    if (valid)
-      iCtx8+=x.y, iCtx16+=buffer(1);
-    valid = length>1; // only predict after at least one byte following the match
-    if (valid) {
-      Maps[0].set(hash(expectedByte, x.c0, buffer(1), buffer(2), ilog2(length+1)*NumHashes+hashIndex));
-      Maps[1].set((expectedByte<<8)|buffer(1));
-      iCtx8=(buffer(1)<<8)|expectedByte, iCtx16=(buffer(1)<<8)|expectedByte;
-      Maps[2].set(iCtx8());
-      Maps[3].set(iCtx16());
-    }
-  }
-public:
-    SparseMatchModel(BlockData& bd, U32 val1=0) :
-    x(bd),buffer(bd.buf),
-    Table(CMlimit(MEM()/2)),//?
-    Maps{ {22, 1}, {17, 4}, {8, 1}, {19,1} },
-    iCtx8{19,1},
-    iCtx16{16},
-    list(NumHashes),
-    hashes{ 0 },
-    hashIndex(0),
-    length(0),
-    mask(CMlimit(MEM()/2)-1),
-    expectedByte(0),
-    valid(false)
-  {
-    //assert(ispowerof2(Size));
-  }
-  int inputs() {return  4*2+3;}
-  int p(Mixer& m,int val1=0,int val2=0) {
-    const U8 B = x.c0<<(8-x.bpos);
-    if (x.bpos==0)
-      Update();
-    else if (valid) {
-      U8 B = x.c0<<(8-x.bpos);
-      Maps[0].set(hash(expectedByte, x.c0, buffer(1), buffer(2), ilog2(length+1)*NumHashes+hashIndex));
-      if (x.bpos==4)
-        Maps[1].set(0x10000|((expectedByte^U8(x.c0<<4))<<8)|buffer(1));
-      iCtx8+=x.y, iCtx8=(x.bpos<<16)|(buffer(1)<<8)|(expectedByte^B);
-      Maps[2].set(iCtx8());
-      Maps[3].set((x.bpos<<16)|(iCtx16()^U32(B|(B<<8))));
-    }
 
-    // check if next bit matches the prediction, accounting for the required bitmask
-    if (length>0 && (((expectedByte^B)&sparse[hashIndex].bitMask)>>(8-x.bpos))!=0)
-      length = 0;
-
-    if (valid) {
-      if (length>1 && ((sparse[hashIndex].bitMask>>(7-x.bpos))&1)>0) {
-        const int expectedBit = (expectedByte>>(7-x.bpos))&1;
-        const int sign = 2*expectedBit-1;
-        m.add(sign*(min(length-1, 64)<<4)); // +/- 16..1024
-        m.add(sign*(1<<min(length-2, 3))*min(length-1, 8)<<4); // +/- 16..1024
-        m.add(sign*512);
-      }
-      else {
-        m.add(0); m.add(0); m.add(0);
-      }
-
-      for (int i=0;i<4;i++)
-        Maps[i].mix(m, 1, 2);
-
-    }
-    else
-      for (int i=0; i<11; i++, m.add(0));
-    m.set((hashIndex<<6)|(x.bpos<<3)|min(7, length), NumHashes*64); //256
-    //m.set((hashIndex<<11)|(min(7, ilog2(length+1))<<8)|(x.c0^(expectedByte>>(8-x.bpos))), NumHashes*2048); //8192
-    return length;
-  }
-};*/
 //////////////////////////// matchModel ///////////////////////////
 class MatchContext   {
 private:
@@ -4521,22 +4360,6 @@ U8 GetCWord(File*f){
     if(b&1) return ((f->getc()<<8)|b)>>1;
     return b>>1;
 }
-/*
-int parse_zlib_header(int header) {
-    switch (header) {
-        case 0x2815 : return 0;  case 0x2853 : return 1;  case 0x2891 : return 2;  case 0x28cf : return 3;
-        case 0x3811 : return 4;  case 0x384f : return 5;  case 0x388d : return 6;  case 0x38cb : return 7;
-        case 0x480d : return 8;  case 0x484b : return 9;  case 0x4889 : return 10; case 0x48c7 : return 11;
-        case 0x5809 : return 12; case 0x5847 : return 13; case 0x5885 : return 14; case 0x58c3 : return 15;
-        case 0x6805 : return 16; case 0x6843 : return 17; case 0x6881 : return 18; case 0x68de : return 19;
-        case 0x7801 : return 20; case 0x785e : return 21; case 0x789c : return 22; case 0x78da : return 23;
-    }
-    return -1;
-}
-int zlib_inflateInit(z_streamp strm, int zh) {
-    if (zh==-1) return inflateInit2(strm, -MAX_WBITS); else return inflateInit(strm);
-}*/
-
 
 bool IsGrayscalePalette(File* in, int n = 256, int isRGBA = 0){
   U64 offset = in->curpos();
@@ -4667,7 +4490,7 @@ U64 gif,
   plt,
   gray  ; 
 };  
-
+char *jpegdet;
 Filetype detect(File* in, U64 n, Filetype type, int &info, int &info2, int it=0,int s1=0) {
   U32 buf4=0,buf3=0, buf2=0, buf1=0, buf0=0;  // last 8 bytes
   U64 start= in->curpos();
@@ -4759,13 +4582,14 @@ Filetype detect(File* in, U64 n, Filetype type, int &info, int &info2, int it=0,
   static U64 tiffImageStart=0;
   static U64 tiffImageEnd=0;
   bool tiffMM=false;
-
+  static BlockData z;
+  static VM vm(jpegdet,z);
   static int deth=0,detd=0;  // detected header/data size in bytes
   static Filetype dett;      // detected block type
   if (deth >1) return  in->setpos(start+deth),deth=0,dett;
   else if (deth ==-1) return  in->setpos(start),deth=0,dett;
   else if (detd) return  in->setpos( start+detd),detd=0,DEFAULT;
- 
+ int dstate=0;
 
   for (U64 i=0; i<n; ++i) {
     int c=in->getc();
@@ -4776,6 +4600,24 @@ Filetype detect(File* in, U64 n, Filetype type, int &info, int &info2, int it=0,
     buf1=buf1<<8|buf0>>24;
     buf0=buf0<<8|c;
 
+    // detect jpeg data with jpeg.det
+    // get state
+    dstate=vm.detect(buf0,i);
+    if (dstate==1 && type!=JPEG){ //start
+       //request current state data
+       int jst=vm.detect(buf0,-1);
+       //printf("start %d\n",jst);
+       return  in->setpos(start+jst), JPEG;
+    }
+    if (dstate==2){ //info
+    }
+    if (dstate==3){ //end
+       //request current state data
+       int jst=vm.detect(buf0,-1);
+       // printf("end %d\n",jst);
+       return in->setpos( start+jst),DEFAULT;
+    }
+    
     if  ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9 || c==4 ) textbin++,info=textbin;
 
     if(tiffImages>=0){
@@ -5173,7 +5015,7 @@ Filetype detect(File* in, U64 n, Filetype type, int &info, int &info2, int it=0,
     // SOF0 (FF C0 xx xx 08) and SOS (FF DA) within a reasonable distance.
     // Detect end by any code other than RST0-RST7 (FF D9-D7) or
     // a byte stuff (FF 00).
-
+/*
     if (!soi && i>=3 && ((
     ((buf0&0xffffff00)==0xffd8ff00 && ((U8)buf0==0xC0 || (U8)buf0==0xC4 || ((U8)buf0>=0xDB && (U8)buf0<=0xFE)))
     ||(buf0&0xfffffff0)==0xffd8ffe0  ) )    
@@ -5197,7 +5039,7 @@ Filetype detect(File* in, U64 n, Filetype type, int &info, int &info2, int it=0,
         && (buf0&0xff)!=0 && ((buf0&0xf8)!=0xd0 )) {
         return DEFAULT;
     }
-    if (type==JPEG) continue;
+    if (type==JPEG) continue;*/
 
     // Detect .wav file header
     if (buf0==0x52494646) wavi=i,wavm=0;
@@ -8595,14 +8437,16 @@ int expand(String& archive, String& s, const char* fname, int base) {
 
 
 U64 filestreamsize[streamc];
-char *pp ="int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
+char *pp =
+"int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
 "int cc1; \n cc1=c+c1; \n if (y) t[cc1]=t[cc1]+((65536-t[cc1])>>5); \n"
 "else t[cc1]=t[cc1]-(t[cc1]>>5); \n"
 "if ((c=c*2+y)>=512) c1=(c1+(c&255)<<9)&0x1ffffff,c=1; \n"
 "return apm(0,(t[c+c1]>>4),c,7);} \n void block(int a,int b){} \n"
-"int main() { \n int i; \n if (!(t=malloc(0x2000000*sizeof(int)))) exit(-1); \n"
+"int main() { \n int i; \n if (!(t=malloc(0x2000000,sizeof(int)))) exit(-1); \n"
 "vms(0,1,0,0,0,0,0,0,0); \n vmi(2,0,256,0,-1);\nc1=0,c=1; \n"
 "for (i=0; i<0x2000000; i++) t[i]=32768;}";
+
 
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
@@ -8615,6 +8459,8 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
     int datasegmentinfo;
     Filetype datasegmenttype;
     U64 scompsize=0;
+    int modelSize=0;
+    int modelSizeCompressed=0;
     U8 *p;
                 datasegmentsize=size;
                     U64 total=size;
@@ -8667,6 +8513,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
         
                            fseek ( moin , 0 , SEEK_END );
                            int fsz=ftello(moin); 
+                           modelSize=fsz;
                            assert(fsz>0);
                            fseek ( moin , 0 , SEEK_SET );
                            //compress model file
@@ -8675,15 +8522,13 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
                            enm->flush();
                         delete enm;
                         delete prm;
-           printf("Compressed model from %d",fsz);
+
                           fsz=modelo->curpos(); //ftello(modelo); 
+                          modelSizeCompressed=fsz;
                           modelo->setpos(0);// fseek ( modelo , 0 , SEEK_SET );
                           p = (U8 *)calloc(fsz+1,1); 
                          modelo->blockread(p,fsz) ;//fread( p, 1,fsz,modelo); 
                           p[fsz] = 0;
-                          printf(" to %d bytes\n",fsz);
-                           // write compressed model to archive
-                        //fwrite(&p[0], 1, fsz, out);
                         out->blockwrite(&p[0],fsz);
                         //read again model file
                         fseek ( moin , 0 , SEEK_END );
@@ -8804,7 +8649,8 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
                     
             if (level>0) delete threadpredict;
             delete threadencode;
-           printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, (U32)out->curpos());
+           printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, (U32)out->curpos()-modelSizeCompressed);
+           printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
 }
 
 #ifdef MT
@@ -9033,13 +8879,18 @@ printf("\n");
             DEFAULT_OPTION);
             quit();
         }
-   /* char *pp = "int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
-                                    "if (y) t[c+c1]=t[c+c1]+((65536-t[c+c1])>>5); \n"
-                                    "else t[c+c1]=t[c+c1]-(t[c+c1]>>5); \n"
-                                    "if ((c=c*2+y)>=512) c1=(c1+(c&255)<<9)&0x1ffffff,c=1; \n"
-                                    "return (t[c+c1]>>4);} \n void block(int a,int b){} \n"
-                                    "int main() { \n int i; \n if (!(t=malloc(0x2000000*sizeof(int)))) exit(-1); \n"
-                                    "c1=0,c=1; \n for (i=0; i<0x2000000; i++) t[i]=32768;}";*/
+        
+        // jpeg detection code for vm
+        // hardcoded for testing
+        FILE *det=fopen("jpeg.det","rb");
+        fseeko(det, 0, SEEK_END);
+        U32 szi=(U32)ftello(det);
+        fseeko(det, 0, SEEK_SET);
+        jpegdet = (char *)calloc(szi+1,1);
+        fread( jpegdet, 1,szi,det);  
+        jpegdet[szi+1]=0;
+        fclose(det);
+        
         File* archive=0;               // compressed file
         int files=0;                   // number of files to compress/decompress
         Array<const char*> fname(1);   // file names (resized to files)
@@ -9164,7 +9015,7 @@ printf("\n");
         Predictors* predictord;
         predictord=new Predictor(pp);
         en=new Encoder(mode, archive,*predictord);
-        
+        en->predictor.setdebug(1);
         // Compress header
         if (mode==COMPRESS) {
             int len=header_string.size();
@@ -9497,15 +9348,8 @@ printf("\n");
                     //load config file from archive stream
                     //read compressed file header and data
                     int fsz=0;  
-                        Encoder* enm;
+                    Encoder* enm;
                     Predictors* prm;
-                   /* char *ppp = "int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
-                                "if (y) t[c+c1]=t[c+c1]+((65536-t[c+c1])>>5); \n"
-                                "else t[c+c1]=t[c+c1]-(t[c+c1]>>5); \n"
-                                "if ((c=c*2+y)>=512) c1=(c1+(c&255)<<9)&0x1ffffff,c=1; \n"
-                                "return (t[c+c1]>>4);} \n void block(int a,int b){} \n"
-                                "int main() { \n int i; \n if (!(t=malloc(0x2000000*sizeof(int)))) exit(-1); \n"
-                                "c1=0,c=1; \n for (i=0; i<0x2000000; i++) t[i]=32768;}";*/
                     prm=new Predictor(pp);
                     enm=new Encoder(DECOMPRESS, archive,*prm);
                     prm->set();
@@ -9537,34 +9381,7 @@ printf("\n");
                         case 10: { printf("%stext wrt stream(%d).\n",i==10?"big":"",i); break;}   
                         case 11: { printf("dec       stream(11).\n"); break;}
                     }
-                     /*if (level>0){
-                    switch(i) {
-                        case 0: {
-                            predictord=new Predictor();    
-                             break;}
-                        case 1: {
-                             predictord=new PredictorJPEG(); break;}
-                        case 2: {
-                            predictord=new PredictorIMG1(); break;}
-                        case 3: {
-                            predictord=new PredictorIMG4(); break;}
-                        case 4: {
-                            predictord=new PredictorIMG8(); break;}
-                        case 5: {
-                            predictord=new PredictorIMG24(); break;}
-                        case 6: {
-                            predictord=new PredictorAUDIO2(); break;}
-                        case 7: {
-                            predictord=new PredictorEXE();    break;}
-                        case 8: {
-                            predictord=new PredictorTXTWRT(); break;}
-                        case 9:
-                        case 10: {
-                            predictord=new PredictorTXTWRT(); break;}
-                        case 11: {
-                            predictord=new PredictorDEC(); break;}
-                    }
-                    }*/
+                   
                      defaultencoder=new Encoder (mode, archive,*predictord); 
                      if ((i>=0 && i<=7)||i==10||i==11){
                         while (datasegmentsize>0) {
