@@ -104,7 +104,7 @@ public:
     APM2 **apm2C;
     RunContextMap **rcmC;
     SmallStationaryContextMap **scmC;
-    ContextMap2 **mcmC;
+    //ContextMap2 **mcmC;
     ContextMap **cmC;
     MatchContext **mcC;
     Mixer **mxC; 
@@ -145,7 +145,7 @@ if ( smc>0 ) delete[]  smC;
   if (  apm2>0 ) delete[]  apm2C;
   if ( rcm>0 ) delete[]  rcmC;
   if ( scm>0 ) delete[]  scmC;
-  if ( mcm>0 ) delete[]  mcmC;
+ // if ( mcm>0 ) delete[]  mcmC;
   if ( cm>0 ) delete[]  cmC;
   if ( mx>0 ) delete[]  mxC;
   if ( mc>0 ) delete[]  mcC;
@@ -170,7 +170,7 @@ void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i){
     //uses mixer
     if (d>0 ) v->rcmC = new RunContextMap*[d];
     if (e>0 ) v->scmC = new SmallStationaryContextMap*[e];
-    if (f>0 ) v->mcmC = new ContextMap2*[f];
+    if (f>0 ) quit("MCM not present.\n");//v->mcmC = new ContextMap2*[f];
     if (g>0 ) v->cmC = new ContextMap*[g];
     if (h>0 ) v->mxC = new Mixer*[h];
     if (i>0 ) v->mcC = new MatchContext*[i];
@@ -198,7 +198,7 @@ void initcomponent(VM* v,int c,int i, int f,int d, int e){
         break; 
     case vmSCM:  if (ii>v->scm ) printf("VM vmi error: scm(%d) defined %d, max %d\n",c,ii, v->scm),quit();
         break; 
-    case vmMCM:  if (ii>v->mcm ) printf("VM vmi error: mcm(%d) defined %d, max %d\n",c,ii, v->mcm),quit();
+    case vmMCM:  quit("MCM not present.\n");//if (ii>v->mcm ) printf("VM vmi error: mcm(%d) defined %d, max %d\n",c,ii, v->mcm),quit();
         break; 
     case vmCM:   if (ii>v->cm  ) printf("VM vmi error: cm(%d) defined %d, max %d\n",c,ii, v->cm),quit();
         break; 
@@ -221,7 +221,7 @@ void initcomponent(VM* v,int c,int i, int f,int d, int e){
         break;
     case vmSCM: v->scmC[i] = new SmallStationaryContextMap(f );
         break;
-    case vmMCM: v->mcmC[i] = new ContextMap2(CMlimit(f<0?MEM()/(!f+1):MEM()*f), d); //??
+    case vmMCM: quit("MCM not present.\n");//v->mcmC[i] = new ContextMap2(CMlimit(f<0?MEM()/(!f+1):MEM()*f), d); //??
         break;
     case vmCM: v->cmC[i] = new ContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*(U64)f),d);
         break;
@@ -242,7 +242,7 @@ void setcomponent(VM* v,int c,int i, U32 f){
         break;
     case vmSCM: v->scmC[i]->set(f);
         break;
-    case vmMCM: v->mcmC[i]->set(f);
+    case vmMCM: quit("MCM not present.\n");//v->mcmC[i]->set(f);
         break;
     case vmCM: v->cmC[i]->set(f,-1);
         break;
@@ -304,7 +304,7 @@ int mxc(VM* v,int a){
                 break;
             case vmSCM: v->scmC[j]->mix(*v->mxC[mi]);
                 break;
-            case vmMCM: v->mcmC[j]->mix(*v->mxC[mi]);
+            case vmMCM:quit("MCM not present.\n");// v->mcmC[j]->mix(*v->mxC[mi]);
                 break;
             case vmCM: v->cmC[j]->mix(*v->mxC[mi]);
                 break;
@@ -335,7 +335,7 @@ int gcr(VM* v,int a,int b,int c){  //this,mixer,index,component type
             int k= ((v->mcomp[i]>>8)&0xff);   // select component and mix
             if (j==b && k==c) {
             switch (k){
-            case vmMCM:return v->mcmC[j]->get();
+            case vmMCM:quit("MCM not present.\n");//return v->mcmC[j]->get();
                 break;
             case vmCM: return v->cmC[j]->get();
                 break;

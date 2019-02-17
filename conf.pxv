@@ -1,0 +1,43 @@
+// describe usable models
+stream 0
+model test3d.cfg
+stream 1
+model jpeg.cfg
+stream 2
+model image1.cfg
+stream 3
+model test3img.cfg
+stream 4
+model test3i8.cfg
+stream 5
+model test3i24.cfg
+// set types
+// -1 (negative) means detect type is recursive
+// 0  its unknown data type
+// +1 its known data type
+//type -2				// recursive type -2
+//detect recur2.det	// detect data with recur2.det
+//decode recur2.dec	// decode detected data with recur2.dec
+//encode recur2.enc	// encode detected data with recur2.enc
+//compress -1			// no compression model
+//type -1
+//detect recur1.det
+//decode recur1.dec
+//encode recur1.enc
+//compress -1
+type 0
+detect -1
+decode -1
+encode -1
+compress 0
+type 1				// data type 1
+detect jpeg.det		// detect data with jpeg.det
+decode -1			// no decode
+encode -1			// no encode
+compress 1			// compress with model in stream 1
+type 3
+detect exe.det
+decode -1 //exe.dec
+encode -1 //exe.enc
+compress 0
+

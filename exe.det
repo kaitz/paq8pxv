@@ -1,0 +1,75 @@
+// For EXE detection
+int *abspos;    // CALL/JMP abs. addr. low byte -> last offset
+int *relpos;    // CALL/JMP relative addr. low byte -> last offset
+int e8e9count;  // number of consecutive CALL/JMPs
+int e8e9pos;    // offset of first CALL or JMP instruction
+int e8e9last;   // offset of most recent CALL or JMP
+int buf0,buf1;
+int type,state,jstart,jend;
+enum {DEFAULT=1,EXE}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+	int r;
+	state=NONE,type=DEFAULT,jstart=jend=e8e9count=e8e9pos= e8e9last=buf0=buf1=0;
+	for (r=0;r<256;r++) relpos[r]=0,abspos[r]=0;
+}
+int detect(int c4,int i) {
+    int r,a,rdist,adist;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   return jend;
+        if (state==INFO)  return 0xffffffff;
+    }
+	if (i==RESET) {		
+		reset();
+		return 0xffffffff;
+	}
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=c4;
+    //detect header
+	if (((buf1&0xfe)==0xe8 || (buf1&0xfff0)==0x0f80) && ((buf0+1)&0xfe)==0) {
+       r=buf0>>24;  // relative address low 8 bits
+       a=((buf0>>24)+i)&0xff;  // absolute address low 8 bits
+       rdist=(i-relpos[r]);
+       adist=(i-abspos[a]);
+      if (adist<rdist && adist<0x800 && abspos[a]>5) {
+        e8e9last=i;
+        ++e8e9count;
+        if (e8e9pos==0 || e8e9pos>abspos[a]) e8e9pos=abspos[a];
+      }
+      else e8e9count=0;
+      if (type==DEFAULT && e8e9count>=4 && e8e9pos>5){
+		  type=EXE;
+            state=START; 
+			jstart=e8e9pos-5;
+		//printf("DETECT: EXE start %d\n",jstart);
+		return state;
+	  }
+      abspos[a]=i;
+      relpos[r]=i;
+    }
+	if (i-e8e9last>0x4000) {
+      if (type==EXE) {
+		  state=END;
+		  type=DEFAULT;
+		 jend=e8e9last;
+		// printf("DETECT: EXE end %d\n",jend);
+		  return  state;
+	  }
+	  state=NONE;
+	  type=DEFAULT;
+      e8e9count=e8e9pos=0;
+    }
+    return NONE;
+}
+
+int main() {
+   if (!(abspos = malloc(256,sizeof(int)))) {  exit(-1); }
+   if (!(relpos = malloc(256,sizeof(int)))) {  exit(-1); }
+   reset();
+}
