@@ -37,7 +37,7 @@ encode -1			// no encode
 compress 1			// compress with model in stream 1
 type 3
 detect exe.det
-decode -1 //exe.dec
-encode -1 //exe.enc
+decode exe.dec
+encode exe.enc
 compress 0
 

@@ -1,0 +1,53 @@
+char *c;
+char *buff,*obuff;
+enum {BLOCK=0x10000};
+int min(int a, int b) {return a<b?a:b;}
+int decode(int info,int len) {
+    int  offset, a,i;
+    int bufpos,obufpos,total,size,bytesRead;
+    bufpos=BLOCK;
+    obufpos=size=0;
+    for ( i=4; i>=0; i--) read(c+i, 1); // Fill queue
+    offset=6;
+    total=len-5;
+    while (offset<len+6) {
+        for ( i=5;i>=0;i--) c[i+1]=c[i];
+        if (offset<=len){
+            if (bufpos>=size){ //read into buffer max BLOCK bytes
+                size=min(total, BLOCK);
+                total=total-size;
+                bytesRead=read(buff, size);
+                if (bytesRead!=size) exit(-1);// read error
+                bufpos=0;
+            }
+            c[0]=buff[bufpos] ;
+            bufpos++;
+        }
+        // E8E9 transform: E8/E9 xx xx xx 00/FF -> subtract location from x
+        if ((c[0]==0x00 || c[0]==0xFF) && (c[4]==0xE8 || c[4]==0xE9 || (c[5]==0x0F && (c[4]&0xF0)==0x80))
+                && (((offset-1)^(offset-6))&0xffff0000)==0 && offset<=len) { // not crossing block boundary
+            a=((c[1]^176)|(c[2]^176)<<8|(c[3]^176)<<16|c[0]<<24)-offset-info;
+            a=a<<7;
+            if (a<0) a=(0xfe000000)|(a>>7);//if signed shr
+            else a=a>>7;
+            c[3]=a;
+            c[2]=a>>8;
+            c[1]=a>>16;
+            c[0]=a>>24;
+        }
+        obuff[obufpos]=c[5];
+        obufpos++;
+        if (obufpos==BLOCK){ // if output buffer full then write out
+            write(obuff,BLOCK);
+            obufpos=0;
+        }
+        offset++;
+    }
+    if (obufpos>0) write(obuff,obufpos); // write remainging data to out
+    return len;
+}
+int main() {
+    if (!(c = malloc(10,sizeof(char)))) exit(-1);
+    if (!(buff = malloc(BLOCK,sizeof(char)))) exit(-1);
+    if (!(obuff = malloc(BLOCK,sizeof(char)))) exit(-1);
+}

@@ -1,0 +1,43 @@
+// EXE transform
+// Encoded-size is 4 bytes, MSB first.
+// begin is the offset of the start of the input file, 4 bytes, MSB first.
+// Each block applies the e8e9 transform to strings falling entirely
+// within the block starting from the end and working backwards.
+// The 5 byte pattern is E8/E9 xx xx xx 00/FF (x86 CALL/JMP xxxxxxxx)
+// where xxxxxxxx is a relative address LSB first.  The address is
+// converted to an absolute address by adding the offset mod 2^25
+// (in range +-2^24).
+char *blk;
+enum {BLOCK=0x10000};
+int min(int a, int b) {return a<b?a:b;}
+int encode(int info,int len) {
+    int offset;
+    int size;
+    int bytesRead;
+    int i;
+    int a;
+    // Transform
+    for (offset=0; offset<len; offset=offset+BLOCK) {
+        size=min(len-offset, BLOCK);
+        bytesRead=read(blk, size);
+        if (bytesRead!=size) exit(-1);// read error
+        for (i=bytesRead-1; i>=5; --i) {
+            if ((blk[i-4]==0xe8 || blk[i-4]==0xe9 || (blk[i-5]==0x0f && (blk[i-4]&0xf0)==0x80))
+                    && (blk[i]==0||blk[i]==0xff)) {
+                a=(blk[i-3]|blk[i-2]<<8|blk[i-1]<<16|blk[i]<<24)+offset+info+i+1;
+                a=a<<7;
+                if (a<0) a=(0xfe000000)|a>>7; //if signed shr
+                else     a=(a>>7);
+                blk[i]=a>>24;
+                blk[i-1]=a^176;
+                blk[i-2]=(a>>8)^176;
+                blk[i-3]=(a>>16)^176;
+            }
+        }
+        write(blk,bytesRead);
+    }
+}
+
+int main() {
+    if (!(blk = malloc(BLOCK,sizeof(char)))) {  exit(-1); }
+}
