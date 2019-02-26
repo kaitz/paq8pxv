@@ -114,10 +114,10 @@ public:
     int currentc; //current component, used in vmi
     int *mcomp;  //component list set in vmi
     int initdone; //set to 1 after main exits
-    //Array<char*> mem;
-    int mindex;
+    Array<char*> mem; //array of allocated memory
+    int mindex;        // count fo memory allocations
+    Array<int> memSize; // size in bytes of memory in mem[mindex]    
     File *inFile, *outFile; // files for decoding and encoding
-    //Array<int> vmmem;//array of allocated memory
     int vmMode;
 VM(char* m,BlockData& bd,int mode);
 ~VM() ;
@@ -137,29 +137,72 @@ void  killvm( );
 void emit(int op,int val);
 void decompile();
 };
+// alloc function in interpreted code
+// keep track of pointers and sizes in bytes
+// no bounds test
 char* vmmalloc(VM* v,size_t i,int w){
   programChecker.alloc(U64(i*w));
-  
   char*ptr= (char*)calloc(i*w,1);
-  //v->mem[v->mindex++]=ptr;
   if (ptr==0) perror("mem error "),printf("%d ",i),quit("VM mem alloc fail");
-  return ptr;//malloc(i);
+  v->mem.resize(v->mem.size()+1);
+  v->mindex =v->mem.size();
+  v->mem[v->mindex-1]=ptr;
+  v->memSize.resize(v->mindex);
+  v->memSize[v->mindex-1]=i*w;
+  return ptr;
 }
 void VM::killvm( ){
-if ( smc>0 ) delete[]  smC;
-  if ( apm1>0 ) delete[]  apm1C;
-  if (  apm2>0 ) delete[]  apm2C;
-  if ( rcm>0 ) delete[]  rcmC;
-  if ( scm>0 ) delete[]  scmC;
- // if ( mcm>0 ) delete[]  mcmC;
-  if ( cm>0 ) delete[]  cmC;
-  if ( mx>0 ) delete[]  mxC;
-  if ( mc>0 ) delete[]  mcC;
- if ( totalc>0 ) free(  mcomp);
-  //for (int i=0;i<mindex;i++){
-  //   free(mem[i]);
-// }
- }
+    if ( smc>0 )  {
+       for (int i=0;i<smc;i++) delete smC[i];
+       delete[]  smC; 
+    }
+    if ( apm1>0 ) {
+        for (int i=0;i<apm1;i++) {
+            delete apm1C[i];
+        }
+        delete[]  apm1C;
+    }
+    if (  apm2>0 ){
+       for (int i=0;i<apm2;i++) delete apm2C[i];
+       delete[]  apm2C;
+    }
+    if ( rcm>0 ) {
+        for (int i=0;i<rcm;i++) delete rcmC[i];
+        delete[]  rcmC;
+    }
+    if ( scm>0 ) {
+        for (int i=0;i<scm;i++) delete scmC[i];
+        delete[]  scmC;
+    }
+    // if ( mcm>0 ) delete[]  mcmC;
+    if ( cm>0 ) {
+        for (int i=0;i<cm;i++) delete cmC[i]; 
+        delete[]  cmC;
+    }
+    if ( mx>0 ) {
+        for (int i=0;i<mx;i++) delete mxC[i];
+        delete[]  mxC;
+    }
+    if ( mc>0 ) {
+        for (int i=0;i<mc;i++) delete mcC[i];
+        delete[]  mcC;
+    }
+    if ( totalc>0 ) free(  mcomp);
+    // free memory allocated by vmmalloc
+    if (mindex){
+
+        for (int i=0;i<mindex;i++){
+            free(mem[i]);
+            programChecker.free((U64)memSize[i]); // meaningless if MT enabled and thread count 1+ 
+        }
+    }
+    smc=apm1=apm2=rcm=scm=mcm=cm=mx=mc=currentc=totalc=initdone=mindex=0;
+    if (sym) free(sym),sym=0;
+    if (text) free(text),text=0;
+    if (data) free(data),data=0;
+    if (sp) free(sp),sp=0;
+  
+}
 //vms - set number of components
 void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i){
     if (v->initdone==1) printf("VM vms error: vms allowed only in main\n "),quit();
@@ -365,7 +408,7 @@ int gcr(VM* v,int a,int b,int c){  //this,mixer,index,component type
     }
     return 0;
 }
-VM::VM(char* m,BlockData& bd,int mode):x(bd),vmMode(mode)/*,mem(20) */{
+VM::VM(char* m,BlockData& bd,int mode):x(bd),vmMode(mode),mem(0),memSize(0) {
     mod=m;
     smc=apm1=apm2=rcm=scm=mcm=cm=mx=mc=currentc=totalc=initdone=mindex=0;
     debug=0;
@@ -376,7 +419,7 @@ VM::VM(char* m,BlockData& bd,int mode):x(bd),vmMode(mode)/*,mem(20) */{
     totalc=currentc; //update total count to current count 
 }
 
-VM::~VM() {
+VM::~VM() {killvm();
 }
 
 void VM::next(){

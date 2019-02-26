@@ -1,4 +1,4 @@
-    /* paq8pxd file compressor/archiver.  Release by Kaido Orav
+    /* paq8pxv file compressor/archiver.  Release by Kaido Orav
 
     Copyright (C) 2008-2014 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
@@ -20,39 +20,39 @@
 
 To install and use in Windows:
 
-- To install, put paq8pxd.exe or a shortcut to it on your desktop.
-- To compress a file or folder, drop it on the paq8pxd icon.
-- To decompress, drop a .paq8pxd file on the icon.
+- To install, put paq8pxv.exe or a shortcut to it on your desktop.
+- To compress a file or folder, drop it on the paq8pxv icon.
+- To decompress, drop a .paq8pxv file on the icon.
 
-A .paq8pxd extension is added for compression, removed for decompression.
+A .paq8pxv extension is added for compression, removed for decompression.
 The output will go in the same folder as the input.
 
-While paq8pxd is working, a command window will appear and report
+While paq8pxv is working, a command window will appear and report
 progress.  When it is done you can close the window by pressing
 ENTER or clicking [X].
 
 
 COMMAND LINE INTERFACE
 
-- To install, put paq8pxd.exe somewhere in your PATH.
-- To compress:      paq8pxd [-N] file1 [file2...]
-- To decompress:    paq8pxd [-d] file1.paq8pxd [dir2]
-- To view contents: paq8pxd -l file1.paq8pxd
+- To install, put paq8pxv.exe somewhere in your PATH.
+- To compress:      paq8pxv [-N] file1 [file2...]
+- To decompress:    paq8pxv [-d] file1.paq8pxv [dir2]
+- To view contents: paq8pxv -l file1.paq8pxv
 
-The compressed output file is named by adding ".paq8pxd" extension to
-the first named file (file1.paq8pxd).  Each file that exists will be
+The compressed output file is named by adding ".paq8pxv" extension to
+the first named file (file1.paq8pxv).  Each file that exists will be
 added to the archive and its name will be stored without a path.
 The option -N specifies a compression level ranging from -0
 (fastest) to -8 (smallest).  The default is -5.  If there is
 no option and only one file, then the program will pause when
 finished until you press the ENTER key (to support drag and drop).
-If file1.paq8pxd exists then it is overwritten. Level -0 only
+If file1.paq8pxv exists then it is overwritten. Level -0 only
 transforms or decompresses data.
 
-If the first named file ends in ".paq8pxd" then it is assumed to be
+If the first named file ends in ".paq8pxv" then it is assumed to be
 an archive and the files within are extracted to the same directory
 as the archive unless a different directory (dir2) is specified.
-The -d option forces extraction even if there is not a ".paq8pxd"
+The -d option forces extraction even if there is not a ".paq8pxv"
 extension.  If any output file already exists, then it is compared
 with the archive content and the first byte that differs is reported.
 No files are overwritten or deleted.  If there is only one argument
@@ -65,11 +65,11 @@ structure, except that empty directories are not stored, and file
 attributes (timestamps, permissions, etc.) are not preserved.
 During extraction, directories are created as needed.  For example:
 
-  paq8pxd -4 c:\tmp\foo bar
+  paq8pxv -4 c:\tmp\foo bar
 
-compresses foo and bar (if they exist) to c:\tmp\foo.paq8pxd at level 4.
+compresses foo and bar (if they exist) to c:\tmp\foo.paq8pxv at level 4.
 
-  paq8pxd -d c:\tmp\foo.paq8pxd .
+  paq8pxv -d c:\tmp\foo.paq8pxv .
 
 extracts foo and compares bar in the current directory.  If foo and bar
 are directories then their contents are extracted/compared.
@@ -83,8 +83,8 @@ are OK).
 
 TO COMPILE
 
-There are 2 files: paq8pxd.cpp (C++) and wrtpre.cpp (C++).
-paq8pxd.cpp recognizes the following compiler options:
+There are 2 files: paq8pxv.cpp (C++) and wrtpre.cpp (C++).
+paq8pxv.cpp recognizes the following compiler options:
 
   -DWINDOWS           (to compile in Windows)
   -DUNIX              (to compile in Unix, Linux, etc)
@@ -105,25 +105,25 @@ Recommended compiler commands and optimizations:
 
   MINGW g++ (x86,x64):
    with multithreading:
-    g++ paq8pxd.cpp -DWINDOWS -DMT -msse2 -O3 -s -static -o paq8pxd.exe 
+    g++ paq8pxv.cpp -DWINDOWS -DMT -msse2 -O3 -s -static -o paq8pxv.exe 
    without multithreading:
-    g++ paq8pxd.cpp -DWINDOWS -msse2 -O3 -s -static -o paq8pxd.exe 
+    g++ paq8pxv.cpp -DWINDOWS -msse2 -O3 -s -static -o paq8pxv.exe 
 
   UNIX/Linux (PC x86,x64):
    with multithreading:
-    g++ paq8pxd.cpp -DUNIX -DMT -msse2 -O3 -s -static -lpthread -o paq8pxd
+    g++ paq8pxv.cpp -DUNIX -DMT -msse2 -O3 -s -static -lpthread -o paq8pxv
    without multithreading:
-    g++ paq8pxd.cpp -DUNIX -msse2 -O3 -s -static -lpthread -o paq8pxd
+    g++ paq8pxv.cpp -DUNIX -msse2 -O3 -s -static -lpthread -o paq8pxv
 
   Non PC (e.g. PowerPC under MacOS X)
-    g++ paq8pxd.cpp -O2 -DUNIX -s -o paq8pxd
+    g++ paq8pxv.cpp -O2 -DUNIX -s -o paq8pxv
 
 
 ARCHIVE FILE FORMAT
 
 An archive has the following format.  
 
-  paq8pxd -N 
+  paq8pxv -N 
   segment offset 8 bytes
   segment size  2 bytes
   compressed segment size 2 bytes
@@ -167,20 +167,20 @@ directories are stored with path relative to the compressed directory
 
 Then
 
-  paq8pxd archive \dir1\file1.txt \dir2
+  paq8pxv archive \dir1\file1.txt \dir2
 
-will create archive.paq8pxd 
+will create archive.paq8pxv 
 
 The command:
 
-  paq8pxd archive.paq8pxd C:\dir3
+  paq8pxv archive.paq8pxv C:\dir3
 
 will create the files:
 
   C:\dir3\file1.txt
   C:\dir3\dir2\file2.txt
 
-Decompression will fail if the first 10 bytes are not "paq8pxd -".  Sizes
+Decompression will fail if the first 10 bytes are not "paq8pxv -".  Sizes
 are stored as decimal numbers.  CR, LF, TAB are ASCII codes
 13, 10, 9 respectively.
 
@@ -202,7 +202,7 @@ on the ability to predict the next bit accurately.
 
 MODEL MIXING
 
-paq8pxd uses a neural network to combine a large number of models.  The
+paq8pxv uses a neural network to combine a large number of models.  The
 i'th model independently predicts
 p1_i = p(y_j = 1 | y_0..j-1), p0_i = 1 - p1_i.
 The network computes the next bit probabilty
@@ -431,7 +431,7 @@ adjacent quantized values of stretch(p1).  There are 2 APM stages in series:
 
 PREPROCESSING
 
-paq8pxd uses preprocessing transforms on certain data types to improve
+paq8pxv uses preprocessing transforms on certain data types to improve
 compression.  To improve reliability, the decoding transform is
 tested during compression to ensure that the input file can be
 restored.  If the decoder output is not identical to the input file
@@ -546,21 +546,22 @@ and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
 which computes 8 elements at a time, is not any faster).
 
 
-DIFFERENCES FROM PAQ8PXV_V5
--decode and encode support
--exe.dec and exe.enc
+DIFFERENCES FROM PAQ8PXV_V6
+-enable multithreading again
+-detect files for bmp 1,8,24 bit images
+-vm: free memory correctly, also in interpreted code allocated memory
 */
 
-#define VERSION "6"
+#define VERSION "7"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
-// not working now //#define MT            //uncomment for multithreading, compression only
+#define MT            //uncomment for multithreading, compression only
 #define VMJIT  // uncomment to compile with x86 JIT
 #define SIMD_CM_R       // SIMD ContextMap byterun
 
 #ifdef WINDOWS                       
 #ifdef MT
-#define PTHREAD       //uncomment to force pthread to igore windows native threads
+//#define PTHREAD       //uncomment to force pthread to igore windows native threads
 #endif
 #endif
 
@@ -576,7 +577,7 @@ DIFFERENCES FROM PAQ8PXV_V5
 #include "zlib.h"
 #define NDEBUG  // remove for debugging (turns on Array bound checks)
 #include <assert.h>
-
+#include <vector>
 #ifdef UNIX
 #include <stdio.h>
 #include <sys/types.h>
@@ -598,7 +599,7 @@ DIFFERENCES FROM PAQ8PXV_V5
 #endif
 #include <stdint.h>
 #ifdef _MSC_VER
-
+//
 typedef __int32 int32_t;
 typedef unsigned __int32 uint32_t;
 typedef __int64 int64_t;
@@ -3204,7 +3205,7 @@ struct vType {
 };
 Array<vStream> vStreams(0);
 Array<vType> vTypes(0);
-  BlockData z;
+BlockData z;
 VM   **vmDetect;
 VM   **vmEncode;
 VM   **vmDecode;
@@ -3212,55 +3213,53 @@ VM   **vmStream;
 enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; 
 
 int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) {
-  U32 buf0=0;  // last 8 bytes
-  U64 start= in->curpos();
- 
-  static int deth=0,detd=0;  // detected header/data size in bytes
-  static int dett;      // detected block type
-  if (deth >1) return  in->setpos(start+deth),deth=0,dett;
-  else if (deth ==-1) return  in->setpos(start),deth=0,dett;
-  else if (detd) return  in->setpos( start+detd),detd=0,defaultType;
- int dstate=0;
+    U32 buf0=0;  // last 8 bytes
+    U64 start= in->curpos();
+
+    static int deth=0,detd=0;  // detected header/data size in bytes
+    static int dett;      // detected block type
+    if (deth >1) return  in->setpos(start+deth),deth=0,dett;
+    else if (deth ==-1) return  in->setpos(start),deth=0,dett;
+    else if (detd) return  in->setpos( start+detd),detd=0,defaultType;
+    int dstate=0;
     for (int j=0;j<vTypes.size();j++){
         if ( vTypes[j].dsize!=-1){
             //reset states            
             dstate=vmDetect[j]->detect(0,RESET);
             if (dstate!=-1 ){     }
-           }
-    }
-  for (U64 i=0; i<n; ++i) {
-    int c=in->getc();
-    if (c==EOF) return (-1);
-    buf0=buf0<<8|c;
-    
-    for (int j=0;j<vTypes.size();j++){
-        if ( vTypes[j].dsize!=-1){
-            //open type detection file and load into memory
-          dstate=vmDetect[j]->detect(buf0,i);
-    if (dstate==START && type!=j){ //start vTypes[j].type
-       //start
-       //request current state data
-       int jst=vmDetect[j]->detect(buf0,REQUEST);
-        return  in->setpos(start+jst), j;// rturn array index for now // vTypes[j].type;
-    }
-    if (dstate==INFO){ //info
-       info=vmDetect[j]->detect(buf0,REQUEST);
-    }
-    if (dstate==END){ //end
-       //request current state data
-       
-       int jst=vmDetect[j]->detect(buf0,REQUEST);
-       return in->setpos( start+jst),defaultType;
-    }
         }
     }
-  
-    
-  }
-  return type;
-
-
+    for (U64 i=0; i<n; ++i) {
+        int c=in->getc();
+        if (c==EOF) return (-1);
+        buf0=buf0<<8|c;
+        
+        for (int j=0;j<vTypes.size();j++){
+            if ( vTypes[j].dsize!=-1){
+                //open type detection file and load into memory
+                dstate=vmDetect[j]->detect(buf0,i);
+                if (dstate==START && type!=j){ //start vTypes[j].type
+                    //start
+                    //request current state data
+                    int jst=vmDetect[j]->detect(buf0,REQUEST);
+                    return  in->setpos(start+jst), j;// rturn array index for now // vTypes[j].type;
+                }
+                if (dstate==INFO){ //info
+                    info=vmDetect[j]->detect(buf0,REQUEST);
+                    // expect START state next
+                }
+                if (dstate==END){ //end
+                    //request current state data
+                    
+                    int jst=vmDetect[j]->detect(buf0,REQUEST);
+                    return in->setpos( start+jst),defaultType;
+                }
+            }
+        }
+    }
+    return type;
 }
+
 typedef enum {FDECOMPRESS, FCOMPARE, FDISCARD} FMode;
 
 void encode_file(File* in, File* out, int len, int info,int type) {
@@ -3484,7 +3483,7 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
         tmp->close();  // deletes
     } else {
          
-            const int i1=0;//(typet[type][INFO])?info:-1;/*type==IMAGE1 || type==IMAGE8 || type==IMAGE4  ||type==PNG8|| type==PNG8GRAY|| type==PNG24 || type==PNG32|| type==IMAGE8GRAY || type==AUDIO || type==DBASE ||type==IMGUNK*/
+            const int i1=info;/*type==IMAGE1 || type==IMAGE8 || type==IMAGE4  ||type==PNG8|| type==PNG8GRAY|| type==PNG24 || type==PNG32|| type==IMAGE8GRAY || type==AUDIO || type==DBASE ||type==IMGUNK*/
             direct_encode_blockstream(type, in, len, en, s1, s2, i1);
          
     }
@@ -3770,7 +3769,6 @@ char *pp =
 "vms(0,1,0,0,0,0,0,0,0); \n vmi(2,0,256,0,-1);\nc1=0,c=1; \n"
 "for (i=0; i<0x2000000; i++) t[i]=32768;}";
 
-
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
     i=streamid;
@@ -3893,7 +3891,7 @@ typedef HANDLE pthread_tx;
 #endif
 
 
-File* filesmt[streamc];
+
 typedef enum {READY, RUNNING, FINISHED_ERR, FINISHED, ERR, OK} State;
 // Instructions to thread to compress or decompress one block.
 struct Job {
@@ -4145,9 +4143,7 @@ void createDetectVM(){
             fseeko(f, 0, SEEK_SET);        
             detectModel = (char *)calloc(size+1,1);
             fread( detectModel, 1,size,f);  
-            //detectModel[size+1]=0;
             fclose(f);
-            //printf("%d",detectModel[size]);
             //cread VM for type
             vmDetect[i]= new VM(detectModel,  z,VMDETECT);
             //printf("%d",detectModel);
@@ -4171,7 +4167,6 @@ void createEncodeVM(){
             fseeko(f, 0, SEEK_SET);        
             encodeModel = (char *)calloc(size+1,1);
             fread( encodeModel, 1,size,f);  
-            //encodeModel[size+1]=0;
             fclose(f);
             //cread VM for type
             vmEncode[i]= new VM(encodeModel,  z,VMENCODE);
@@ -4196,7 +4191,6 @@ void createDecodeVM(){
             fseeko(f, 0, SEEK_SET);        
             decodeModel = (char *)calloc(size+1,1);
             fread( decodeModel, 1,size,f);  
-            //decodeModel[size+1]=0;
             fclose(f);
             //cread VM for type
             vmDecode[i]= new VM(decodeModel,  z,VMDECODE);
@@ -4220,8 +4214,8 @@ int getUnknownType(){
     return -1;
 }
 
-// To compress to file1.paq8pxd: paq8pxd [-n] file1 [file2...]
-// To decompress: paq8pxd file1.paq8pxd [output_dir]
+// To compress to file1.paq8pxv: paq8pxv [-n] file1 [file2...]
+// To decompress: paq8pxv file1.paq8pxv [output_dir]
 int main(int argc, char** argv) {
     bool pause=argc<=2;  // Pause when done?
     try {
@@ -4349,7 +4343,7 @@ printf("\n");
         }
         
         readConfigFile();
-        if (defaultType=getUnknownType()==-1) quit("Default type nod defined (type x detect -1)"); //
+        if (defaultType=getUnknownType()==-1) quit("Default type not defined (type x detect -1)"); //
         
         File* archive=0;               // compressed file
         int files=0;                   // number of files to compress/decompress
@@ -4376,7 +4370,7 @@ printf("\n");
         if (mode==COMPRESS) createDetectVM();
         if (mode==COMPRESS) createEncodeVM();
         createDecodeVM();
-        createStreamVM();
+        if (mode==COMPRESS) createStreamVM();  // stored in archive
         // Compress: write archive header, get file names and sizes
         String header_string;
         String filenames;
@@ -4539,9 +4533,12 @@ printf("\n");
             // delete detect vm
             for (int i=0;i<vTypes.size();i++){
                 if ( vTypes[i].dsize!=-1)      delete vmDetect[i];
+                if ( vTypes[i].ensize!=-1)      delete vmEncode[i];
+                 if ( vTypes[i].desize!=-1)      delete vmDecode[i];
             }
             delete[] vmDetect;
-  
+            delete[] vmEncode;
+             delete[] vmDecode;
             //Display Level statistics
             U32 ttc;
             U64 tts;
@@ -4555,6 +4552,9 @@ printf("\n");
             }
             
 #ifdef MT
+            File **filesmt;
+            filesmt = new File*[streamc];
+            for (int i=0;i<streamc;i++) filesmt[i]= new FileTmp();
             std::vector<Job> jobs;
 #endif
             for (int i=0; i<streamc; ++i) {
@@ -4739,13 +4739,13 @@ printf("\n");
             printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  (U32)archive->curpos()); 
             
         }
-        // Decompress files to dir2: paq8pxd -d dir1/archive.paq8pxd dir2
+        // Decompress files to dir2: paq8pxv -d dir1/archive.paq8pxv dir2
         // If there is no dir2, then extract to dir1
         // If there is no dir1, then extract to .
         else if (!doList) {
             assert(argc>=2);
             String dir(argc>2?argv[2]:argv[1]);
-            if (argc==2) {  // chop "/archive.paq8pxd"
+            if (argc==2) {  // chop "/archive.paq8pxv"
                 int i;
                 for (i=dir.size()-2; i>=0; --i) {
                     if (dir[i]=='/' || dir[i]=='\\') {

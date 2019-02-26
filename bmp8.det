@@ -1,0 +1,104 @@
+// For BMP 8 bit detection
+int bmp;
+int bpp;
+int x;
+int y;
+int of;
+int size;
+int hdrless; 
+int info;
+int buf0,buf1;
+int type,state,jstart,jend;
+enum {DEFAULT=1,BMPFILE}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    state=NONE,type=DEFAULT,jstart=jend=buf0=buf1=0;
+    bmp=bpp=x=y=of=size=hdrless=info=0;
+}
+int bswap(x) {
+    return ((((x) & 0xff000000) >> 24) | (((x) & 0x00ff0000) >> 8) | (((x) & 0x0000ff00) <<  8) | (((x) & 0x000000ff) << 24));
+}
+int detect(int c4,int i) {
+    int p ,c;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   {p=jend;reset();return p;}
+        if (state==INFO)  return info;
+    }
+    if (i==RESET) {
+        //reset();
+        return 0xffffffff;
+    }
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=c4;
+    c=c4&0xff;
+    //detect header
+     if ( !(bmp || hdrless) && type==DEFAULT && (((buf0&0xffff)==16973) || (!(buf0&0xFFFFFF) && ((buf0>>24)==0x28))) ) //possible 'BM' or headerless DIB
+      hdrless=!(buf0&0xff),of=hdrless*54,bmp=i-hdrless*16;
+    if ((bmp || hdrless) && type==DEFAULT) {
+       p=i-bmp;
+      if (p==12) of=bswap(buf0);
+      else if (p==16 && buf0!=0x28000000) reset();//BITMAPINFOHEADER (0x28)
+      else if (p==20) x=bswap(buf0),bmp=((x==0||x>0x30000)?(hdrless=0):bmp); //width
+      else if (p==24) y=abs(bswap(buf0)),bmp=((y==0||y>0x10000)?(hdrless=0):bmp); //height
+      else if (p==27) bpp=c,bmp=((bpp!=1 && bpp!=4 && bpp!=8 && bpp!=24 && bpp!=32)?(hdrless=0):bmp);
+      else if ((p==31) && buf0) reset();
+      else if (p==36) size=bswap(buf0);
+      // check number of colors in palette (4 bytes), must be 0 (default) or <= 1<<bpp.
+      // also check if image is too small, since it might not be worth it to use the image models
+      else if (p==48){
+        if ( (!buf0 || ((bswap(buf0)<=(1<<bpp)) && (bpp<=8))) && (((x*y*bpp)>>3)>64) ) {
+          // possible icon/cursor?
+          if (hdrless && (x*2==y) && bpp>1 && (
+              (size>0 && size==( (x*y*(bpp+1))>>4 )) ||
+              ((!size || size<((x*y*bpp)>>3)) && (
+               (x==8)   || (x==10) || (x==14) || (x==16) || (x==20) ||
+               (x==22)  || (x==24) || (x==32) || (x==40) || (x==48) ||
+               (x==60)  || (x==64) || (x==72) || (x==80) || (x==96) ||
+               (x==128) || (x==256)
+              ))
+             )
+          )
+            y=x;
+          // if DIB and not 24bpp, we must calculate the data offset based on BPP or num. of entries in color palette
+          if (hdrless && (bpp<24))
+            of=of+((buf0)?bswap(buf0)*4:4<<bpp);
+          of=of+(bmp-1)*(bmp<1);
+          if (hdrless && size && size<((x*y*bpp)>>3)) { }//Guard against erroneous DIB detections
+          else  if (type==DEFAULT && bpp==8){
+            info=(x+3)& 0xFFFFFFFC;// -4;
+            type=BMPFILE;
+            state=INFO;
+            jstart=of+bmp-1;
+            //printf("DETECT: BMP info %d\n",info);
+            return state;
+        }
+        }
+        reset();
+      }
+    }
+    
+    if (type==BMPFILE && state==INFO) {
+            state=START;
+            jend=info*y;
+        //  printf("DETECT: BMP start %d\n",jstart);
+           return state;
+    }
+     if (type==BMPFILE && state==START && i==jend) {
+            state=END;
+            type=DEFAULT;
+            bmp=0;
+        //  printf("DETECT: BMP end %d\n",jend);
+           return state;
+    }
+    return NONE;
+}
+
+int main() {
+    reset();
+}

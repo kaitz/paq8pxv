@@ -40,4 +40,23 @@ detect exe.det
 decode exe.dec
 encode exe.enc
 compress 0
-
+type 4
+detect bmp8.det
+decode -1
+encode -1
+compress 4
+type 5
+detect bmp1.det
+decode -1
+encode -1
+compress 3
+type 6
+detect bmp24.det
+decode -1
+encode -1
+compress 5
+type 7
+detect text.det
+decode -1
+encode -1
+compress 0
