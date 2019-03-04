@@ -1,0 +1,36 @@
+char etable[64] = {'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P',
+                  'Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f',
+                  'g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v',
+                  'w','x','y','z','0','1','2','3','4','5','6','7','8','9','+','/'};
+char *inn;
+char *buff ,*ptr;
+int min(int a, int b) {return a<b?a:b;}
+int decode(int info,int len1) {
+    int i,len;
+    int ocount,olen,g;
+    int in0,in1,in2;
+    ocount=g=0;
+    while(g==0){
+        len=0;
+        olen=0;
+        for(i=0;i<3;i++) inn[i]=0;
+        len=read(inn, 3);
+        if(len<3) g=1;
+        if(len){
+            in0=inn[0],in1=inn[1],in2=inn[2];
+            ptr[0]=(etable[in0>>2]);
+            ptr[1]=(etable[((in0&0x03)<<4)|((in1&0xf0)>>4)]);
+            olen=olen+2+(len>1)+(len>2);
+            ptr[2]=((len>1?etable[((in1&0x0f)<<2)|((in2&0xc0)>>6)]:'='));
+            ptr[3]=((len>2?etable[in2&0x3f]:'='));
+            write(ptr,olen);
+            ocount=ocount+olen;
+        }
+    }
+    return ocount;
+}
+int main() {
+    if (!(inn = malloc(10,sizeof(char)))) exit(-1);
+    if (!(buff = malloc(10,sizeof(char)))) exit(-1);
+    if (!(ptr = malloc(10,sizeof(char)))) exit(-1);
+}

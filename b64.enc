@@ -1,0 +1,39 @@
+char etable[64] = {'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P',
+                  'Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f',
+                  'g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v',
+                  'w','x','y','z','0','1','2','3','4','5','6','7','8','9','+','/'};
+char *dtable ;
+char *src;
+int encode(int info,int len) {
+  int in_len;
+  int i;
+  int j;
+  in_len=(len>>2)<<2;
+  for (i=0;i<in_len;i=i+4){
+    read(src, 4);
+    for (j = 0; j <4; j++) src[j] = dtable[src[j]];
+    src[0] = (src[0] << 2) + ((src[1] & 0x30) >> 4);
+    src[1] = ((src[1] & 0xf) << 4) | ((src[2] & 0x3c) >> 2);
+    src[2] = ((src[2] & 0x3) << 6) | src[3];
+    write(src,3);
+  }
+  i=len-in_len;
+  if (i){
+    read(src, i);
+    for (j=i;j<4;j++)
+      src[j] = 0;
+    for (j=0;j<4;j++)
+      src[j] = dtable[src[j]];
+    src[0] = (src[0] << 2) + ((src[1] & 0x30) >> 4);
+    src[1] = ((src[1] & 0xf) << 4) + ((src[2] & 0x3c) >> 2);
+    src[2] = ((src[2] & 0x3) << 6) + src[3];
+    write(src,i-1);
+  }
+}
+
+int main() {
+    int i;
+    if (!(src = malloc(4,sizeof(char)))) exit(-1);
+    if (!(dtable = malloc(256,sizeof(char)))) exit(-1);
+    for (i = 0; i<64; i++) dtable[etable[i]]=i;
+}

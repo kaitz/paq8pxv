@@ -546,13 +546,12 @@ and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
 which computes 8 elements at a time, is not any faster).
 
 
-DIFFERENCES FROM PAQ8PXV_V6
--enable multithreading again
--detect files for bmp 1,8,24 bit images
--vm: free memory correctly, also in interpreted code allocated memory
+DIFFERENCES FROM PAQ8PXV_V7
+-enable recursion
+-detect base64, decode and encode
 */
 
-#define VERSION "7"
+#define VERSION "8"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 #define MT            //uncomment for multithreading, compression only
@@ -2618,8 +2617,6 @@ inline int mix2(Mixer& m, int s, StateMap& sm) {
   m.add((p1&n1)-(p0&n0));
   return s>0;
 }
-
-
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
 int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
@@ -2792,12 +2789,6 @@ public:
 
 // All of the models below take a Mixer as a parameter and write
 // predictions to it.
-
-class Model {
-public:
-  virtual  int p(Mixer& m,int val1,int val2)=0;
-  virtual  int inputs()=0;
-};
 
 //////////////////////////// matchModel ///////////////////////////
 class MatchContext   {
@@ -3238,7 +3229,7 @@ int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
             if ( vTypes[j].dsize!=-1){
                 //open type detection file and load into memory
                 dstate=vmDetect[j]->detect(buf0,i);
-                if (dstate==START && type!=j){ //start vTypes[j].type
+                if (dstate==START && type==defaultType){ //start vTypes[j].type
                     //start
                     //request current state data
                     int jst=vmDetect[j]->detect(buf0,REQUEST);
@@ -3280,8 +3271,7 @@ uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint
        vmDecode[type]->outFile=e;
     } else {
         vmDecode[type]->outFile=out;
-    }
-    
+    }    
     d=new FileTmp();
     for (int i=0; i<size; i++) d->putc(en.decompress());
     d->setpos(0);
@@ -3298,6 +3288,32 @@ uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint
     if (mode==FDECOMPRESS) {
         return jst;
     }
+    return size;
+}
+
+uint64_t decode_file(File *in, int size, File *out,int info, FMode mode, uint64_t &diffFound, int type) {
+    assert(vTypes[type].ensize!=-1);
+    File *e; // for compare
+    if (mode==FCOMPARE ){
+       e=new FileTmp();
+       vmDecode[type]->outFile=e;
+    } else {
+        vmDecode[type]->outFile=out;
+    }
+    in->setpos(0);
+    vmDecode[type]->inFile=in;
+    int jst=vmDecode[type]->decode(info,size);
+    if (mode==FCOMPARE ){
+       int outsize=(U32)e->curpos();
+       e->setpos(0);
+       for (int i=0; i<jst; i++) {
+           if (e->getc()!=out->getc() && !diffFound) diffFound=i;   
+       }
+       return (U32)e->curpos();
+    }
+    if (mode==FDECOMPRESS) {
+        return jst;
+    }    
     return size;
 }
 
@@ -3340,7 +3356,7 @@ void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it, U64 s1, U
 
 void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, int info2, char *blstr, int it, U64 s1, U64 s2, U64 begin) {
     //encode data if type has encode defined
-    if (type!=defaultType && vTypes[type].ensize!=-1) {
+    if (vTypes[type].type!=defaultType && vTypes[type].ensize!=-1 ) {
         U64 diffFound=0;
         FileTmp* tmp;
         tmp=new FileTmp;
@@ -3350,13 +3366,15 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
         int tfail=0;
         tmp->setpos(0);
         en.setFile(tmp);
-        
-        if ( type!=defaultType){
         int ts=0;
-        in->setpos(begin);
-        decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
-        tfail=(diffFound || tmp->getc()!=EOF || ts ); 
+        if ( vTypes[type].type>=defaultType){
+            in->setpos(begin);
+            decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
+        }else{
+            in->setpos(begin);
+            decode_file(tmp, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
         }
+      tfail=(diffFound || tmp->getc()!=EOF || ts ); 
         // Test fails, compress without transform
         if (tfail) {
             printf(" Transform fails at %0lu, skipping...\n", diffFound-1);
@@ -3366,124 +3384,25 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
             typenamess[defaultType][it]+=len,  typenamesc[defaultType][it]++; // default info
         } else {
             tmp->setpos(0);
+            if (vTypes[type].type>=defaultType ){
+            
             direct_encode_blockstream(type, tmp, tmpsize, en, s1, s2, info==-1?(U32)begin:info);
-          /*  if (type==EXE) {
-               direct_encode_blockstream(type, tmp, tmpsize, en, s1, s2);
-            } else if (type==DECA || type==ARM) {
-                direct_encode_blockstream(type, tmp, tmpsize, en, s1, s2);
-            } else if (type==IMAGE24 || type==IMAGE32) {
-                direct_encode_blockstream(type, tmp, tmpsize, en, s1, s2, info);
-            } else if (type==MRBR) {
+            } else if (vTypes[type].type<defaultType) {
                 segment.put1(type);
                 segment.put8(tmpsize);
-                segment.put4(0);
-                int hdrsize=( tmp->getc()<<8)+(tmp->getc());
-                hdrsize=4+hdrsize*4+4;
-                tmp->setpos(0);
-                typenamess[HDR][it+1]+=hdrsize,  typenamesc[HDR][it+1]++; 
-                direct_encode_blockstream(HDR, tmp, hdrsize, en,0, s2);
-                if (it==itcount)    itcount=it+1;
-                typenamess[IMAGE8][it+1]+=tmpsize,  typenamesc[IMAGE8][it+1]++;
-                direct_encode_blockstream(IMAGE8, tmp, tmpsize-hdrsize, en, s1, s2, info);
-            } else if (type==RLE) {
-                segment.put1(type);
-                segment.put8(tmpsize);
-                segment.put4(0);
-                int hdrsize=( 4);
-                Filetype type2 =(Filetype)(info>>24);
-                //hdrsize=4+hdrsize*4+4;
-                tmp->setpos(0);
-                typenamess[HDR][it+1]+=hdrsize,  typenamesc[HDR][it+1]++; 
-                direct_encode_blockstream(HDR, tmp, hdrsize, en,0, s2);
-                if (it==itcount)    itcount=it+1;
-                typenamess[type2][it+1]+=tmpsize-hdrsize,  typenamesc[type2][it+1]++;
-                direct_encode_blockstream(type2, tmp, tmpsize-hdrsize, en, s1, s2, info);
-            } else if (type==LZW) {
-                segment.put1(type);
-                segment.put8(tmpsize);
-                segment.put4(0);
-                int hdrsize=( 0);
-                Filetype type2 =(Filetype)(info>>24);
-                //hdrsize=4+hdrsize*4+4;
-                tmp->setpos(0);
-               // typenamess[HDR][it+1]+=hdrsize,  typenamesc[HDR][it+1]++; 
-               // direct_encode_blockstream(HDR, tmp, hdrsize, en,0, s2);
-                if (it==itcount)    itcount=it+1;
-                typenamess[type2][it+1]+=tmpsize-hdrsize,  typenamesc[type2][it+1]++;
-                direct_encode_blockstream(type2, tmp, tmpsize-hdrsize, en, s1, s2, info&0xffffff);
-            } else if (type==MRBR4) {
-                segment.put1(type);
-                segment.put8(tmpsize);
-                segment.put4(0);
-                int hdrsize=( tmp->getc()<<8)+(tmp->getc());
-                hdrsize=4+hdrsize*4+4;
-                tmp->setpos(0);
-                typenamess[HDR][it+1]+=hdrsize,  typenamesc[HDR][it+1]++; 
-                direct_encode_blockstream(HDR, tmp, hdrsize, en,0, s2);
-                if (it==itcount)    itcount=it+1;
-                typenamess[IMAGE4][it+1]+=tmpsize,  typenamesc[IMAGE4][it+1]++;
-                direct_encode_blockstream(IMAGE4, tmp, tmpsize-hdrsize, en, s1, s2, info);
-            }else if (type==GIF) {
-                segment.put1(type);
-                segment.put8(tmpsize);
-                segment.put4(0);
-                int hdrsize=tmp->getc();
-                hdrsize=(hdrsize<<8)+tmp->getc();
-                tmp->setpos(0);
-                typenamess[HDR][it+1]+=hdrsize,  typenamesc[HDR][it+1]++; 
-                direct_encode_blockstream(HDR, tmp, hdrsize, en,0, s2);
-                typenamess[info>>24][it+1]+=tmpsize-hdrsize,  typenamesc[IMAGE8][it+1]++;
-                direct_encode_blockstream((Filetype)(info>>24), tmp, tmpsize-hdrsize, en, s1, s2,info&0xffffff);
-            } else if (type==AUDIO) {
-                segment.put1(type);
-                segment.put8(len); //original lenght
-                segment.put4(info2); 
-                direct_encode_blockstream(type, tmp, tmpsize, en, s1, s2, info);
-            } else if ((type==TEXT || type==TXTUTF8 ||type==TEXT0)  ) {
-                   if ( len>0xA00000){ //if WRT is smaller then original block 
-                      if (tmpsize>(len-256) ) {
-                         in->setpos( begin);
-                         direct_encode_blockstream(NOWRT, in, len, en, s1, s2); }
-                      else
-                        direct_encode_blockstream(BIGTEXT, tmp, tmpsize, en, s1, s2);}
-                   else if (tmpsize< (len*2-len/2)||len) {
-                        // encode as text without wrt transoform, 
-                        // this will be done when stream is compressed
-                        in->setpos( begin);
-                        direct_encode_blockstream(type, in, len, en, s1, s2);
-                   }
-                   else {
-                        // wrt size was bigger, encode as NOWRT and put in bigtext stream.
-                        in->setpos(begin);
-                        direct_encode_blockstream(NOWRT, in, len, en, s1, s2);
-                   }
-            }else if (type==EOLTEXT) {
-                segment.put1(type);
-                segment.put8(tmpsize);
-                segment.put4(0);
-                int hdrsize=tmp->get32();
-                hdrsize=tmp->get32();
-                hdrsize=hdrsize+12;
-                tmp->setpos(0);
-                typenamess[HDR][it+1]+=hdrsize,  typenamesc[HDR][it+1]++; 
-                direct_encode_blockstream(HDR, tmp, hdrsize, en,0, s2);
-                typenamess[TEXT][it+1]+=tmpsize-hdrsize,  typenamesc[TEXT][it+1]++;
-                transform_encode_block(TEXT,  tmp, tmpsize-hdrsize, en, -1,-1, blstr, it, s1, s2, hdrsize); 
-            } else if (typet[type][RECURSIVE]) {
-                segment.put1(type);
-                segment.put8(tmpsize);
-                if (type==SZDD ) segment.put4(info);else segment.put4(0);
+                segment.put4(info==-1?(U32)begin:info);
                
                     DetectRecursive( tmp, tmpsize, en, blstr,it+1, 0, tmpsize);//it+1
                     tmp->close();
                     return;
                
-            }*/
+            }
+         
         }
-        tmp->close();  // deletes
+        tmp->close();
     } else {
          
-            const int i1=info;/*type==IMAGE1 || type==IMAGE8 || type==IMAGE4  ||type==PNG8|| type==PNG8GRAY|| type==PNG24 || type==PNG32|| type==IMAGE8GRAY || type==AUDIO || type==DBASE ||type==IMGUNK*/
+            const int i1=info;
             direct_encode_blockstream(type, in, len, en, s1, s2, i1);
          
     }
@@ -3523,7 +3442,6 @@ void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=
     if (it>itcount)    itcount=it;
 
     typenamess[type][it]+=len,  typenamesc[type][it]++; 
-      //s2-=len;
       sprintf(blstr,"%s%d",b2,blnum++);
       
       printf(" %-11s | %-9s |%10.0d [%d - %d]",blstr,type==defaultType?"default":vTypes[type].detect,(U32)len,(U32)begin,(U32)end-1);
@@ -3572,36 +3490,15 @@ U64 decompressStreamRecursive(File*out, U64 size, Encoder& en, FMode mode, int i
         int srid=getstreamid(type);
         if (srid>=0) en.setFile(filestreams[srid]);
         // deocode file if type has decode defined
-        if (type!=defaultType && vTypes[type].desize!=-1) {
-         len=decode_file(en, int(len), out, info, mode, diffFound,type);
-       // #ifndef NDEBUG 
-       //  printf(" %d  %-9s |%0lu [%0lu]\n",it, typenames[type],len,i );
-       // #endif
-      /*  if (type==IMAGE24 )      len=decode_bmp(en, int(len), info, out, mode, diffFound);
-        else if (type==IMAGE32 ) decode_im32(en, int(len), info, out, mode, diffFound);
-        else if (type==EXE)     len=decode_exe(en, int(len), out, mode, diffFound, int(s1), int(s2));
-        else if (type==DECA)    len=decode_dec(en, int(len), out, mode, diffFound, int(s1), int(s2));
-        else if (type==ARM)     len=decode_arm(en, int(len), out, mode, diffFound, int(s1), int(s2));
-        else if (type==BIGTEXT) len=decode_txt(en, int(len), out, mode, diffFound);
-        //else if (type==EOLTEXT) len=decode_txtd(en, int(len), out, mode, diffFound);
-        else if (type==BASE85 || type==BASE64 || type==UUENC || type==SZDD || type==CD || type==MDF  || type==GIF || type==MRBR|| type==MRBR4 || type==RLE ||type==EOLTEXT) {
-            FileTmp tmp;
-            decompressStreamRecursive(&tmp, len, en, FDECOMPRESS, it+1, s1+i, s2-len);
-            if (mode!=FDISCARD) {
-                tmp.setpos(0);
-                if (type==BASE64) len=decode_base64(&tmp, int(len), out, mode, diffFound);
-                else if (type==UUENC)  len=decode_uud(&tmp, int(len), out, mode, diffFound);
-                else if (type==BASE85) len=decode_ascii85(&tmp, int(len), out, mode, diffFound);
-                else if (type==SZDD)   len=decode_szdd(&tmp,info,info ,out, mode, diffFound);
-               // else if (type==ZLIB)   len=decode_zlib(&tmp,int(len),out, mode, diffFound);
-                else if (type==CD)     len=decode_cd(&tmp, int(len), out, mode, diffFound);
-                else if (type==MDF)    len=decode_mdf(&tmp, int(len), out, mode, diffFound);
-                else if (type==GIF)    len=decode_gif(&tmp, int(len), out, mode, diffFound);
-                else if (type==MRBR|| type==MRBR4)   len=decode_mrb(&tmp, int(len), info, out, mode, diffFound);
-                else if (type==EOLTEXT)len=decode_txtd(&tmp, int(len), out, mode, diffFound);
-                else if (type==RLE)    len=decode_rle(&tmp, len, out, mode, diffFound);
-            }
-            tmp.close();*/
+        if (vTypes[type].type>=defaultType && vTypes[type].desize!=-1) {
+            len=decode_file(en, int(len), out, info, mode, diffFound,type);
+        } else if (vTypes[type].type<defaultType) {
+            File  *tmp;
+            tmp = new FileTmp();
+            decompressStreamRecursive(tmp, len, en, FDECOMPRESS, it+1, s1+i, s2-len);
+            tmp->setpos(0);
+            len=decode_file(tmp, int(len), out, info, mode, diffFound,type);
+            tmp->close();
         }
         else {
             for (U64 j=i+s1; j<i+s1+len; ++j) {
@@ -3853,7 +3750,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
                                 datasegmenttype=segment(datasegmentpos++);
                                 for (int ii=0; ii<8; ii++) datasegmentlen<<=8,datasegmentlen+=segment(datasegmentpos++);
                                 for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
-                                if (!(isstreamtype(datasegmenttype,i) ))datasegmentlen=0;
+                                if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
                                 if (level>0){
                                 threadencode->predictor.x.filetype=datasegmenttype;
                                 threadencode->predictor.x.blpos=0;
@@ -4028,7 +3925,7 @@ int readConfigFile(){
             ptr = strtok(NULL, " \t\n\r/");
             if (ptr == NULL)  quit("bad config: type id not found"); 
             int sid=atoi(ptr);
-            if (sid<0) quit("bad config: type id not >=0 (Not working now)"); 
+            //if (sid<0) quit("bad config: type id not >=0 (Not working now)"); 
             vTypes[tsize].type=sid;
             continue;
         }
@@ -4088,7 +3985,7 @@ int readConfigFile(){
             int fsize=strlen(ptr);
             if (  fsize >15 ||fsize==0 || ptr[0]>'9') quit("bad config:   compress parameter wrong");
             int sid=atoi(ptr);
-            if (sid<0) quit("bad config: compress id not >=0 (Not working now)"); 
+            //if (sid<0) quit("bad config: compress id not >=0 (Not working now)"); 
             vTypes[tsize].streamId=sid;        // set type model for compression
             printf("type id=%d stream id=%d\n",vTypes[tsize].type,vTypes[tsize].streamId);
             continue;
@@ -4109,7 +4006,7 @@ int readConfigFile(){
                break;
             } 
         }
-        if (isstream==false) printf("bad config:  compression stream %d  not found in type %d",sidt,vTypes[i].type),quit(""); 
+        //if (isstream==false) printf("bad config:  compression stream %d  not found in type %d",sidt,vTypes[i].type),quit(""); 
         isstream=false;
     }
     
@@ -4819,7 +4716,8 @@ printf("\n");
                                 datasegmenttype=segment(datasegmentpos++);
                                 for (int ii=0; ii<8; ii++) datasegmentlen=datasegmentlen<<8,datasegmentlen+=segment(datasegmentpos++);
                                 for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
-                                if (!(isstreamtype(datasegmenttype,i) ))datasegmentlen=0;
+                                //skip if type is recursive or not in current stream
+                                if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
                                 if (level>0) {
                                 defaultencoder->predictor.x.filetype=datasegmenttype;
                                 defaultencoder->predictor.x.blpos=0;

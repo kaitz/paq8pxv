@@ -1,0 +1,65 @@
+// For base64 detection
+int b64s1,b64h;
+int base64start,base64end;
+int buf0,buf1;
+int type,state,jstart,jend;
+enum {DEFAULT=1,BASE64}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    state=NONE,type=DEFAULT,jstart=jend=buf0=buf1=0;
+    base64start=0;
+    b64s1=b64h=base64end=0;
+}
+int isalnum(int c) {
+    return ((c>='A') && (c<='Z')) || ((c>='a') && (c<='z')) || ((c>='0') && (c<='9'));
+}
+int detect(int c4,int i) {
+    int p ,c;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   {p=jend;reset();return p;}
+        if (state==INFO)  return 0xffffffff;
+    }
+    if (i==RESET) {
+        //reset();
+        return 0xffffffff;
+    }
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=c4;
+    c=c4&0xff;
+    //detect header
+    if (b64s1==0 &&   ((buf1==0x3b626173 && buf0==0x6536342c)||(buf1==0x215b4344 && buf0==0x4154415b) )) {
+        b64s1=1,b64h=i+1,base64start=i+1; //' base64' ||((buf1&0xffffff)==0x3a696d && buf0==0x6167653e)
+        jstart=i+1;
+        return NONE;
+    }
+    if (b64s1) {
+      if ((isalnum(c) || (c == '+') || (c == '/')) ) {
+          if (i -base64start>128 && type==DEFAULT){
+                type=BASE64;
+                state=START;
+                return state;
+                }
+      } else if (type==BASE64 && state==START) {
+            state=INFO;
+            jend=i;
+            return state;
+      } else if (type==BASE64 && state==INFO) {
+            state=END;
+            type=DEFAULT;
+           return state;
+      } else {
+            reset();
+      }
+    }
+    return NONE;
+}
+
+int main() {
+    reset();
+}

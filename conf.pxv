@@ -60,3 +60,8 @@ detect text.det
 decode -1
 encode -1
 compress 0
+type -1
+detect b64.det
+decode b64.dec
+encode b64.enc
+compress 0
