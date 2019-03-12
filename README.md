@@ -68,3 +68,6 @@ https://encode.ru/threads/3064-paq8pxv-virtual-machine
 This is based on PAQ8PXD_V62 and PAQ8PXD_V17v2 ( https://encode.ru/showthread.php?p=47706#post47706 )
 First version (v1) ( https://encode.ru/threads/1464-Paq8p...ll=1#post59098 )
 Original attempt here ( https://encode.ru/threads/1464-Paq8p...ll=1#post42973 ) ( attempt to mix VM from fpaqvm (vm/jit) to paq8pxd_v16 )
+
+# Testing results
+https://docs.google.com/spreadsheets/d/1IlSwEmr385-t6EUYO9HUZyKECeTEntMOP0NIP_8LSSg
