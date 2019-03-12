@@ -547,10 +547,11 @@ which computes 8 elements at a time, is not any faster).
 
 
 DIFFERENCES FROM PAQ8PXV_V9
--add conf and decode to archive
+-add small model to archive, now all decompress info is in archive
+-change cfg models
 */
 
-#define VERSION "9"
+#define VERSION "10"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 #define MT            //uncomment for multithreading, compression only
@@ -572,7 +573,7 @@ DIFFERENCES FROM PAQ8PXV_V9
 #include <stdio.h>
 #include <time.h>
 #include <math.h>
-#include "zlib.h"
+//#include "zlib.h"
 #define NDEBUG  // remove for debugging (turns on Array bound checks)
 #include <assert.h>
 #include <vector>
@@ -642,6 +643,9 @@ inline int max(int a, int b) {return a<b?b:a;}
 #define ispowerof2(x) ((x&(x-1))==0)
 // Error handler: print message if any, and exit
 void quit(const char* message=0) {
+    #ifdef  MT 
+    printf("%s",message);
+    #endif
   throw message;
 }
 
@@ -2095,28 +2099,28 @@ inline U32 hash0(U32 a, U32 b, U32 c=0xffffffff, U32 d=0xffffffff,
 }
 // Magic number 2654435761 is the prime number closest to the 
 // golden ratio of 2^32 (2654435769)
-#define PHI 0x9E3779B1 //2654435761
+//#define PHI 0x9E3779B1 //2654435761
 
 // A hash function to diffuse a 32-bit input
-inline U32 hash(U32 x) {
+/*inline U32 hash(U32 x) {
   x++; // zeroes are common and mapped to zero
   x = ((x >> 16) ^ x) * 0x85ebca6b;
   x = ((x >> 13) ^ x) * 0xc2b2ae35;
   x = (x >> 16) ^ x;
   return x;
-}
+}*/
 
 // Combine a hash value (seed) with another (non-hash) value.
 // The result is a combined hash. 
 //
 // Use this function repeatedly to combine all input values 
 // to be hashed to a final hash value.
-inline U32 combine(U32 seed, const U32 x) {
+/*inline U32 combine(U32 seed, const U32 x) {
   seed+=(x+1)*PHI;
   seed+=seed<<10;
   seed^=seed>>6;
   return seed;
-}
+}*/
 ///////////////////////////// BH ////////////////////////////////
 
 // A BH maps a 32 bit hash to an array of B bytes (checksum and B-2 values)
@@ -2790,6 +2794,7 @@ public:
 // predictions to it.
 
 //////////////////////////// matchModel ///////////////////////////
+/*
 class MatchContext   {
 private:
     BlockData& x;
@@ -2959,7 +2964,7 @@ public:
    // x.Match.length = length;
     result=ilog(length);
   }
-  };
+  };*/
   
 //////////////////////////// Predictor /////////////////////////
 // A Predictor estimates the probability that the next bit of
@@ -3641,17 +3646,30 @@ int expand(String& archive, String& s, const char* fname, int base) {
 #endif
 #endif
 
-
+char *dmodel;
 Array<U64> filestreamsize(0);
 char *pp =
-"int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
+"int *cxt,*t;int cxt1,cxt2,cxt3,cxt4,N;"
+"int update(int y,int c0,int bpos,int c4,int pos){ int i,pr0;"
+"if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;"
+"for (i=0; i<N; ++i) t[cxt[i]]=smn(t[cxt[i]]);"
+"cxt[0]=(cxt1+c0),cxt[1]=(cxt2+c0+0x10000);"
+"cxt[2]=(cxt3+c0+0x20000),cxt[3]=(cxt4+c0+0x30000);"
+"pr0=0;for (i=0; i<4; ++i) pr0=pr0+smp(i,t[cxt[i]],1023);"
+"pr0=pr0>>2;return apm(0,pr0,c0,7);}"
+"void block(int a,int b) {} int main() {   int i;  N=4;"
+"if (!(t = malloc((0x40000),sizeof(int)))) exit(-1);"
+"if (!(cxt = malloc(4,sizeof(int)))) exit(-1);"
+"vms(N,1,0,0,0,0,0,0,0);for (i=0;i<N;i++) vmi(1,i,256,0,-1);"
+"vmi(2,0,256,0,-1);cxt1=cxt2=cxt3=cxt4=0;}";
+/*"int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
 "int cc1; \n cc1=c+c1; \n if (y) t[cc1]=t[cc1]+((65536-t[cc1])>>5); \n"
 "else t[cc1]=t[cc1]-(t[cc1]>>5); \n"
-"if ((c=c*2+y)>=512) c1=((c1+(c&255))<<9)&0x1ffff,c=1; \n"
+"if ((c=c*2+y)>=256) c1=((c1+(c&255))<<9)&0x1ffffFF,c=1; \n"
 "return apm(0,(t[c+c1]>>4),c,7);} \n void block(int a,int b){} \n"
-"int main() { \n int i; \n if (!(t=malloc(0x20000,sizeof(int)))) exit(-1); \n"
+"int main() { \n int i; \n if (!(t=malloc(0x2000000,sizeof(int)))) exit(-1); \n"
 "vms(0,1,0,0,0,0,0,0,0); \n vmi(2,0,256,0,-1);\nc1=0,c=1; \n"
-"for (i=0; i<0x20000; i++) t[i]=32768;}";
+"for (i=0; i<0x2000000; i++) t[i]=32768;}";*/
 
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
@@ -4146,7 +4164,7 @@ void CompressType(File *out){
 void DecompressType(File *out){
     char *decodeModel;
     Encoder* enm;
-    enm=new Encoder(DECOMPRESS, out,pp);
+    enm=new Encoder(DECOMPRESS, out,dmodel);
     int len;    
     // decompress config file from archive
     FILE *conf=tmpfile2();
@@ -4204,26 +4222,26 @@ int main(int argc, char** argv) {
             else if (aopt[2]>='0' && aopt[2]<='9' && strlen(aopt)==3 && aopt[1]=='s'){
                 level=aopt[2]-'0';
             }
-            else if (aopt[2]=='1' && aopt[3]>='0' && aopt[3]<='5' && strlen(aopt)==4 && aopt[1]=='s'){
+           /* else if (aopt[2]=='1' && aopt[3]>='0' && aopt[3]<='5' && strlen(aopt)==4 && aopt[1]=='s'){
                 aopt[1]='-', aopt[0]=' ';
                 level=((~atol(aopt))+1);                 
-            }
+            }*/
 #ifdef MT 
             else if (aopt[2]>='0' && aopt[2]<='9'&& (aopt[4]<='9' && aopt[4]>'0') && strlen(aopt)==5 && 
             (aopt[1]=='s')){
                 topt=aopt[4]-'0';
                 level=aopt[2]-'0';}
-            else if (aopt[2]=='1' && aopt[3]>='0' && aopt[3]<='5' && 
+            /*else if (aopt[2]=='1' && aopt[3]>='0' && aopt[3]<='5' && 
             (aopt[5]<='9' && aopt[5]>'0')&& strlen(aopt)==6 && aopt[1]=='s'){
                 topt=aopt[5]-'0';
                 aopt[4]=0;
                 aopt[1]='-';
                 aopt[0]=' ';
                 level=((~atol(aopt))+1); 
-            }
+            }*/
 #endif
             else
-                quit("Valid options are -s0 through -s15, -d, -l\n");
+                quit("Valid options are -s0 through -s9, -d, -l\n");
             --argc;
             ++argv;
             pause=false;
@@ -4374,6 +4392,11 @@ printf("\n");
             archive->putc(0);
             archive->putc(level);
             archive->putc(streamc);
+            // store small model uncopressed to archive, used when decompressing
+            int modsize=strlen(pp);
+            archive->put32(modsize);
+            printf("Small model: %d bytes.\n",modsize);
+            for (int k=0;k<modsize;++k) archive->putc(pp[k]);
             segment.hpos= archive->curpos();
             
             for (int i=0; i<12+4+2; i++) archive->putc(0); //space for segment size in header +streams info
@@ -4401,6 +4424,11 @@ printf("\n");
             
             level=level&0xf;
             streamc=archive->getc();
+            //read small model.
+            int modsize=archive->get32();
+            dmodel = (char *)calloc(modsize+1,1);
+            for (int k=0;k<modsize;++k) dmodel[k]=archive->getc(); 
+            
             filestreams = new File*[streamc];
             for (int i=0;i<streamc;i++) filestreams[i]= new FileTmp();
             filestreamsize.resize(streamc);
@@ -4423,7 +4451,7 @@ printf("\n");
             FileTmp  tmp;
             tmp.blockwrite(&segment[0],   segment.pos  ); 
             tmp.setpos(0); 
-            segencode=new Encoder (DECOMPRESS, &tmp ,pp); 
+            segencode=new Encoder (DECOMPRESS, &tmp ,dmodel); 
             segment.pos=0;
             for (U32 k=0; k<segpos; ++k) {
                  segment.put1( segencode->decompress());
@@ -4440,10 +4468,11 @@ printf("\n");
             segment.pos=0; //reset to offset 0
         }
         Encoder* en;
-        en=new Encoder(mode, archive,pp);
+        
        // en->predictor->setdebug(1);
         // Compress header
         if (mode==COMPRESS) {
+            en=new Encoder(mode, archive,pp);
             int len=header_string.size();
             printf("\nFile list (%d bytes)\n", len);
             assert(en->getMode()==COMPRESS);
@@ -4456,6 +4485,7 @@ printf("\n");
 
         // Deompress header
         if (mode==DECOMPRESS) {
+            en=new Encoder(mode, archive,dmodel);
             if (en->decompress()!=0) printf("%s: header corrupted\n", archiveName.c_str()), quit();
             int len=0;
             len+=en->decompress()<<24;
@@ -4610,7 +4640,7 @@ printf("\n");
           void* status=0;
           check(pthread_join(jobs[i].tid, &status));
           if (jobs[i].state==FINISHED) jobs[i].state=OK;
-          if (jobs[i].state==FINISHED_ERR) quit("thread"); //exit program on thread error 
+          if (jobs[i].state==FINISHED_ERR) quit(" thread error"); //exit program on thread error 
           ++job_count;
           --thread_count;
         }
@@ -4634,7 +4664,7 @@ printf("\n");
         id-=WAIT_OBJECT_0;
         id=jobptr[id];
         if (jobs[id].state==FINISHED) jobs[id].state=OK;
-        if (jobs[id].state==FINISHED_ERR) quit("thread"); //exit program on thread error 
+        if (jobs[id].state==FINISHED_ERR) quit(" thread error"); //exit program on thread error 
         ++job_count;
         --thread_count;
       }
@@ -4757,7 +4787,7 @@ printf("\n");
                   
                     int fsz=0;  
                     Encoder* enm;
-                    enm=new Encoder(DECOMPRESS, archive,pp);
+                    enm=new Encoder(DECOMPRESS, archive,dmodel);
                     enm->predictor->set();
                     int len=0;
                     len+=enm->decompress()<<24; //decompress compressed model lenght

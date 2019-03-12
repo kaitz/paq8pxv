@@ -21,6 +21,11 @@ void reset(){
 int bswap(x) {
     return ((((x) & 0xff000000) >> 24) | (((x) & 0x00ff0000) >> 8) | (((x) & 0x0000ff00) <<  8) | (((x) & 0x000000ff) << 24));
 }
+int abs(int x)
+{
+        if (x>=0) return x;
+        else return (0-x);
+}
 int detect(int c4,int i) {
     int p ,c;
     //if state parameters recuested

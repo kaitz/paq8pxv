@@ -40,7 +40,7 @@ void*   mmap(void *addr, size_t len, int prot, int flags, int fildes, off_t off)
 #else
 #include <sys/mman.h>
 #endif
-
+/*
  int absolute(int value) {
   if (value < 0) {
     return -value;
@@ -48,7 +48,7 @@ void*   mmap(void *addr, size_t len, int prot, int flags, int fildes, off_t off)
   else {
     return value;  
   }
-}
+}*/
 // tokens and classes (operators last and in precedence order)
 enum {  Num = 128, Fun, Sys, Glo, Loc, Id,
   Char, Else, Enum, If, Int, Short, Return, For, Sizeof, While,
@@ -57,7 +57,7 @@ enum {  Num = 128, Fun, Sys, Glo, Loc, Id,
 // opcodes
 enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI ,LS ,LC  ,SI ,SS ,SC  ,PSH ,
        OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,VTHIS,
-        PRTF,ABS,SMP,SMN,APM,VMS,VMI,VMX,MXP,MXC,MXA,MXS,GCR,BUF,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2,H3,H4,H5,READ,WRTE,EXIT};
+        PRTF,SMP,SMN,APM,VMS,VMI,VMX,MXP,MXC,MXA,MXS,GCR,BUF,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2,H3,H4,H5,READ,WRTE,EXIT};
 // types (unsigned)
 enum { rCHAR, sSHORT, iINT, PTR };
 // identifier offsets (since we can't create an ident struct)
@@ -108,7 +108,7 @@ public:
     SmallStationaryContextMap **scmC;
     //ContextMap2 **mcmC;
     ContextMap **cmC;
-    MatchContext **mcC;
+    //MatchContext **mcC;
     Mixer **mxC; 
     int totalc;  //total number of components
     int currentc; //current component, used in vmi
@@ -183,10 +183,10 @@ void VM::killvm( ){
         for (int i=0;i<mx;i++) delete mxC[i];
         delete[]  mxC;
     }
-    if ( mc>0 ) {
+    /*if ( mc>0 ) {
         for (int i=0;i<mc;i++) delete mcC[i];
         delete[]  mcC;
-    }
+    }*/
     if ( totalc>0 ) free(  mcomp);
     // free memory allocated by vmmalloc
     if (mindex){
@@ -209,7 +209,7 @@ void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i){
     if (v->totalc>0) printf("VM vms error: vms allready called\n "),quit();
     v->smc=a, v->apm1=b, v->apm2=c, v->rcm=d, v->scm=e, v->mcm=f, v->cm=g, v->mx=h,v->mc=i;
     v->totalc= a+d+e+f+g+i;
-    if (v->totalc>0 && h==0) quit("No mixer defined VM\n");
+    //if (v->totalc>0 && h==0) quit("No mixer defined VM\n");
     if (v->totalc==0 && h>0) quit("No inputs for mixer defined VM\n");
     if (a>0 ) v->smC = new StateMapContext*[a]; //uses mixer if set
     if (b>0 ) v->apm1C = new APM1*[b];
@@ -222,7 +222,7 @@ void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i){
     if (f>0 ) quit("MCM not present.\n");//v->mcmC = new ContextMap2*[f];
     if (g>0 ) v->cmC = new ContextMap*[g];
     if (h>0 ) v->mxC = new Mixer*[h];
-    if (i>0 ) v->mcC = new MatchContext*[i];
+    if (i>0 ) quit("MC not present.\n");//v->mcC = new MatchContext*[i];
 }
 //vmi - init components
 enum {vmSMC=1,vmAPM1,vmAPM2,vmRCM,vmSCM,vmMCM,vmCM,vmMX,vmMC};
@@ -253,7 +253,7 @@ void initcomponent(VM* v,int c,int i, int f,int d, int e){
         break; 
     case vmMX:   if (ii>v->mx  ) printf("VM vmi error: mx(%d) defined %d, max %d\n",c,ii, v->mx),quit();
         break; 
-    case vmMC:   if (ii>v->mc  ) printf("VM vmi error: mc(%d) defined %d, max %d\n",c,ii, v->mc),quit();
+    case vmMC:   quit("MC not present.\n");//if (ii>v->mc  ) printf("VM vmi error: mc(%d) defined %d, max %d\n",c,ii, v->mc),quit();
         break; 
     default: quit("VM vmi error\n");
     }
@@ -276,7 +276,7 @@ void initcomponent(VM* v,int c,int i, int f,int d, int e){
         break;
     case vmMX: v->mxC[i] = new Mixer(f,d,  v->x,e);
         break;
-    case vmMC: v->mcC[i] = new MatchContext(v->x,CMlimit(f<0?MEM()/(!f+1):MEM()*f),d);
+    case vmMC: quit("MC not present.\n");//v->mcC[i] = new MatchContext(v->x,CMlimit(f<0?MEM()/(!f+1):MEM()*f),d);
         break;
     default:
         quit("VM vmi error\n");
@@ -366,7 +366,7 @@ int mxc(VM* v,int a){
                 break;
             case vmCM: v->cmC[j]->mix(*v->mxC[mi]);
                 break;
-            case vmMC: v->mcC[j]->mix(*v->mxC[mi]);
+            case vmMC: quit("MC not present.\n");// v->mcC[j]->mix(*v->mxC[mi]);
                 break;
             default:
                 quit("VM mxp error\n");
@@ -397,7 +397,7 @@ int gcr(VM* v,int a,int b,int c){  //this,mixer,index,component type
                 break;
             case vmCM: return v->cmC[j]->get();
                 break;
-            case vmMC: return v->mcC[j]->get();
+            case vmMC: quit("MC not present.\n");//return v->mcC[j]->get();
                 break;
             default:
                 quit("VM gcr error\n");
@@ -548,7 +548,6 @@ case DIV: { dprintf(" DIV: \n"); break;}
 case MOD: { dprintf(" MOD: \n"); break;} 
 case VTHIS: { dprintf(" VTHIS: \n"); break;} 
 case PRTF: { dprintf(" PRTF: \n"); break;} 
-case ABS: { dprintf(" ABS: \n"); break;} 
 case SMP: { dprintf(" SMP: \n"); break;} 
 case SMN: { dprintf(" SMN: \n"); break;} 
 case APM: { dprintf(" APM: \n"); break;} 
@@ -600,7 +599,7 @@ void VM::expr(int lev){
   else if (tk == Id) {
     d = id; next();
     if (tk == '(') {      
-      if (d[Val]>ABS &&  d[Val]<MALC || d[Val]==MALC|| d[Val]==READ|| d[Val]==WRTE){//for special functions in vm
+      if (d[Val]>=SMP &&  d[Val]<MALC || d[Val]==MALC|| d[Val]==READ|| d[Val]==WRTE){//for special functions in vm
             emit(VTHIS);//*++e = VTHIS;
             next();
             t = 1; //adjust stack
@@ -610,8 +609,7 @@ void VM::expr(int lev){
           t=0;
       }
       fc=0;
-    if (d[Val] == ABS ) {fc=1 ;} //args count
-    else if ( d[Val]==MALC) {fc=3 ;}
+    if ( d[Val]==MALC) {fc=3 ;}//args count
     else if (d[Val] == SMP  ) {fc=4 ;}
     else if (d[Val] == SMN  ) {fc=2 ;}
     else if (d[Val] == APM  ) {fc=5 ;}
@@ -868,7 +866,7 @@ int VM::dovm(int *ttt){
       kprintf("%d>%x  %.4s", cycle,pc-pc0,
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
          "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
-         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXC ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,READ,WRTE,EXIT"[i * 5]);
+         "PRTF,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXC ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,READ,WRTE,EXIT"[i * 5]);
     if (i < JMP) kprintf(" %d\n",*pc); //? +1
      else if (i <= ADJ) kprintf(" %x\n",(int *)*pc-pc0+1); else kprintf("\n");
     }*/
@@ -931,7 +929,6 @@ int VM::dovm(int *ttt){
     else if (i == H3)  a = h3((U32)sp[2], (U32)sp[1],(U32)*sp);
     else if (i == H4)  a = h4((U32)sp[3],(U32)sp[2], (U32)sp[1],(U32)*sp);
     else if (i == H5)  a = h5((U32)sp[4],(U32)sp[3],(U32)sp[2], (U32)sp[1],(U32)*sp);
-    else if (i == ABS)  a = (U32)absolute((int)*sp);
     else if (i == VTHIS)  *--sp;  //ignore
     else if (i == EXIT) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return *sp; }
     else if (i == READ) a = (int)readfile(this,(U8 *)sp[1], *sp); //pointer,lenght
@@ -959,7 +956,7 @@ int VM::dojit(){
     dprintf("   %.4s",  
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
          "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
-         "PRTF,ABS ,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXC ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,READ,WRTE,EXIT"[i * 5]);
+         "PRTF,SMP ,SMN ,APM ,VMS ,VMI ,VMX ,MXP ,MXC ,MXA ,MXS ,GCR ,BUF ,BUFR,MALC,MSET,MCMP,MCPY,STRE,SQUA,ILOG,H2  ,H3  ,H4  ,H5  ,READ,WRTE,EXIT"[i * 5]);
     if (i < JMP) dprintf(" 0x%x\n",*(pc+1)); //? +1
      else if (i <= ADJ) dprintf(" 0x%x\n",(int *)*pc); else dprintf("\n");
     // }
@@ -1078,7 +1075,7 @@ int VM::dojit(){
         else if (i == BUF) { tmp = (int)bf;  }else if (i == BUFR) { tmp = (int)bfr;  }
         else if (i == ILOG) { tmp = (int)il;  }else if (i == MXC) { tmp = (int)mxc;  }
         else if (i == MXA) { tmp = (int)mxa;  }else if (i == MXS) { tmp = (int)mxs;  }
-        else if (i == GCR) { tmp = (int)gcr;  }else if (i == ABS) { tmp = (int)absolute;  }
+        else if (i == GCR) { tmp = (int)gcr;  }
         else if (i == H2) { tmp = (int)h2;  }else if (i == H3) { tmp = (int)h3;  }else if (i == H4) { tmp = (int)h4;  }
         else if (i == H5) { tmp = (int)h5;  } else if (i == READ) { tmp = (int)readfile;  }
         else if (i == WRTE) { tmp = (int)writefile;  }
@@ -1108,7 +1105,7 @@ int VM::dojit(){
         else if (u == MXA) {  dprintf("mxa");  } else if (u == MXS) {  dprintf("mxs");  }
         else if (u == MXC) {  dprintf("mxc");  } else if (u == GCR) {  dprintf("gcr");  }
         else if (u == H2) {  dprintf("h2");  } else if (u == H3) {  dprintf("h3");  }
-        else if (u == H4) {  dprintf("h4");  }  else if (u == ABS) {  dprintf("abs");  }  
+        else if (u == H4) {  dprintf("h4");  }
         else if (u == H5) {  dprintf("h5");  }else if (u== READ)  dprintf("read");  
         else if (u == WRTE)  dprintf("write");
 
@@ -1243,7 +1240,7 @@ int VM::initvm() {
   memset(e,    0, poolsz);
   memset(data, 0, poolsz);
 
-   p = "char else enum if int short return for sizeof while printf abs smp smn apm vms vmi vmx mxp mxc mxa mxs gcr buf bufr malloc memset memcmp memcpy stretch squash ilog h2 h3 h4 h5 read write exit void block update main detect decode encode";
+   p = "char else enum if int short return for sizeof while printf smp smn apm vms vmi vmx mxp mxc mxa mxs gcr buf bufr malloc memset memcmp memcpy stretch squash ilog h2 h3 h4 h5 read write exit void block update main detect decode encode";
   i = Char; while (i <= While) { next(); id[Tk] = i++; } // add keywords to symbol table
   i = PRTF; while (i <= EXIT) { next(); id[Class] = Sys; id[Type] = iINT; id[Val] = i++; } // add library to symbol table
   next(); id[Tk] = Char; // handle void type  
@@ -1378,6 +1375,10 @@ int VM::initvm() {
     }
     next();
   }
+       if (vmMode==VMDETECT && (iddetect[Val]==0 ||  idmain[Val]==0) ) quit("detect or main not defined");
+       if (vmMode==VMENCODE && (idencode[Val]==0 ||  idmain[Val]==0) ) quit("encode or main not defined");
+       if (vmMode==VMDECODE && (iddecode[Val]==0 ||  idmain[Val]==0) ) quit("decode or main not defined");
+       if (vmMode==VMCOMPRESS && (idp[Val]==0 || idupdate[Val]==0 || idmain[Val]==0) ) quit("block update or main not defined");
 
 #ifdef VMJIT
 if (dojit()!=0) return -1;
