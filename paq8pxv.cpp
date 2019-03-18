@@ -545,13 +545,9 @@ at a time.  Using assembler is 8 times faster than C++ for this code
 and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
 which computes 8 elements at a time, is not any faster).
 
-
-DIFFERENCES FROM PAQ8PXV_V9
--add small model to archive, now all decompress info is in archive
--change cfg models
 */
 
-#define VERSION "10"
+#define VERSION "11"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 #define MT            //uncomment for multithreading, compression only
@@ -1202,36 +1198,27 @@ U64 MEM(){
 }
 int defaultType;
 Segment segment; //for file segments type size info(if not -1)
- int streamc;
+ int streamCount;
 File **filestreams;
 const int datatypecount=39+1+1+1;
 
 // Contain all global data usable between models
 class BlockData {
 public: 
-    Segment segment; //for file segments type size info(if not -1)
     int y; // Last bit, 0 or 1, set by encoder
     int c0; // Last 0-7 bits of the partial byte with a leading 1 bit (1-255)
     U32 c4;//,c8; // Last 4,4 whole bytes, packed.  Last byte is bits 0-7.
     int bpos; // bits in c0 (0 to 7)
     Buf buf;  // Rotating input queue set by Predictor
-    Buf bufn;  // Rotating input queue set by Predictor
     int blpos; // Relative position in block
-    int rm1;
     int filetype;
     int finfo;
-BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),rm1(1),filetype(defaultType),finfo(-1)
-   {
+BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1) {
         // Set globals according to option
-        assert(level<=15);
-        bufn.setsize(0x10000);
-        if (level>=9) buf.setsize(0x10000000); //limit 256mb
-        else buf.setsize(MEM()*8);
-        //#ifndef NDEBUG 
-        //printf("\n Buf size %d bytes\n", buf.poswr);
-       // #endif
+        assert(level<=9);
+        buf.setsize(0x1000000); //limit 128mb
     }
-    ~BlockData(){ }
+~BlockData(){ }
 };
 ///////////////////////////// ilog //////////////////////////////
 
@@ -2036,33 +2023,6 @@ StateMapContext::StateMapContext(int n, BlockData& bd): N(n), cxt(0), t(n), mask
 //     y=(0..1) is the last bit.  cx=(0..n-1) is the other context.
 //     limit=(0..1023) defaults to 255.
 
-class APM: public StateMap {
-public:
-  APM(int n);
-  int p(int pr, int cx, int y,int limit=255) {
-    assert(pr>=0 && pr<4096);
-    assert(cx>=0 && cx<N/24);
-    assert(y==0 || y==1);
-    assert(limit>0 && limit<1024);
-    update(y,limit);
-    pr=(stretch(pr)+2048)*23;
-    int wt=pr&0xfff;  // interpolation weight of next element
-    cx=cx*24+(pr>>12);
-    assert(cx>=0 && cx<N-1);
-    cxt=cx+(wt>>11);
-    pr=((t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt)>>19;
-    return pr;
-  }
-};
-
-APM::APM(int n): StateMap(n*24) {
-  for (int i=0; i<N; ++i) {
-    int p=((i%24*2+1)*4096)/48-2048;
-    t[i]=(U32(squash(p))<<20)+6;
-  }
-}
-
-
 class APM2: public StateMapContext {
 public:
   APM2(int n, BlockData& bd);
@@ -2097,30 +2057,7 @@ inline U32 hash0(U32 a, U32 b, U32 c=0xffffffff, U32 d=0xffffffff,
   U32 h=a*200002981u+b*30005491u+c*50004239u+d*70004807u+e*110002499u;
   return h^h>>9^a>>2^b>>3^c>>4^d>>5^e>>6;
 }
-// Magic number 2654435761 is the prime number closest to the 
-// golden ratio of 2^32 (2654435769)
-//#define PHI 0x9E3779B1 //2654435761
 
-// A hash function to diffuse a 32-bit input
-/*inline U32 hash(U32 x) {
-  x++; // zeroes are common and mapped to zero
-  x = ((x >> 16) ^ x) * 0x85ebca6b;
-  x = ((x >> 13) ^ x) * 0xc2b2ae35;
-  x = (x >> 16) ^ x;
-  return x;
-}*/
-
-// Combine a hash value (seed) with another (non-hash) value.
-// The result is a combined hash. 
-//
-// Use this function repeatedly to combine all input values 
-// to be hashed to a final hash value.
-/*inline U32 combine(U32 seed, const U32 x) {
-  seed+=(x+1)*PHI;
-  seed+=seed<<10;
-  seed^=seed>>6;
-  return seed;
-}*/
 ///////////////////////////// BH ////////////////////////////////
 
 // A BH maps a 32 bit hash to an array of B bytes (checksum and B-2 values)
@@ -2614,7 +2551,7 @@ inline int mix2(Mixer& m, int s, StateMap& sm) {
   m.add(st);
   p1>>=4;
   int p0=255-p1;
-  if (m.x.rm1)  m.add(p1-p0); else m.add(0);
+  m.add(p1-p0);
   m.add(st*(n1-n0));
   m.add((p1&n0)-(p0&n1));
   m.add((p1&n1)-(p0&n0));
@@ -2755,216 +2692,6 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
 int ContextMap::inputs() {
     return 6;
 }
-
-////////////////////////////// Indirect Context //////////////////////////////
-
-template <typename T>
-class IndirectContext {
-private:
-  Array<T> data;
-  T* ctx;
-  U32 ctxMask, inputMask, inputBits;
-public:
-  IndirectContext(const int BitsPerContext, const int InputBits = 8) :
-    data(1ull<<BitsPerContext),
-    ctx(&data[0]),
-    ctxMask((1ul<<BitsPerContext)-1),
-    inputMask((1ul<<InputBits)-1),
-    inputBits(InputBits)
-  {
-    assert(BitsPerContext>0 && BitsPerContext<=20);
-    assert(InputBits>0 && InputBits<=8);
-  }
-  void operator+=(const U32 i) {
-    assert(i<=inputMask);
-    (*ctx)<<=inputBits;
-    (*ctx)|=i;
-  }
-  void operator=(const U32 i) {
-    ctx = &data[i&ctxMask];
-  }
-  T& operator()(void) {
-    return *ctx;
-  }
-};
-
-//////////////////////////// Models //////////////////////////////
-
-// All of the models below take a Mixer as a parameter and write
-// predictions to it.
-
-//////////////////////////// matchModel ///////////////////////////
-/*
-class MatchContext   {
-private:
-    BlockData& x;
-    Buf& buffer;
-    const U64 Size;
-  enum Parameters : U32{
-      MaxLen = 0xFFFF, // longest allowed match
-    MaxExtend = 0,   // longest match expansion allowed // warning: larger value -> slowdown
-    MinLen = 5,      // minimum required match length
-    StepSize = 2,    // additional minimum length increase per higher order hash
-    DeltaLen = 5,    // minimum length to switch to delta mode
-    NumCtxs = 3,     // number of contexts used
-    NumHashes = 3    // number of hashes used
-
-  };
-  Array<U32> Table;
-  StateMap StateMaps[NumCtxs];
-  SmallStationaryContextMap SCM[3];
-  StationaryMap Maps[3];
-  IndirectContext<U8> iCtx;
-  U32 hashes[NumHashes];
-  U32 ctx[NumCtxs];
-  U32 length;    // rebased length of match (length=1 represents the smallest accepted match length), or 0 if no match
-  U32 index;     // points to next byte of match in buffer, 0 when there is no match
-  U32 mask;
-  U8 expectedByte; // prediction is based on this byte (buffer[index]), valid only when length>0
-  bool delta;
-  int result;
-  void Update() {
-        delta = false;
-    if (length==0 && Bypass)
-      Bypass = false; // can quit bypass mode on byte boundary only
-    // update hashes
-    for (U32 i=0, minLen=MinLen+(NumHashes-1)*StepSize; i<NumHashes; i++, minLen-=StepSize) {
-      hashes[i] = hash(minLen);
-      for (U32 j=1; j<=minLen; j++)
-        hashes[i] = combine(hashes[i], buffer(j)<<i);
-      hashes[i]&=mask;
-    }
-    // extend current match, if available
-    if (length) {
-      index++;
-      if (length<MaxLen)
-        length++;
-    }
-    // or find a new match, starting with the highest order hash and falling back to lower ones
-    else {
-      U32 minLen = MinLen+(NumHashes-1)*StepSize, bestLen = 0, bestIndex = 0;
-      for (U32 i=0; i<NumHashes && length<minLen; i++, minLen-=StepSize) {
-        index = Table[hashes[i]];
-        if (index>0) {
-          length = 0;
-          while (length<(minLen+MaxExtend) && buffer(length+1)==buffer[index-length-1])
-            length++;
-          if (length>bestLen) {
-            bestLen = length;
-            bestIndex = index;
-          }
-        }
-      }
-      if (bestLen>=minLen) {
-        length = bestLen-(MinLen-1); // rebase, a length of 1 actually means a length of MinLen
-        index = bestIndex;
-      }
-      else
-        length = index = 0;
-    }
-    // update position information in hashtable
-    for (U32 i=0; i<NumHashes; i++)
-      Table[hashes[i]] = x.buf.pos;
-      expectedByte = buffer[index];
-    iCtx+=x.y, iCtx=(buffer(1)<<8)|expectedByte;
-    SCM[0].set(expectedByte);
-    SCM[1].set(expectedByte);
-    SCM[2].set(x.buf.pos);
-    Maps[0].set((expectedByte<<8)|buffer(1));
-    Maps[1].set(hash0(expectedByte, x.c0, buffer(1), buffer(2), min(3,(int)ilog2(length+1))));
-    Maps[2].set(iCtx());
-    //x.Match.byte = (length)?expectedByte:0;
-  }
-public:
-  bool canBypass;
-  bool Bypass;
-  U16 BypassPrediction; // prediction for bypass mode
-  virtual ~MatchContext(){ }
-  int inputs() {return  2+NumCtxs+3*2+3*2+2;}
-  MatchContext(BlockData& bd, int m, U32 val1=0) :
-    x(bd),buffer(bd.buf),Size( m),
-    Table(Size/sizeof(U32)),
-    StateMaps{56*256, 8*256*256+1, 256*256 },
-    SCM{ {8,8},{11,1},{8,8} },
-    Maps{ {16}, {22,1}, {4,1} },
-    iCtx{19,1},
-    hashes{ 0 },
-    ctx{ 0 },
-    length(0),
-    mask(Size/sizeof(U32)-1),
-    expectedByte(0),
-    delta(false),
-    canBypass(true),
-    Bypass(false),
-    BypassPrediction(2048),
-    result(0)
-  {
-    assert((Size&(Size-1))==0);
-  }
-  int get(){return result;}
-  void mix(Mixer& m) {
-    if (x.bpos==0)
-      Update();
-   else {
-      U8 B = x.c0<<(8-x.bpos);
-      SCM[1].set((x.bpos<<8)|(expectedByte^B));
-      Maps[1].set(hash0(expectedByte, x.c0, buffer(1), buffer(2), min(3,(int)ilog2(length+1))));
-      iCtx+=x.y, iCtx=(x.bpos<<16)|(buffer(1)<<8)|(expectedByte^B);
-      Maps[2].set(iCtx());
-    }
-    const int expectedBit = (expectedByte>>(7-x.bpos))&1;
-
-    if(length>0) {
-      const bool isMatch = x.bpos==0 ? buffer(1)==buffer[index-1] : ((expectedByte+256)>>(8-x.bpos))==x.c0; // next bit matches the prediction?
-      if(!isMatch) {
-        delta = (length+MinLen)>DeltaLen;
-        length = 0;
-      }
-    }
-
-    if (!(canBypass && Bypass)) {
-      for (U32 i=0; i<NumCtxs; i++)
-        ctx[i] = 0;
-      if (length>0) {
-          if (length<=16)
-            ctx[0] = (length-1)*2 + expectedBit; // 0..31
-          else
-            ctx[0] = 24 + (min(length-1, 63)>>2)*2 + expectedBit; // 32..55
-          ctx[0] = ((ctx[0]<<8) | x.c0);
-          ctx[1] = ((expectedByte<<11) | (x.bpos<<8) | buffer(1)) + 1;
-          const int sign = 2*expectedBit-1;
-          m.add(sign*(min(length,32)<<5)); // +/- 32..1024
-          m.add(sign*(ilog(length)<<2));   // +/-  0..1024
-        }
-        else { // no match at all or delta mode
-          m.add(0);
-          m.add(0);
-        }
-
-      if (delta)
-        ctx[2] = (expectedByte<<8) | x.c0;
-
-      for (U32 i=0; i<NumCtxs; i++) {
-        const U32 c = ctx[i];
-        const U32 p = StateMaps[i].p(c,x.y);
-        if (c!=0)
-          m.add((stretch(p)+1)>>1);
-        else
-          m.add(0);
-      }
-
-      SCM[0].mix(m);
-      SCM[1].mix(m, 6);
-      SCM[2].mix(m, 5);
-      Maps[0].mix(m, 1, 4, 255);
-      Maps[1].mix(m);
-      Maps[2].mix(m);
-    }
-    BypassPrediction = length==0 ? 2048 : (expectedBit==0 ? 1 : 4095);
-   // x.Match.length = length;
-    result=ilog(length);
-  }
-  };*/
   
 //////////////////////////// Predictor /////////////////////////
 // A Predictor estimates the probability that the next bit of
@@ -2979,8 +2706,6 @@ public:
  BlockData x; //maintains current global data block
  int pr;  
   VM vm;
-  
-
   Predictor(char *m): pr(2048),vm(m,x,VMCOMPRESS) {setdebug(0); }
   int p()  const {assert(pr>=0 && pr<4096); return pr;} 
   ~Predictor(){ vm.killvm( );}
@@ -3330,7 +3055,7 @@ int getstreamid(int type){
 }
 
 bool isstreamtype(int type,int streamid){
-   // assert(streamid<streamc);
+   // assert(streamid<streamCount);
    // assert(type<TYPELAST);
     if (type<vTypes.size() && vTypes[type].streamId==streamid) return true;
     return false;
@@ -3457,8 +3182,6 @@ void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=
 // Test transform and compress.
 void DetectStreams(const char* filename, U64 filesize) {
   FileTmp tmp;
-  //Predictor *t;
-  //t=0;
   Encoder en(COMPRESS, &tmp,0);
   assert(en.getMode()==COMPRESS);
   assert(filename && filename[0]);
@@ -4016,11 +3739,11 @@ int readConfigFile(FILE *fp){
         else printf("disabled\n");
     }*/
     //create temporary files for streams
-    streamc=(int)vStreams.size();
-    if (streamc>16) quit("Max 16 streams allowed.");
-    filestreams = new File*[streamc];
-    for (int i=0;i<streamc;i++) filestreams[i]= new FileTmp();
-    filestreamsize.resize(streamc);
+    streamCount=(int)vStreams.size();
+    if (streamCount>16) quit("Max 16 streams allowed.");
+    filestreams = new File*[streamCount];
+    for (int i=0;i<streamCount;i++) filestreams[i]= new FileTmp();
+    filestreamsize.resize(streamCount);
     //quit("end config");
 }   
 
@@ -4100,12 +3823,12 @@ void createStreamVM(){
     FILE *f;
     char *streamModel;
     vmStream = new VM*[vStreams.size()];
-    // actual VM is created when compressing or decompressign
+    // actual VM is created when compressing or decompressing
 }
 int getUnknownType(){
     
     for (int i=0;i<vTypes.size();i++){
-        if ( vTypes[i].dsize==-1) return i;//return index for noew // vTypes[i].type;
+        if ( vTypes[i].dsize==-1) return i;//return index for now // vTypes[i].type;
     }
     //not found
     return -1;
@@ -4121,15 +3844,15 @@ void CompressType(File *out){
     U8 *p;
     int fsz;
     int insize=out->curpos();
+    // compress main config file
     in=fopen("conf.pxv", "rb");
-            fseek(in,0,SEEK_END);
-            fsz=ftello(in); 
-            fseek(in,0,SEEK_SET);
-            //compress model file
-            enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
-            for (int k=0;k<fsz;++k) enm->compress(getc(in));
-            //close compressed and uncomressed model files
-            fclose(in); 
+    fseek(in,0,SEEK_END);
+    fsz=ftello(in); 
+    fseek(in,0,SEEK_SET);
+    enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
+    for (int k=0;k<fsz;++k) enm->compress(getc(in));
+    fclose(in); 
+    //close compressed and uncomressed model files
     for (int i=0; i<(int)vTypes.size();i++){
         // compress type decode model if it was used in transform_encode_block
         if (vTypes[i].used==1 && vTypes[i].desize!=-1){
@@ -4151,9 +3874,7 @@ void CompressType(File *out){
     modelo->setpos(0);
     p = (U8 *)calloc(fsz+1,1); 
     modelo->blockread(p,fsz);
-    // p[fsz] = 0;
     out->blockwrite(&p[0],fsz);
-    
     //read again model file
     free(p);
     delete enm;
@@ -4169,14 +3890,13 @@ void DecompressType(File *out){
     // decompress config file from archive
     FILE *conf=tmpfile2();
     len=enm->decompress()<<24; //decompress compressed model lenght
-        len+=enm->decompress()<<16;
-        len+=enm->decompress()<<8;
-        len+=enm->decompress();
-        for (int k=0;k<len;++k) putc(enm->decompress(),conf); 
-         //  conf = fopen("conf.pxv" , "rb");
-         fseek(conf,0,SEEK_SET);
-           readConfigFile(conf);
-           if (defaultType=getUnknownType()==-1) quit("Default type not defined (type x detect -1)"); //
+    len+=enm->decompress()<<16;
+    len+=enm->decompress()<<8;
+    len+=enm->decompress();
+    for (int k=0;k<len;++k) putc(enm->decompress(),conf); 
+    fseek(conf,0,SEEK_SET);
+    readConfigFile(conf);
+    if (defaultType=getUnknownType()==-1) quit("Default type not defined (type x detect -1)");
     //decompress type files if present
     vmDecode = new VM*[vTypes.size()];
     for (int i=0; i<(int)vTypes.size();i++){
@@ -4391,11 +4111,11 @@ printf("\n");
             archive->append(PROGNAME);
             archive->putc(0);
             archive->putc(level);
-            archive->putc(streamc);
-            // store small model uncopressed to archive, used when decompressing
+            archive->putc(streamCount);
+            // store small model uncompressed to archive, used when decompressing
             int modsize=strlen(pp);
             archive->put32(modsize);
-            printf("Small model: %d bytes.\n",modsize);
+            //printf("Small model: %d bytes.\n",modsize);
             for (int k=0;k<modsize;++k) archive->putc(pp[k]);
             segment.hpos= archive->curpos();
             
@@ -4423,15 +4143,15 @@ printf("\n");
             level=archive->getc();
             
             level=level&0xf;
-            streamc=archive->getc();
+            streamCount=archive->getc();
             //read small model.
             int modsize=archive->get32();
             dmodel = (char *)calloc(modsize+1,1);
             for (int k=0;k<modsize;++k) dmodel[k]=archive->getc(); 
             
-            filestreams = new File*[streamc];
-            for (int i=0;i<streamc;i++) filestreams[i]= new FileTmp();
-            filestreamsize.resize(streamc);
+            filestreams = new File*[streamCount];
+            for (int i=0;i<streamCount;i++) filestreams[i]= new FileTmp();
+            filestreamsize.resize(streamCount);
             // Read segment data from archive end
             U64 currentpos,datapos=0L;
             for (int i=0; i<8; i++) datapos=datapos<<8,datapos+=archive->getc();
@@ -4459,8 +4179,8 @@ printf("\n");
             delete segencode;
             tmp.close();
             //read stream sizes if stream bit is set
-            for (int i=0;i<streamc;i++){
-                if ((streambit>>(streamc-i))&1){
+            for (int i=0;i<streamCount;i++){
+                if ((streambit>>(streamCount-i))&1){
                    for (int j=0; j<8; j++) filestreamsize[i]<<=8,filestreamsize[i]+=archive->getc();
                 }
             }
@@ -4552,11 +4272,11 @@ printf("\n");
             
 #ifdef MT
             File **filesmt;
-            filesmt = new File*[streamc];
-            for (int i=0;i<streamc;i++) filesmt[i]= new FileTmp();
+            filesmt = new File*[streamCount];
+            for (int i=0;i<streamCount;i++) filesmt[i]= new FileTmp();
             std::vector<Job> jobs;
 #endif
-            for (int i=0; i<streamc; ++i) {
+            for (int i=0; i<streamCount; ++i) {
                 U64 datasegmentsize;
                 datasegmentsize= filestreams[i]->curpos();    //get segment data offset
                 filestreamsize[i]=datasegmentsize;
@@ -4697,7 +4417,7 @@ printf("\n");
     }
 
              #endif
-            for (int i=0; i<streamc; ++i) {
+            for (int i=0; i<streamCount; ++i) {
                 filestreams[i]->close();
             }
             
@@ -4729,7 +4449,7 @@ printf("\n");
             archive->setpos(segmentpos); 
             archive->blockwrite(&segment[0], segment.pos); //write out segment data
             //write stream size if present
-            for (int i=0;i<streamc;i++){
+            for (int i=0;i<streamCount;i++){
                 if (filestreamsize[i]>0) archive->put64(filestreamsize[i]);
             }
             printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  (U32)archive->curpos()); 
@@ -4760,7 +4480,6 @@ printf("\n");
             /////
             
             delete en;
-//            printf("in %d ",(int)archive->curpos()); 
             DecompressType(archive);
             U64 datasegmentsize;
             U64 datasegmentlen;
@@ -4768,10 +4487,10 @@ printf("\n");
             int datasegmentinfo;
             int datasegmenttype;
 
-           Encoder *defaultencoder;
-           defaultencoder=0;
-           char *app;
-            for (int i=0; i<streamc; ++i) {
+            Encoder *defaultencoder;
+            defaultencoder=0;
+            char *app;
+            for (int i=0; i<streamCount; ++i) {
                 datasegmentsize=(filestreamsize[i]); // get segment data offset
                 if (datasegmentsize>0){              // if segment contains data
                     filestreams[i]->setpos( 0);
@@ -4783,32 +4502,27 @@ printf("\n");
                     if (defaultencoder) delete defaultencoder,defaultencoder=0,free(app);
                     //load config file from archive stream
                     //read compressed file header and data
-                    if (level>0) {
-                  
-                    int fsz=0;  
-                    Encoder* enm;
-                    enm=new Encoder(DECOMPRESS, archive,dmodel);
-                    enm->predictor->set();
-                    int len=0;
-                    len+=enm->decompress()<<24; //decompress compressed model lenght
-                    len+=enm->decompress()<<16;
-                    len+=enm->decompress()<<8;
-                    len+=enm->decompress();
-                    app = (char *)calloc(len+1,1); //alloc mem for decompressed buf
-                    // decompress model into buf pp
-                    for (int k=0;k<len;++k) app[k]=enm->decompress();
-                   //     app[len] = 0;
-                    delete enm; //delete encoder and predictor
-                      
-
-                     }
+                    if (level>0) {                  
+                       int fsz=0;  
+                       Encoder* enm;
+                       enm=new Encoder(DECOMPRESS, archive,dmodel);
+                       enm->predictor->set();
+                       int len=0;
+                       len+=enm->decompress()<<24; //decompress compressed model lenght
+                       len+=enm->decompress()<<16;
+                       len+=enm->decompress()<<8;
+                       len+=enm->decompress();
+                       app = (char *)calloc(len+1,1); //alloc mem for decompressed buf
+                       // decompress model into buf pp
+                       for (int k=0;k<len;++k) app[k]=enm->decompress();
+                       delete enm; //delete encoder and predictor
+                    }
                     printf("DeCompressing ");
                     printf("%s   stream(%d).\n",vStreams[i].model,i); 
-                   //init encoder with decompressed model app
-                     defaultencoder=new Encoder (mode, archive,app); 
-
-                        while (datasegmentsize>0) {
-                            while (datasegmentlen==0){
+                    //init encoder with decompressed model app
+                    defaultencoder=new Encoder (mode, archive,app); 
+                    while (datasegmentsize>0) {
+                        while (datasegmentlen==0){
                                 datasegmenttype=segment(datasegmentpos++);
                                 for (int ii=0; ii<8; ii++) datasegmentlen=datasegmentlen<<8,datasegmentlen+=segment(datasegmentpos++);
                                 for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
@@ -4821,18 +4535,18 @@ printf("\n");
                                 defaultencoder->predictor->set();
                                 defaultencoder->predictor->setdebug(0);
                                 }
-                            }
-                            for (U64 k=0; k<datasegmentlen; ++k) {
-                                if (!(datasegmentsize&0x1fff)) printStatus(total-datasegmentsize, total,i);
-                                filestreams[i]->putc(defaultencoder->decompress());
-                                datasegmentsize--;
-                            }
-                            datasegmentlen=0;
                         }
+                        for (U64 k=0; k<datasegmentlen; ++k) {
+                            if (!(datasegmentsize&0x1fff)) printStatus(total-datasegmentsize, total,i);
+                            filestreams[i]->putc(defaultencoder->decompress());
+                            datasegmentsize--;
+                        }
+                        datasegmentlen=0;
+                    }
                 }
             } 
             // set datastream file pointers to beginning
-            for (int i=0; i<streamc; ++i)         
+            for (int i=0; i<streamCount; ++i)         
             filestreams[i]->setpos( 0);
             /////
             segment.pos=0;
@@ -4843,7 +4557,7 @@ printf("\n");
             } 
             int d=segment(segment.pos++);
             if (d!=0xff) printf("Segmend end marker not found\n");
-            for (int i=0; i<streamc; ++i) {
+            for (int i=0; i<streamCount; ++i) {
                 filestreams[i]->close();
             }
         }
