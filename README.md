@@ -1,14 +1,15 @@
 # paq8pxv
 
 This is paq8 like compressor, witch uses config files for compression models, detection, data decoding and encoding.
-Compression models and data encoding models will be saved into final archive, so that decompressor can use them when data is extracted.
+Compression models and data decoding models will be saved into final archive, so that decompressor can use them when data is extracted.
+Also main config file is stored compressed. Main compression routine is stored uncompressed.
 
-paq8pxv compressor itself just a tool. It uses virtual machine, which compiles c like code to bytecode.
+paq8pxv uses virtual machine, which compiles c like code to bytecode at runtime and executes it.
 There is also x86 JIT version.
 
 # Config files
 Example detection conf:
-```
+```c
 // For XXXX detection
 int buf0,buf1,mystart;
 int type,state,jstart,jend;
@@ -61,6 +62,53 @@ int detect(int c4,int i) {
 int main() {
     reset();
 }
+```
+Main compression routine used when compressing cfg/decode files and main config file.
+Stored uncompressed at the beginning of the output file.
+```c
+int *cxt,*t;
+int cxt1,cxt2,cxt3,cxt4,N;
+
+// update is called by vm for every input bit
+// output must be prediction 0...4095
+// y    - last bit
+// c0   - last 0-7 bits of the partial byte with a leading 1 bit (1-255)
+// c4   - last 4,4 whole bytes, packed.  Last byte is bits 0-7.
+// bpos - bits in c0 (0 to 7)
+// pos  - current pos in input data
+int update(int y,int c0,int bpos,int c4,int pos){
+    int i,pr0;
+    if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;
+    for (i=0; i<N; ++i) t[cxt[i]]=smn(t[cxt[i]]);
+    cxt[0]=(cxt1+c0);
+    cxt[1]=(cxt2+c0+0x10000);
+    cxt[2]=(cxt3+c0+0x20000);
+    cxt[3]=(cxt4+c0+0x30000);
+    pr0=0;
+    for (i=0; i<4; ++i) pr0=pr0+smp(i,t[cxt[i]],1023);
+    pr0=pr0>>2;
+    return apm(0,pr0,c0,7);
+}
+
+// called at the start of every new data type
+// a - info
+// b - reserved (not used and set to 0)
+void block(int a,int b) {}
+
+// called once at the start of compression
+int main() {
+    int i;
+    N=4;
+    if (!(t = malloc((0x40000),sizeof(int)))) exit(-1);
+    if (!(cxt = malloc(4,sizeof(int)))) exit(-1);
+    // init, use N number of StateMap's, 1 APM
+    vms(N,1,0,0,0,0,0,0,0);
+    // init StateMap[i], context size 256, no mixer (-1)
+    for (i=0;i<N;i++) vmi(1,i,256,0,-1);
+    // init APM[0], context size 256, no mixer (-1)
+    vmi(2,0,256,0,-1);
+    cxt1=cxt2=cxt3=cxt4=0;
+};
 ```
 # Forum
 https://encode.ru/threads/3064-paq8pxv-virtual-machine
