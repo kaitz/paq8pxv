@@ -1239,15 +1239,6 @@ Ilog::Ilog(): t(65536) {
   }
 }
 
-// llog(x) accepts 32 bits
-inline int llog(U32 x) {
-  if (x>=0x1000000)
-    return 256+ilog(x>>16);
-  else if (x>=0x10000)
-    return 128+ilog(x>>8);
-  else
-    return ilog(x);
-}
 inline U32 BitCount(U32 v) {
   v -= ((v >> 1) & 0x55555555);
   v = ((v >> 2) & 0x33333333) + (v & 0x33333333);
@@ -1986,7 +1977,6 @@ protected:
   int mask;
   BlockData& x;
   inline void update( int limit) {
-  //	printf("cx=%d  \n",cxt   );
     assert(cxt>=0 && cxt<N);
     assert(x.y==0 || x.y==1);
     U32 &p=t[cxt];
@@ -1998,7 +1988,6 @@ public:
   StateMapContext(int n,  BlockData& x);//
   // update bit y (0..1), predict next bit in context cx
   int p(int cx,int limit=1023) {
-    //assert(cx>=0 && cx<N);
     assert(limit>0 && limit<1024);
     update(limit);
     return pr=t[cxt=(cx&mask)]>>20;
@@ -2029,7 +2018,6 @@ public:
   int p(int pr, int cx, int limit=255) {
     assert(pr>=0 && pr<4096);
     assert(cx>=0 && cx<N/24);
-    //assert(y==0 || y==1);
     assert(limit>0 && limit<1024);
     update(limit);
     pr=(stretch(pr)+2048)*23;
@@ -2285,12 +2273,8 @@ public:
     assert(BitsOfContext+InputBits<=24);
     cp=&Data[0];
   }
-  void set_direct(const U32 ctx) {
+  void set(const U32 ctx) {
     Context = (ctx&mask)*stride;
-    bCount=B=0;
-  }
-  void set(const U64 ctx) {
-    Context = (finalize64(ctx,maskbits)&mask)*stride;
     bCount=B=0;
   }
   void mix(Mixer& m, const int Multiplier = 1, const int Divisor = 4, const U16 Limit = 1023) {
@@ -2518,9 +2502,6 @@ ContextMap::ContextMap(U64 m, int c): C(c),  t(m>>6), cp(C), cp0(C),
     cp0[i]=cp[i]=&t[0].bh[0][0];
     runp[i]=cp[i]+3;
   }
-  //#ifndef NDEBUG 
-  //printf("ContextMap t %0.2f mbytes\n",(((t.size()*sizeof(E)) +0.0)/1024)/1024);
-  //#endif
 }
 
 ContextMap::~ContextMap() {
@@ -3385,117 +3366,98 @@ char *pp =
 "if (!(cxt = malloc(4,sizeof(int)))) exit(-1);"
 "vms(N,1,0,0,0,0,0,0,0);for (i=0;i<N;i++) vmi(1,i,256,0,-1);"
 "vmi(2,0,256,0,-1);cxt1=cxt2=cxt3=cxt4=0;}";
-/*"int c,c1,*t; \n void update(int y,int c0,int b,int c4,int p){ \n"
-"int cc1; \n cc1=c+c1; \n if (y) t[cc1]=t[cc1]+((65536-t[cc1])>>5); \n"
-"else t[cc1]=t[cc1]-(t[cc1]>>5); \n"
-"if ((c=c*2+y)>=256) c1=((c1+(c&255))<<9)&0x1ffffFF,c=1; \n"
-"return apm(0,(t[c+c1]>>4),c,7);} \n void block(int a,int b){} \n"
-"int main() { \n int i; \n if (!(t=malloc(0x2000000,sizeof(int)))) exit(-1); \n"
-"vms(0,1,0,0,0,0,0,0,0); \n vmi(2,0,256,0,-1);\nc1=0,c=1; \n"
-"for (i=0; i<0x2000000; i++) t[i]=32768;}";*/
 
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
     i=streamid;
     Encoder* threadencode;
     U64 datasegmentsize;
-    U64 datasegmentlen;
-    int datasegmentpos;
-    int datasegmentinfo;
-    int datasegmenttype;
+    U64 datasegmentlen=0;
+    int datasegmentpos=0;
+    int datasegmentinfo=0;
     U64 scompsize=0;
-   U32 currentpos;
+    U32 currentpos;
     int modelSize=0;
     int modelSizeCompressed=0;
     currentpos=(U32)out->curpos();
     U8 *p;
-                datasegmentsize=size;
-                    U64 total=size;
-                    datasegmentpos=0;
-                    datasegmentinfo=0;
-                    datasegmentlen=0;
-                    // datastreams
-                    FILE *moin;
-                    moin=0; 
-                    p=0;
-                    if (level>0){
-                    moin=fopen(vStreams[i].model, "rb");
-                    
-                   
-                      if(moin){
-                                              
-                        File *modelo;//open tmp file for compressed config file
-                       modelo= new FileTmp();
-                        Encoder* enm;
-                        enm=new Encoder(COMPRESS, modelo,pp);
-                        enm->predictor->set();
-        
-                           fseek ( moin , 0 , SEEK_END );
-                           int fsz=ftello(moin); 
-                           modelSize=fsz;
-                           assert(fsz>0);
-                           fseek ( moin , 0 , SEEK_SET );
-                           //compress model file
-                           enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
-                           for (int k=0;k<fsz;++k) enm->compress(getc(moin));
-                           enm->flush();
-                        delete enm;
+    datasegmentsize=size;
+    // datastreams
+    FILE *moin;
+    moin=0; 
+    p=0;
+    if (level>0){
+        moin=fopen(vStreams[i].model, "rb");
+        if(moin){
+            File *modelo;//open tmp file for compressed config file
+            modelo= new FileTmp();
+            Encoder* enm;
+            enm=new Encoder(COMPRESS, modelo,pp);
+            enm->predictor->set();
+            
+            fseek ( moin , 0 , SEEK_END );
+            int fsz=ftello(moin); 
+            modelSize=fsz;
+            assert(fsz>0);
+            fseek ( moin , 0 , SEEK_SET );
+            //compress model file
+            enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
+            for (int k=0;k<fsz;++k) enm->compress(getc(moin));
+            enm->flush();
+            delete enm;
 
-                          fsz=modelo->curpos();
-                          modelSizeCompressed=fsz;
-                          modelo->setpos(0);
-                          p = (U8 *)calloc(fsz+1,1); 
-                         modelo->blockread(p,fsz);
-                          p[fsz] = 0;
-                        out->blockwrite(&p[0],fsz);
-                        //read again model file
-                        fseek ( moin , 0 , SEEK_END );
-                        fsz=ftello(moin); 
-                           fseek ( moin , 0 , SEEK_SET );
-                           free(p);
-                           //read config file for compression
-                          p = (U8 *)calloc(fsz+1,1); 
-                         fread( p, 1,fsz,moin); 
-                          p[fsz] = 0;
-                          //close compressed and uncomressed model files
-                        fclose(moin); 
-                        modelo->close();// fclose();
-                    }
-                    else quit("Config file not found.");
-                      
-                    }
+            fsz=modelo->curpos();
+            modelSizeCompressed=fsz;
+            modelo->setpos(0);
+            p = (U8 *)calloc(fsz+1,1); 
+            modelo->blockread(p,fsz);
+            p[fsz] = 0;
+            out->blockwrite(&p[0],fsz);
+            //read again model file
+            fseek ( moin , 0 , SEEK_END );
+            fsz=ftello(moin); 
+            fseek ( moin , 0 , SEEK_SET );
+            free(p);
+            //read config file for compression
+            p = (U8 *)calloc(fsz+1,1); 
+            fread( p, 1,fsz,moin); 
+            p[fsz] = 0;
+            //close compressed and uncomressed model files
+            fclose(moin); 
+            modelo->close();// fclose();
+        }
+        else quit("Config file not found.");        
+    }
 
-                     printf("Compressing %s   stream(%d).  Total %d\n",vStreams[i].model,i,(U32)datasegmentsize); 
-                    threadencode=new Encoder (COMPRESS, out,(char *)p); 
-                    
-                        while (datasegmentsize>0) {
-                            while (datasegmentlen==0){
-                                datasegmenttype=segment(datasegmentpos++);
-                                for (int ii=0; ii<8; ii++) datasegmentlen<<=8,datasegmentlen+=segment(datasegmentpos++);
-                                for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
-                                if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
-                                if (level>0){
-                                threadencode->predictor->x.filetype=datasegmenttype;
-                                threadencode->predictor->x.blpos=0;
-                                threadencode->predictor->x.finfo=datasegmentinfo;
-                                threadencode->predictor->set();
-                                threadencode->predictor->setdebug(0);
-                                }
-                            }
-                            for (U64 k=0; k<datasegmentlen; ++k) {
-                                //#ifndef MT
-                                if (!(datasegmentsize&0x1fff)) printStatus(total-datasegmentsize, total,i);
-                                //#endif
-                                threadencode->compress(in->getc());
-                                datasegmentsize--;
-                            }
-                            datasegmentlen=0;
-                        }
-                        threadencode->flush();
-                    
-            delete threadencode;
-           printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, ((U32)out->curpos()-(U32)currentpos)-modelSizeCompressed);
-           printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
+    printf("Compressing %s   stream(%d).  Total %d\n",vStreams[i].model,i,(U32)datasegmentsize); 
+    threadencode=new Encoder (COMPRESS, out,(char *)p); 
+    
+    while (datasegmentsize>0) {
+        while (datasegmentlen==0){
+            int datasegmenttype=segment(datasegmentpos++);
+            for (int ii=0; ii<8; ii++) datasegmentlen<<=8,datasegmentlen+=segment(datasegmentpos++);
+            for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
+            if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
+            if (level>0){
+                threadencode->predictor->x.filetype=datasegmenttype;
+                threadencode->predictor->x.blpos=0;
+                threadencode->predictor->x.finfo=datasegmentinfo;
+                threadencode->predictor->set();
+                threadencode->predictor->setdebug(0);
+            }
+        }
+        for (U64 k=0; k<datasegmentlen; ++k) {
+            if (!(datasegmentsize&0x1fff)) printStatus(size-datasegmentsize, size,i);
+            threadencode->compress(in->getc());
+            datasegmentsize--;
+        }
+        datasegmentlen=0;
+    }
+    threadencode->flush();
+    
+    delete threadencode;
+    printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, ((U32)out->curpos()-(U32)currentpos)-modelSizeCompressed);
+    printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
 }
 
 #ifdef MT
@@ -3515,7 +3477,7 @@ typedef enum {READY, RUNNING, FINISHED_ERR, FINISHED, ERR, OK} State;
 // Instructions to thread to compress or decompress one block.
 struct Job {
   State state;        // job state, protected by mutex
-  int id;             
+  int id;
   int streamid;
   U64 datasegmentsize;
   int command;
@@ -3545,7 +3507,7 @@ bool append(File* out, File* in) {
     quit("append out error\n");
     return false;
   }
-  const int BUFSIZE=4096;
+  const int BUFSIZE=4096*64;
   U8 buf[BUFSIZE];
   int n;
   while ((n=in->blockread(buf, BUFSIZE ))>0)
@@ -3599,13 +3561,11 @@ thread(void *arg) {
 
 // read global config file conf.pxv
 int readConfigFile(FILE *fp){ 
-   //FILE *fp;
-   char str[60];
-   int result, findNL;
-   int ssize=-1,tsize=-1; // stream index
-   /* opening file for reading */
-   //fp = fopen("conf.pxv" , "rb");
-   if(fp == NULL) quit("Error opening conf.pxv file\n");
+    char str[60];
+    int result, findNL;
+    int ssize=-1,tsize=-1; // stream index
+    /* opening file for reading */
+    if(fp == NULL) quit("Error opening conf.pxv file\n");
     while (fgets (str, 60, fp)!=NULL){   
         // remove comment
         if (str[0]=='/' || str[0]=='\r' || str[0]=='\n') continue;
@@ -3647,7 +3607,6 @@ int readConfigFile(FILE *fp){
             ptr = strtok(NULL, " \t\n\r/");
             if (ptr == NULL)  quit("bad config: type id not found"); 
             int sid=atoi(ptr);
-            //if (sid<0) quit("bad config: type id not >=0 (Not working now)"); 
             vTypes[tsize].type=sid;
             continue;
         }
@@ -3707,7 +3666,6 @@ int readConfigFile(FILE *fp){
             int fsize=strlen(ptr);
             if (  fsize >15 ||fsize==0 || ptr[0]>'9') quit("bad config:   compress parameter wrong");
             int sid=atoi(ptr);
-            //if (sid<0) quit("bad config: compress id not >=0 (Not working now)"); 
             vTypes[tsize].streamId=sid;        // set type model for compression
            // printf("type id=%d stream id=%d\n",vTypes[tsize].type,vTypes[tsize].streamId);
             continue;
@@ -3715,22 +3673,18 @@ int readConfigFile(FILE *fp){
         printf("Bad line %s \n",ptr);
     }
     fclose(fp);
-   // printf("Total streams %d, total types %d\n",(U32)vStreams.size(),(U32)vTypes.size());
+    // printf("Total streams %d, total types %d\n",(U32)vStreams.size(),(U32)vTypes.size());
     //check if type -> stream is present
     //mark stream enabled
     for (int i=0; i<(int)vTypes.size();i++){
-       // int isstream=false;
         vTypes[i].used=0;
         int sidt=vTypes[i].streamId;
         for (int j=0; j<(int)vStreams.size();j++){          
             if (sidt==vStreams[j].stream){               
-              // isstream=true;
                vStreams[j].enabled=1;
                break;
             } 
         }
-        //if (isstream==false) printf("bad config:  compression stream %d  not found in type %d",sidt,vTypes[i].type),quit(""); 
-       // isstream=false;
     }
     
     /*for (int j=0; j<(int)vStreams.size();j++){  
@@ -3766,7 +3720,6 @@ void createDetectVM(){
             fclose(f);
             //cread VM for type
             vmDetect[i]= new VM(detectModel,  z,VMDETECT);
-            //printf("%d",detectModel);
             free(detectModel);
         }
     }
@@ -3820,20 +3773,20 @@ void createDecodeVM(){
 }
 
 void createStreamVM(){
-    FILE *f;
-    char *streamModel;
+    // create array for Stream VM's
     vmStream = new VM*[vStreams.size()];
     // actual VM is created when compressing or decompressing
 }
-int getUnknownType(){
-    
+
+int getUnknownType(){    
     for (int i=0;i<vTypes.size();i++){
-        if ( vTypes[i].dsize==-1) return i;//return index for now // vTypes[i].type;
+        if ( vTypes[i].dsize==-1) return i; //return index
     }
     //not found
     return -1;
 }
 
+// compress all decode models into archive including main config fail
 void CompressType(File *out){
     File *modelo;//open tmp file for compressed config file
     Encoder* enm;
@@ -3852,7 +3805,7 @@ void CompressType(File *out){
     enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
     for (int k=0;k<fsz;++k) enm->compress(getc(in));
     fclose(in); 
-    //close compressed and uncomressed model files
+
     for (int i=0; i<(int)vTypes.size();i++){
         // compress type decode model if it was used in transform_encode_block
         if (vTypes[i].used==1 && vTypes[i].desize!=-1){
@@ -3863,7 +3816,6 @@ void CompressType(File *out){
             //compress model file
             enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
             for (int k=0;k<fsz;++k) enm->compress(getc(in));
-            //close compressed and uncomressed model files
             fclose(in); 
         } else{
             enm->compress(0); enm->compress(0); enm->compress(0); enm->compress(0); // config file length
@@ -3942,23 +3894,11 @@ int main(int argc, char** argv) {
             else if (aopt[2]>='0' && aopt[2]<='9' && strlen(aopt)==3 && aopt[1]=='s'){
                 level=aopt[2]-'0';
             }
-           /* else if (aopt[2]=='1' && aopt[3]>='0' && aopt[3]<='5' && strlen(aopt)==4 && aopt[1]=='s'){
-                aopt[1]='-', aopt[0]=' ';
-                level=((~atol(aopt))+1);                 
-            }*/
 #ifdef MT 
             else if (aopt[2]>='0' && aopt[2]<='9'&& (aopt[4]<='9' && aopt[4]>'0') && strlen(aopt)==5 && 
             (aopt[1]=='s')){
                 topt=aopt[4]-'0';
                 level=aopt[2]-'0';}
-            /*else if (aopt[2]=='1' && aopt[3]>='0' && aopt[3]<='5' && 
-            (aopt[5]<='9' && aopt[5]>'0')&& strlen(aopt)==6 && aopt[1]=='s'){
-                topt=aopt[5]-'0';
-                aopt[4]=0;
-                aopt[1]='-';
-                aopt[0]=' ';
-                level=((~atol(aopt))+1); 
-            }*/
 #endif
             else
                 quit("Valid options are -s0 through -s9, -d, -l\n");
