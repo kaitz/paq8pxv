@@ -4442,6 +4442,7 @@ printf("\n");
                     if (defaultencoder) delete defaultencoder,defaultencoder=0,free(app);
                     //load config file from archive stream
                     //read compressed file header and data
+                    app=0;
                     if (level>0) {                  
                        int fsz=0;  
                        Encoder* enm;
