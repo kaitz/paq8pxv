@@ -1613,6 +1613,7 @@ inline U32 SQR(U32 x) {
   return x*x;
 }
 typedef __m128i XMM;
+typedef __m256i YMM;
 #define DEFAULT_LEARNING_RATE 7
 //////////////////////////// APM1 //////////////////////////////
 
@@ -2332,7 +2333,11 @@ public:
 // contexts with 2-7 bits) are not updated until a context is seen for
 // a second time.  This is indicated by <count,d> = <1,0> (2).  After update,
 // <count,d> is updated to <2,0> or <1,1> (4 or 3).
-
+#if defined(__AVX2__)
+#define MALIGN 32
+#else
+#define MALIGN 16
+#endif
 inline U64 CMlimit(U64 size){
     //if (size>(0x100000000UL)) return (0x100000000UL); //limit to 4GB, using this will consume lots of memory above level 11
     if (size>(0x80000000UL)) return (0x80000000UL); //limit to 2GB
@@ -2357,10 +2362,10 @@ class ContextMap {
   Array<U8*> cp0;  // First element of 7 element array containing cp[i]
   Array<U32> cxt;  // C whole byte contexts (hashes)
   Array<U8*> runp; // C [0..3] = count, value, unused, unused
-  Array<short, 16>  r0;   //for rle 
-  Array<short, 16>  r1;
-  Array<short, 16>  r0i;
-  Array<short, 16>  rmask; // mask for skiped context
+  Array<short, MALIGN>  r0;   //for rle 
+  Array<short, MALIGN>  r1;
+  Array<short, MALIGN>  r0i;
+  Array<short, MALIGN>  rmask; // mask for skiped context
   StateMap *sm;    // C maps of state -> p
   int cn;          // Next context to set by set()
   //void update(U32 cx, int c);  // train model that context cx predicts c
@@ -2427,14 +2432,14 @@ inline U8* ContextMap::E::get(U16 ch) {
 //reverse order and compare 7 chk values to ch
 //get mask is set get first index and return value  
   XMM tmp=_mm_load_si128 ((XMM *) &chk[0]); //load 8 values (8th will be discarded)
-#if defined(__SSE2__) 
+#if defined(__SSSE3__)
+#include <immintrin.h>
+ // const XMM vm=;// initialise vector mask 
+  tmp=_mm_shuffle_epi8(tmp,_mm_setr_epi8(14,15,12,13,10,11,8,9,6,7,4,5,2,3,0,1));   
+#elif   defined(__SSE2__) 
   tmp=_mm_shufflelo_epi16(tmp,0x1B); //swap order for mask  (0,1,2,3)
   tmp=_mm_shufflehi_epi16(tmp,0x1B);                      //(0,1,2,3)
   tmp=_mm_shuffle_epi32(tmp,0x4E);                        //(1,0,3,2)   
-#elif defined(__SSSE3__)
-#include <immintrin.h>
-  const XMM vm=_mm_setr_epi8(14,15,12,13,10,11,8,9,6,7,4,5,2,3,0,1);// initialise vector mask 
-  tmp=_mm_shuffle_epi8(tmp,vm);        
 #endif
   tmp=_mm_cmpeq_epi16 (tmp,xmmch); //compare ch values
   tmp=_mm_packs_epi16(tmp,xmmzero); //pack result
@@ -2619,28 +2624,66 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
          r0i[i]=ilog(a+1);
      }
 
-#if defined(SIMD_CM_R ) && defined(__SSE2__) 
-    int cnc=(cn/8)*8;
-    for (int i=0; i<(cnc); i=i+8) {
-        XMM  x0=_mm_setzero_si128();
-        XMM  x1=_mm_set1_epi16(1);
-        const int bsh=(8-bp);
-        XMM   b=_mm_load_si128 ((XMM  *) &r1[i]);
-        XMM xcc=_mm_set1_epi16(cc);
+#if defined(SIMD_CM_R ) && defined(__AVX2__)
+    const int bsh=(8-bp);
+    const int bsh1=(7-bp);
+    int cnc=(cn/16)*16;
+    int i;
+    
+    for ( i=0; i<(cnc); i=i+16) {
+        YMM b1=_mm256_set1_epi16(1<<bsh1);
+        YMM x0=_mm256_setzero_si256();
+        YMM x1=_mm256_set1_epi16(1);
+        YMM b256=_mm256_set1_epi16(256);
+        YMM runm=_mm256_load_si256 ((YMM  *) &rmask[i]);
+        YMM b=_mm256_load_si256 ((YMM  *) &r1[i]);
+        YMM xcc=_mm256_set1_epi16(cc);
         //(r1[i  ]+256)>>(8-bp)==cc
-        XMM   lasth=_mm_set1_epi16(256);
-        XMM  xr1=_mm_add_epi16 (b, lasth);
+        
+        YMM  xr1=_mm256_add_epi16 (b, b256);
+        xr1=_mm256_srli_epi16 (xr1, bsh);
+        xr1=_mm256_cmpeq_epi16(xr1,xcc); //(a == b) ? 0xffff : 0x0
+        //b                           //((r1[i  ]>>(7-bp)&1)*2-1) 
+       
+        YMM xb=_mm256_and_si256 (b, b1); //test if bit set                   //>>(7-bp)&1)*2
+        xb=_mm256_cmpeq_epi16(xb,x0);//compare and if eq set to -1, else 0   //
+        xb= _mm256_or_si256(xb,x1); // or with 1                              // -1
+        //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
+        YMM xr0i=_mm256_load_si256 ((YMM  *) &r0i[i]);//, x0);           //r0i[i]
+        YMM  c=_mm256_load_si256 ((YMM  *) &r0[i]);//, x0);              //~r0[i]&1
+        YMM xc=_mm256_andnot_si256 (c,x1);  
+        YMM r0ia= _mm256_add_epi16 (x1,xc);                          //1+(~r0[i]&1) result is 2 or 1 for multiplay |
+        xc=_mm256_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
+        xc=_mm256_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
+        //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
+        YMM xr=_mm256_mullo_epi16(xc,xb); 
+        YMM xresult=_mm256_and_si256(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
+        xresult=_mm256_and_si256(xresult,runm); //mask out skiped context
+        //store result
+        m.addYMM(xresult);
+    }
+     int cnc1=((cn-cnc)/8)*8;
+        if (cnc1){
+        i=cnc;
+        cnc=cnc+8;
+        XMM x0=_mm_setzero_si128();
+        XMM x1=_mm_set1_epi16(1);
+        XMM b1=_mm_set1_epi16(1<<bsh1);
+        XMM xcc=_mm_set1_epi16(cc);
+        XMM b256=_mm_set1_epi16(256);
+        XMM runm=_mm_load_si128 ((XMM  *) &rmask[i]);
+        XMM b=_mm_load_si128 ((XMM  *) &r1[i]);
+        //(r1[i  ]+256)>>(8-bp)==cc
+        XMM  xr1=_mm_add_epi16 (b, b256);
         xr1=_mm_srli_epi16 (xr1, bsh);
         xr1=_mm_cmpeq_epi16(xr1,xcc); //(a == b) ? 0xffff : 0x0
         //b                           //((r1[i  ]>>(7-bp)&1)*2-1) 
-        const int bsh1=(7-bp);
-        XMM xb=_mm_srli_epi16 (b, bsh1); //>>(7-bp)
-        xb=_mm_and_si128(xb,x1);         //&1
-        xb=_mm_slli_epi16(xb, 1);        //<<1
-        xb= _mm_sub_epi16(xb,x1);        //-1
-        //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr0i=_mm_add_epi16 (*(XMM  *) &r0i[i], x0);           //r0i[i]
-        XMM  c=_mm_add_epi16 (*(XMM  *) &r0[i], x0);              //~r0[i]&1
+        XMM xb=_mm_and_si128 (b, b1); //test if bit set                   //>>(7-bp)&1)*2
+        xb=_mm_cmpeq_epi16(xb,x0);//compare and if eq set to -1, else 0   //
+        xb= _mm_or_si128(xb,x1); // or with 1                              // -1
+         //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
+        XMM xr0i=_mm_load_si128 ((XMM  *) &r0i[i]);           //r0i[i]
+        XMM  c=_mm_load_si128 ((XMM  *) &r0[i]);              //~r0[i]&1
         XMM xc=_mm_andnot_si128 (c,x1);  
         XMM r0ia= _mm_add_epi16 (x1,xc);                          //1+(~r0[i]&1) result is 2 or 1 for multiplay |
         xc=_mm_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
@@ -2648,7 +2691,6 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
         //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
         XMM xr=_mm_mullo_epi16(xc,xb); 
         XMM xresult=_mm_and_si128(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
-        XMM   runm=_mm_load_si128 ((XMM  *) &rmask[i]);
         xresult=_mm_and_si128(xresult,runm); //mask out skiped context
         //store result
         m.addXMM(xresult);
@@ -2657,6 +2699,48 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
     for (int i=cnc; i<cn; ++i) {
         if (rmask[i] &&( (r1[i  ]+256)>>(8-bp)==cc)) {
             m.add(((r1[i  ]>>(7-bp)&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
+        else   m.add(0);
+    }
+#elif defined(SIMD_CM_R ) && defined(__SSE2__) 
+    int cnc=(cn/8)*8;
+    const int bsh=(8-bp);
+     const int bsh1=(7-bp);
+     XMM  x0=_mm_setzero_si128();
+     XMM  x1=_mm_set1_epi16(1);
+     XMM  b1=_mm_set1_epi16(1<<bsh1);
+     XMM xcc=_mm_set1_epi16(cc);
+     XMM   b256=_mm_set1_epi16(256);
+    for (int i=0; i<(cnc); i=i+8) {
+        
+        XMM   runm=_mm_load_si128 ((XMM  *) &rmask[i]);
+        XMM   b=_mm_load_si128 ((XMM  *) &r1[i]);
+        //(r1[i  ]+256)>>(8-bp)==cc
+        XMM  xr1=_mm_add_epi16 (b, b256);
+        //XMM  xr1=_mm_add_epi16 (*(XMM  *) &r1[i], _mm_set1_epi16(256));
+        xr1=_mm_srli_epi16 (xr1, bsh);
+        xr1=_mm_cmpeq_epi16(xr1,xcc); //(a == b) ? 0xffff : 0x0
+        //b                           //((r1[i  ]>>(7-bp)&1)*2-1) 
+        XMM xb=_mm_and_si128 (b, b1); //test if bit set                   //>>(7-bp)&1)*2
+        xb=_mm_cmpeq_epi16(xb,x0);//compare and if eq set to -1, else 0   //
+        xb= _mm_or_si128(xb,x1); // or with 1                              // -1
+        //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
+        XMM xr0i=_mm_load_si128 ((XMM  *) &r0i[i]);           //r0i[i]
+        XMM  c=_mm_load_si128 ((XMM  *) &r0[i]);              //~r0[i]&1
+        XMM xc=_mm_andnot_si128 (c,x1);  
+        XMM r0ia= _mm_add_epi16 (x1,xc);                          //1+(~r0[i]&1) result is 2 or 1 for multiplay |
+        xc=_mm_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
+        xc=_mm_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
+        //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
+        XMM xr=_mm_mullo_epi16(xc,xb); 
+        XMM xresult=_mm_and_si128(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
+        xresult=_mm_and_si128(xresult,runm); //mask out skiped context
+        //store result
+        m.addXMM(xresult);
+    }
+    //do remaining 
+    for (int i=cnc; i<cn; ++i) {
+        if (rmask[i] &&( (r1[i  ]+256)>>bsh==cc)) {
+            m.add(((r1[i  ]>>bsh1&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
         else   m.add(0);
     }
 #else          
