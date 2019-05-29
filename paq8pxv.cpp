@@ -1612,8 +1612,12 @@ struct ErrorInfo {
 inline U32 SQR(U32 x) {
   return x*x;
 }
+#if defined(__MMX__)
 typedef __m128i XMM;
+#endif
+#if defined(__AVX2__)
 typedef __m256i YMM;
+#endif
 #define DEFAULT_LEARNING_RATE 7
 //////////////////////////// APM1 //////////////////////////////
 
@@ -1714,8 +1718,14 @@ public:
     tmp = _mm_srai_epi32 (tmp, 8); //                                        (t[n] * w[n] + t[n+1] * w[n+1]) >> 8
     sum = _mm_add_epi32 (sum, tmp); //                                sum += (t[n] * w[n] + t[n+1] * w[n+1]) >> 8
   }
+  #if  defined(__SSSE3__)
+  sum=_mm_hadd_epi32 (sum,sum);
+  sum=_mm_hadd_epi32 (sum,sum);
+ #else
   sum = _mm_add_epi32(sum, _mm_srli_si128 (sum, 8));
   sum = _mm_add_epi32(sum, _mm_srli_si128 (sum, 4));
+  #endif
+
   return _mm_cvtsi128_si32 (sum); //                     ...  and scale back to integer
 }
 
@@ -1862,11 +1872,20 @@ void train(short *t, short *w, int n, int err) {
      ((U64 *) &tx[nx],a);
     nx=nx+4;
   }
+    #if defined(__MMX__)
   void addXMM(XMM a){
     assert(nx+8<N);
     _mm_storeu_si128 ((XMM *) &tx[nx],a);
     nx=nx+8;
   }
+  #endif
+  #if defined(__AVX2__)
+   void addYMM(YMM a){
+    assert(nx+16<N);
+    _mm256_storeu_si256 ((YMM *) &tx[nx],a);
+    nx=nx+16;
+  }
+  #endif
   // Set a context (call S times, sum of ranges <= M)
   void set(int cx, int range) {
     assert(range>=0);
@@ -2426,14 +2445,14 @@ inline U8* ContextMap::E::get(U16 ch) {
     
   if (chk[last&15]==ch) return &bh[last&15][0];
   int b=0xffff, bi=0;
-#if defined(SIMD_GET_SSE)   
+#if defined(SIMD_GET_SSE)   && defined(__MMX__)
   const XMM xmmch=_mm_set1_epi16 (short(ch)); //fill 8 ch values
 //load 8 values, discard last one as only 7 are needed.
 //reverse order and compare 7 chk values to ch
 //get mask is set get first index and return value  
   XMM tmp=_mm_load_si128 ((XMM *) &chk[0]); //load 8 values (8th will be discarded)
 #if defined(__SSSE3__)
-#include <immintrin.h>
+#include <xmmintrin.h>
  // const XMM vm=;// initialise vector mask 
   tmp=_mm_shuffle_epi8(tmp,_mm_setr_epi8(14,15,12,13,10,11,8,9,6,7,4,5,2,3,0,1));   
 #elif   defined(__SSE2__) 
@@ -2656,7 +2675,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
         xc=_mm256_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
         xc=_mm256_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
         //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
-        YMM xr=_mm256_mullo_epi16(xc,xb); 
+        YMM xr=_mm256_sign_epi16(xc,xb); 
         YMM xresult=_mm256_and_si256(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
         xresult=_mm256_and_si256(xresult,runm); //mask out skiped context
         //store result
@@ -2689,7 +2708,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
         xc=_mm_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
         xc=_mm_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
         //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr=_mm_mullo_epi16(xc,xb); 
+        XMM xr=_mm_sign_epi16(xc,xb); 
         XMM xresult=_mm_and_si128(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
         xresult=_mm_and_si128(xresult,runm); //mask out skiped context
         //store result
@@ -2701,7 +2720,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
             m.add(((r1[i  ]>>(7-bp)&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
         else   m.add(0);
     }
-#elif defined(SIMD_CM_R ) && defined(__SSE2__) 
+#elif defined(SIMD_CM_R ) && defined(__SSSE3__) 
     int cnc=(cn/8)*8;
     const int bsh=(8-bp);
      const int bsh1=(7-bp);
@@ -2731,7 +2750,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
         xc=_mm_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
         xc=_mm_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
         //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr=_mm_mullo_epi16(xc,xb); 
+        XMM xr=_mm_sign_epi16(xc,xb);// _mm_mullo_epi16(xc,xb); slower ?
         XMM xresult=_mm_and_si128(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
         xresult=_mm_and_si128(xresult,runm); //mask out skiped context
         //store result
