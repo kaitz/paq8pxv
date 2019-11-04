@@ -2,13 +2,21 @@
 
 This is paq8 like compressor, witch uses config files for compression models, detection, data decoding and encoding.
 Compression models and data decoding models will be saved into final archive, so that decompressor can use them when data is extracted.
-Also main config file is stored compressed. Main compression routine is stored uncompressed.
+Also main config file (conf.pxf) is stored compressed. Main compression routine is stored uncompressed.
 
 paq8pxv uses virtual machine, which compiles c like code to bytecode at runtime and executes it.
 There is also x86 JIT version.
 
 # Config files
-Example detection conf:
+Main configuration is in conf.pxv file. 
+* .det files are used for detecting some type of data
+* .enc files are used to transform a detected file when compressing
+* .dec files are used to transform a detected file when decompressing
+* .cfg files are used for compression
+
+.cfg and .dec files are compressed and added to archive if they are used.
+
+## Example detection conf:
 ```c
 // For XXXX detection
 int buf0,buf1,mystart;
@@ -63,7 +71,30 @@ int main() {
     reset();
 }
 ```
-Main compression routine used when compressing cfg/decode files and main config file.
+# Detection and transform
+
+* b64.dec - decode/reverse Base64 transform
+* b64.det - detect Base64 encoded data
+* b64.enc - encode/remove Base64 transform
+* bmp1.det - detect 1bit .bmp image
+* bmp24.det - detect 24bit .bmp image
+* bmp8.det - detect 8bit .bmp image
+* dec.dec - decode/reverse DEC Alpha executable code transform
+* dec.det - detect DEC Alpha executable code
+* dec.enc - encode DEC Alpha executable code, swap byte order
+* exe.dec - encode x86 executable code
+* exe.det - detect x86 executable code
+* exe.enc - decode x86 executable code
+* jpeg.cfg - compress jpeg image data
+* jpeg.det- detect jpeg image
+* test3d.cfg - main compression for default data
+* test3i24.cfg - compress 24bit image data
+* test3i8.cfg - compress 8bit image data
+* test3img.cfg - compress 1bit image data
+* text.det - detect text
+
+# .cfg/.dec Compression
+Main compression routine used when compressing .cfg/.dec files and main config file (conf.pxv).
 Stored uncompressed at the beginning of the output file.
 ```c
 int *cxt,*t;
