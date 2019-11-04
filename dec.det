@@ -1,0 +1,236 @@
+// For DEC Alpha detection
+// compatible with paq8pxv_v11 and up
+int *absposDEC;
+int *relposDEC;
+int DECcount,DECpos,DEClast;
+int buf0,buf1,buf2,buf3,buf4;
+int type,state,jstart,jend;
+enum {DEFAULT=1,DECA}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+enum {false=0,true}; //internal enum
+int op10[22]= {0x40,0x00,0x02,0x49,0x09,0x0b,0x0f,0x12,0x1b,0x1d,0x60,0x20,0x22,0x69,0x29,0x2b,0x2d,0x32,0x3b,0x3d,0x4d,0x6d};
+int op11[16]= {0x00,0x08,0x14,0x16,0x20,0x24,0x26,0x28,0x40,0x44,0x46,0x48,0x61,0x64,0x66,0x6c};
+int op12[27]= {0x02,0x06,0x0b,0x12,0x16,0x1b,0x22,0x26,0x2b,0x30,0x31,0x32,0x34,0x36,0x39,0x3b,0x3c,0x52,0x57,0x5a,0x62,0x67,0x6a,0x72,0x77,0x7a};
+int op13[5 ]= {0x40,0x00,0x60,0x20,0x30};
+int op14[51]= {0x004,0x00a,0x08a,0x10a,0x18a,0x40a,0x48a,0x50a,0x58a,0x00b,0x04b,0x08b,0x0cb,0x10b,0x14b,0x18b,0x1cb,0x50b,0x54b,0x58b,0x5cb,
+              0x70b,0x74b,0x78b,0x7cb,0x014,0x024,0x02a,0x0aa,0x12a,0x1aa,0x42a,0x4aa,0x52a,0x5aa,0x02b,0x06b,0x0ab,0x0eb,0x12b,0x16b,0x1ab,
+              0x1eb,0x52b,0x56b,0x5ab,0x5eb,0x72b,0x76b,0x7ab,0x7eb};
+int op15a[11]={0x0a5,0x4a5,0x0a6,0x4a6,0x0a7,0x4a7,0x03c,0x0bc,0x03e,0x0be};
+int op15b[13]={0x000, 0x001,0x002,0x003, 0x01e,0x020,0x021,0x022,0x023,0x02c,0x02d,0x02f};
+int op16a[11]={0x0a4,0x5a4,0x0a5, 0x5a5,0x0a6, 0x5a6,0x0a7,0x5a7,0x2ac,0x6ac};
+int op16b[11]={0x00,0x01,0x02,0x03,0x20,0x21,0x22,0x23,0x2c,0x2f };
+int op17[15]= {0x010,0x020,0x021,0x022,0x024,0x025,0x02a,0x02b,0x02c,0x02d, 0x02e,0x02f, 0x030,0x130, 0x530};
+int op18[12]= {0x0000,0x0400, 0x4000,0x4400,0x8000,0xA000,0xC000,0xE000,0xE800,0xF000,0xF800,0xFC00};
+int op1c[20]= {0x00,0x01,0x30,0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0x3a,0x3b,0x3c,0x3d,0x3e,0x3f,0x70,0x78};
+// function will report its state
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    int r;
+    state=NONE,type=DEFAULT,jstart=jend=DECcount=DECpos=DEClast=buf0=buf1=buf2=buf3=buf4=0;
+    for (r=0;r<256;r++) relposDEC[r]=0,absposDEC[r]=0;
+
+}
+int bswap(int x){
+  return  ((((x) & 0xff000000) >> 24) |
+     (((x) & 0x00ff0000) >>  8) |
+     (((x) & 0x0000ff00) <<  8) |
+     (((x) & 0x000000ff) << 24));
+}
+int CAlpha2(int ins) {
+    int function,opc,i;
+    function=0;
+    opc=ins >> 26;
+    if (opc==0){
+        // PAL
+        function = ins & 0x1fffffff;
+        if( ((function > 0x3f) && (function < 0x80)) || (function > 0xbf)){
+            return false;
+        }
+        return true;
+    }
+    if (opc==1)   return false;
+    if (opc==2)   return false;
+    if (opc==3)   return false;
+    if (opc==4)   return false;
+    if (opc==5)   return false;
+    if (opc==6)   return false;
+    if (opc==7)   return false;
+    if (opc==0x08) return true;
+    if (opc==0x09) return true;
+    if (opc==0x0a) return true;
+    if (opc==0x0b) return true;
+    if (opc==0x0c) return true;
+    if (opc==0x0d) return true;
+    if (opc==0x0e) return true;
+    if (opc==0x0f) return true;
+    if (opc==0x10){
+        // INTA
+        function = (ins >> 5) & 0x7f;
+        for (i=0;i<22;i++){
+            if (op10[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x11){
+        // INTL
+        function = (ins >> 5) & 0x7f;
+        for (i=0;i<16;i++){
+            if (op11[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x12){
+        // INTS
+        function = (ins >> 5) & 0x7f;
+        for (i=0;i<27;i++){
+            if (op12[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x13){
+        // INTM
+        function = (ins >> 5) & 0x7f;
+        for (i=0;i<5;i++){
+            if (op13[i]==function)return true;
+        }
+        return false;
+
+    }
+    if (opc==0x14){
+        // ITFP
+        function = (ins >> 5) & 0x7ff;
+        for (i=0;i<51;i++){
+            if (op14[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x15){
+        // FLTV
+        function = (ins >> 5) & 0x7ff;
+
+         for (i=0;i<11;i++){
+            if (op15a[i]==function)return true;
+        }
+        if(function & 0x200)  return false;
+        function =  (function & 0x7f);
+        for (i=0;i<13;i++){
+            if (op15b[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x16){
+        // FLTI
+        function = (ins >> 5) & 0x7ff;
+        for (i=0;i<11;i++){
+            if (op16a[i]==function)return true;
+        }
+        if(((function & 0x600) == 0x200) || ((function & 0x500) == 0x400)) return false;
+        opc = function & 0x3f;
+        for (i=0;i<11;i++){
+            if (op16b[i]==opc)return true;
+        }
+        if (opc==0x3c) {
+            if((function & 0x300) == 0x100){ return false;}
+        return true;
+        }
+        if (opc==0x3e) {
+            if((function & 0x300) == 0x100){ return false;}
+        return true;
+        }
+        return false;
+    }
+    if (opc==0x17){
+        // FLTL
+        function = (ins >> 5) & 0x7ff;
+        for (i=0;i<15;i++){
+            if (op17[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x18){
+    // MISC
+        function = (ins & 0xffff);
+        for (i=0;i<12;i++){
+            if (op18[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc==0x19) return true;
+    if (opc==0x1a) return true;
+    if (opc==0x1b) return true;
+    if (opc==0x1c){
+           // FPTI
+        function = (ins >> 5) & 0x7f;
+        for (i=0;i<20;i++){
+            if (op1c[i]==function)return true;
+        }
+        return false;
+    }
+    if (opc>=0x1d && opc<=0x3f) return true;
+    return false;
+}
+int detect(int c4,int i) {
+    int r,a,rdist,adist,op;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   return jend;
+        if (state==INFO)  return 0xffffffff;
+    }
+    if (i==RESET) {
+        reset();
+        return 0xffffffff;
+    }
+    buf4=(buf4<<8)|(buf3>>24);
+    buf3=(buf3<<8)|(buf2>>24);
+    buf2=(buf2<<8)|(buf1>>24);
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=c4;
+    // DEC Alpha
+    // detect header
+    op=bswap(buf0)>>21;
+    //test if bsr opcode and if last 4 opcodes are valid
+    if ((op==0x34*32+26) && CAlpha2(bswap(buf1))==true && CAlpha2(bswap(buf2))==true && CAlpha2(bswap(buf3))==true && CAlpha2(bswap(buf4))==true) {
+        a=op&0xff;// absolute address low 8 bits
+        r=op&0x1fffff;
+        r=r+(i/4);  // relative address low 8 bits
+        r=r&0xff;
+        rdist=(i-relposDEC[r]);
+        adist=(i-absposDEC[a]);
+        if (adist<rdist && adist<0x8000 && absposDEC[a]>16 &&  adist>16 && (adist%4)==0) {
+            DEClast=i;
+            ++DECcount;
+            if (DECpos==0 || DECpos>absposDEC[a]) DECpos=absposDEC[a];
+        }
+        else DECcount=0;
+        if (type==DEFAULT && DECcount>=16 && DECpos>8 ){
+            type=DECA;
+            state=START;
+            jstart=DECpos-(DECpos%4);
+            //printf(" possible pos %d\n",jstart);
+            return state;
+        }
+        absposDEC[a]=i;
+        relposDEC[r]=i;
+    }
+    if (i-DEClast>0x4000) {
+        if (type==DECA)  {
+            state=END;
+            type=DEFAULT;
+            jend=DEClast-(DEClast%4);
+            return state;
+        }
+        state=NONE;
+        type=DEFAULT;
+        DECcount=0,DECpos=0,DEClast=0;
+    }
+    return NONE;
+}
+
+int main() {
+    if (!(absposDEC = malloc(256,sizeof(int)))) { exit(-1); }
+    if (!(relposDEC = malloc(256,sizeof(int)))) { exit(-1); }
+    reset();
+}

@@ -1,0 +1,46 @@
+// DEC Alpha transform - encode
+// bsr r26,offset
+char *blk;
+enum {BLOCK=0x10000};
+int min(int a, int b) {return a<b?a:b;}
+
+int bswap(int x){
+    return  (((x & 0xff000000) >> 24) | 
+    ((x & 0x00ff0000) >>  8) | 
+    ((x & 0x0000ff00) <<  8) | 
+    ((x & 0x000000ff) << 24));
+}
+int encode(int info,int len) {
+    int offset;
+    int size;
+    int bytesRead;
+    int i;
+    int op,j;
+    // Transform
+    for  (j=0; j<len; j=j+BLOCK)  {
+        size=min((len-j), BLOCK);
+        bytesRead=read(blk, size);
+        if (bytesRead!=size) exit(-1);// read error
+        for (i=0; i<bytesRead-3; i=i+4) {
+            op=blk[i]|(blk[i+1]<<8)|(blk[i+2]<<16)|(blk[i+3]<<24);
+            if ((op>>21)==0x34*32+26) { // bsr r26,offset
+                offset=op&0x1fffff;
+                offset=offset+(i/4);
+                op=op&(~0x1fffff);
+                op=op|(offset&0x1fffff);
+                
+                
+            }
+            op=bswap(op);
+            blk[i]=op;
+            blk[i+1]=op>>8;
+            blk[i+2]=op>>16;
+            blk[i+3]=op>>24;
+        }
+        write(blk,bytesRead);
+    }
+}
+
+int main() {
+    if (!(blk = malloc(BLOCK,sizeof(char)))) {  exit(-1); }
+}
