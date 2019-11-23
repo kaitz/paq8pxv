@@ -1,0 +1,113 @@
+// text transform - encode
+char *s; 
+char *inpc,*p2;
+char words[1129] = {
+    'a',0x0,'a','n',0x0,'t','h','e',0x0,'t','h','i','s',0x0,'t','h','a','t',0x0,'t','h','e','s','e',0x0,'a','n','d',0x0,'o','r',0x0,'i','f',0x0,'t','h','e','n',0x0,'e','l','s','e',0x0,'n','o',
+    't',0x0,'a','s',0x0,'b','e','c','a','u','s','e',0x0,'b','u','t',0x0,'l','i','k','e',0x0,'b','e',0x0,'b','e','e','n',0x0,'b','e','i','n','g',0x0,'a','m',0x0,'i','s',0x0,'a','r','e',0x0,'w',
+    'a','s',0x0,'w','e','r','e',0x0,'d','o',0x0,'d','o','n',0x0,'d','i','d',0x0,'d','o','e','s',0x0,'w','i','l','l',0x0,'l','l',0x0,'c','a','n',0x0,'c','o','u','l','d',0x0,'w','o','u','l','d',
+    0x0,'s','h','o','u','l','d',0x0,'m','u','s','t',0x0,'m','a','y',0x0,'m','i','g','h','t',0x0,'h','a','v','e',0x0,'h','a','s',0x0,'h','a','d',0x0,'h','e','r','e',0x0,'t','h','e','r','e',0x0,
+    'w','h','e','r','e',0x0,'w','h','e','n',0x0,'w','h','a','t',0x0,'w','h','o',0x0,'h','o','w',0x0,'w','h','i','c','h',0x0,'h','e',0x0,'s','h','e',0x0,'m','e',0x0,'w','e',0x0,'y','o','u',0x0,
+    'i','t',0x0,'i','t','s',0x0,'t','h','e','y',0x0,'t','h','e','i','r',0x0,'h','i','m',0x0,'t','h','e','m',0x0,'e','m',0x0,'h','i','s',0x0,'h','e','r',0x0,'m','y',0x0,'y','o','u','r',0x0,'o',
+    'f',0x0,'f','o','r',0x0,'w','i','t','h',0x0,'w','i','t','h','o','u','t',0x0,'i','n',0x0,'o','n',0x0,'t','o',0x0,'f','r','o','m',0x0,'i','n','t','o',0x0,'a','t',0x0,'b','y',0x0,'o','v','e',
+    'r',0x0,'o','u','t',0x0,'a','b','o','u','t',0x0,'b','e','f','o','r','e',0x0,'a','f','t','e','r',0x0,'a','b','o','v','e',0x0,'b','e','t','w','e','e','n',0x0,'u','p',0x0,'d','o','w','n',0x0,
+    'u','p','o','n',0x0,'t','h','r','o','u','g','h',0x0,'n','e','v','e','r',0x0,'n','o','w',0x0,'n','o',0x0,'y','e','s',0x0,'s','o','m','e',0x0,'a','n','y',0x0,'o','n','e',0x0,'t','w','o',0x0,
+    'e','a','c','h',0x0,'s','u','c','h',0x0,'m','u','c','h',0x0,'e','v','e','n',0x0,'a','g','a','i','n',0x0,'m','o','r','e',0x0,'t','o','o',0x0,'r','a','t','h','e','r',0x0,'o','t','h','e','r',
+    0x0,'a','n','o','t','h','e','r',0x0,'j','u','s','t',0x0,'o','n','l','y',0x0,'s','o',0x0,'v','e','r','y',0x0,'a','l','l',0x0,'m','a','n','y',0x0,'m','o','s','t',0x0,'t','h','a','n',0x0,'m',
+    'a','k','e',0x0,'m','a','d','e',0x0,'s','a','y',0x0,'s','a','i','d',0x0,'t','h','i','n','k',0x0,'t','h','o','u','g','h','t',0x0,'u','s','e',0x0,'u','s','e','d',0x0,'u','s','i','n','g',0x0,
+    'k','n','o','w',0x0,'c','o','m','e',0x0,'g','o',0x0,'s','e','e',0x0,'l','o','o','k',0x0,'b','e','g','i','n',0x0,'e','n','d',0x0,'n','e','w',0x0,'l','i','t','t','l','e',0x0,'w','e','l','l',
+    0x0,'g','o','o','d',0x0,'d','i','f','f','e','r','e','n','t',0x0,'s','a','m','e',0x0,'l','o','n','g',0x0,'h','i','g','h',0x0,'h','o','w','e','v','e','r',0x0,'t','r','o','y',0x0,'b','a','t',
+    'h','s','h','e','b','a',0x0,'b','o','l','d','w','o','o','d',0x0,'o','a','k',0x0,'g','a','b','r','i','e','l',0x0,'m','a','n',0x0,'w','o','m','a','n',0x0,'f','i','r','s','t',0x0,'q','u','i',
+    't','e',0x0,'g','e','t',0x0,'s','e','t',0x0,'t','i','m','e',0x0,'d','a','t','e',0x0,'t','e','x','t',0x0,'s','p','e','e','c','h',0x0,'m','e','s','s','a','g','e',0x0,'s','u','b','j','e','c',
+    't',0x0,'f','i','g','u','r','e',0x0,'p','r','o','g','r','a','m',0x0,'c','o','m','p',0x0,'c','o','m','p','u','t','e','r',0x0,'s','y','s','t','e','m',0x0,'s','y','s','t','e','m','s',0x0,'w',
+    'o','r','d',0x0,'w','o','r','d','s',0x0,'f','i','l','e',0x0,'d','a','t','a',0x0,'i','n','p','u','t',0x0,'o','u','t','p','u','t',0x0,'b','i','t',0x0,'b','i','t','s',0x0,'g','m','t',0x0,'u',
+    'u','c','p',0x0,'m','c','v','a','x',0x0,'a','l','b','e','r','t','a',0x0,'m','n','e','t','o','r',0x0,'u','u','n','e','t',0x0,'f','o','r','m','a','n','t',0x0,'r','n','e','w','s',0x0,'u','n',
+    'i','v','e','r','s','i','t','y',0x0,'n','e','w','s','g','r','o','u','p','s',0x0,'i','n','f','o','r','m','a','t','i','o','n',0x0,'o','r','g','a','n','i','z','a','t','i','o','n',0x0,'f','i',
+    'e','l','d',0x0,'s','o','u','n','d',0x0,'c','o','d','e',0x0,'t','a','b','l','e',0x0,'e','x','a','m','p','l','e',0x0,'z','o','n','e',0x0,'p','i','t','c','h',0x0,'l','i','n','e','s',0x0,'p',
+    'a','t','h',0x0,'w','a','y',0x0,'i','n','t',0x0,'p','o','i','n','t',0x0,'f','r','e','q','u','e','n','c','y',0x0,'s','i','g','n','a','l',0x0,'f','i','l','t','e','r',0x0,'m','o','d','e','l',
+    0x0,'n','o','t','h','i','n','g',0x0,'c','a','s','e',0x0,'s','u','p',0x0,'s','u','b',0x0,'p','p',0x0,'i','d',0x0,'e','q',0x0,'r','e',0x0,'l','o',0x0,'h','i',0x0,'e','n',0x0,'u','k',0x0,'p',
+    'm',0x0,'s','p',0x0,'c','s',0x0,'d','s',0x0,'a','c',0x0,'d','e','c',0x0,'u','l',0x0,'r','n',0x0,'l','b',0x0,'l','e',0x0,'n','r',0x0,'n','v',0x0,'h','a',0x0,'h','n',0x0,'h','p',0x0,'h','z',0};
+// above array below
+//"a","an","the","this","that","these","and","or","if","then","else","not","as","because","but","like","be","been","being","am","is","are","was","were","do","don","did","does","will","ll","can",
+//"could","would","should","must","may","might","have","has","had","here","there","where","when","what","who","how","which","he","she","me","we","you","it","its","they","their","him","them","em",
+//"his","her","my","your","of","for","with","without","in","on","to","from","into","at","by","over","out","about","before","after","above","between","up","down","upon","through","never","now",
+//"no","yes","some","any","one","two","each","such","much","even","again","more","too","rather","other","another","just","only","so","very","all","many","most","than","make","made","say","said",
+//"think","thought","use","used","using","know","come","go","see","look","begin","end","new","little","well","good","different","same","long","high","however","troy","bathsheba","boldwood","oak",
+//"gabriel","man","woman","first","quite","get","set","time","date","text","speech","message","subject","figure","program","comp","computer","system","systems","word","words","file","data","input",
+//"output","bit","bits","gmt","uucp","mcvax","alberta","mnetor","uunet","formant","rnews","university","newsgroups","information","organization","field","sound","code","table","example","zone",
+//"pitch","lines","path","way","int","point","frequency","signal","filter","model","nothing","case","sup","sub","pp","id","eq","re","lo","hi","en","uk","pm","sp","cs","ds","ac","dec","ul","rn",
+//"lb","le","nr","nv","ha","hn","hp","hz"
+int *hash;
+int totalout,y;
+enum {BLOCK=110};
+
+void fputc(int wt){
+    p2[y]=wt;y++;
+    if (y==1024) {y=0;write(p2,1024);}
+    totalout++;
+}
+int encode(int info,int len) {
+    int s_size,dhash,d,w,wt,c,fpos,j,k;
+    s_size=dhash=d=w=wt=fpos=totalout=y=0;
+    while (fpos<len){
+        read(inpc, 1);
+        c=inpc[0];
+        fpos++;
+        if (((c>='a' && c<='z') || (c>='A' && c<='Z')) && s_size<BLOCK) {
+            if (c>='A' && c<='Z') w=1;
+            if (s_size==0 && w==1) wt=1; //frist uper
+            if (s_size>0 && w==1 && wt!=3) wt=2; //upper
+            if (s_size>0 && ((wt==2 && w==0 )|| (wt==1 && w==0))) wt=3; //var
+            s[s_size++]=c;
+            if (c>='A' && c<='Z') c=c+('a'-'A');
+            dhash=h3(dhash,c,27);
+            w=0;
+        }
+        else {
+            if (s_size>0 && wt!=3) {
+                for (j=0; j<224;j++){
+                    if (hash[j]==dhash){
+                        if (wt>0)  fputc(wt);
+                        wt=0,w=0;
+                        if (j<112) {
+                            d=j+128,
+                            fputc(d);
+                            s_size=0;
+                        }
+                        else{
+                            d=240;
+                            fputc(d);
+                            d=j-112+128;
+                            fputc(d);
+                            s_size=0;
+                        }
+                    }
+                }
+            }
+            if (s_size>0) {
+                for(k=0;k<s_size;k++)
+                fputc(s[k]);
+            }
+            wt=w=dhash=s_size=0;
+            if (c>127 || c==1 || c==2 || c==3) fputc(3);
+            fputc(c);
+        }
+    }
+    if (y>0) {write(p2,y);}
+}
+int main() {
+    int i,h,c,j;
+    if (!(s = malloc(BLOCK,sizeof(char)))) exit(-1);
+    if (!(inpc = malloc(4,1))) exit(-1);
+    if (!(hash = malloc(224,sizeof(int)))) exit(-1);
+    if (!(p2 = malloc(1024,sizeof(char)))) exit(-1);
+    j=0;
+    for (i=0;i<224;i++){
+        h=0;
+        c=words[j++];
+        while (c!=0){
+            h=h3(h,c,27);
+            c=words[j++];
+        }
+        hash[i]=h;
+    }
+}

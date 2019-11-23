@@ -1,0 +1,86 @@
+// For gif detection
+int gif,a, gifi, w, gifc, b, plt;
+int info;
+int buf0,buf1;
+int type,state,jstart,jend;
+enum {DEFAULT=1,GIF}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    state=NONE,type=DEFAULT,jstart=jend=buf0=buf1=0;
+    gif=a=gifi= w=gifc=b=plt=info=0;
+}
+int bswap(int x) {
+    return ((((x) & 0xff000000) >> 24) | (((x) & 0x00ff0000) >> 8) | (((x) & 0x0000ff00) << 8) | (((x) & 0x000000ff) << 24));
+}
+
+int detect(int c4,int i) {
+    int p ,c;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   {p=jend;reset();return p;}
+        if (state==INFO)  return info;
+    }
+    if (i==RESET) {
+        //reset();
+        return 0xffffffff;
+    }
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=c4;
+    c=c4&0xff;
+	// Detect .gif
+    if (type==DEFAULT && i==0) {
+      if (c==0x2c || c==0x21) gif=2,gifi=2;
+    }
+    if (!gif && type==DEFAULT && (buf1&0xffff)==0x4749 && (buf0==0x46383961 || buf0==0x46383761)) gif=1,gifi=i+5;
+    if (gif && type==DEFAULT) {
+      if (gif==1 && i==gifi) gif=2,gifi = i+5+(plt=(c&128)?(3*(2<<(c&7))):0);
+      if (gif==2 && plt && i==gifi-plt-3) plt=0;
+      if (gif==2 && i==gifi) {
+        if ((buf0&0xff0000)==0x210000) gif=5,gifi=i;
+        else if ((buf0&0xff0000)==0x2c0000) gif=3,gifi=i;
+        else gif=0;
+      }
+      if (gif==3 && i==gifi+6) w=(bswap(buf0)&0xffff);
+      if (gif==3 && i==gifi+7) gif=4,gifc=b=0,a=gifi=i+2+(plt=((c&128)?(3*(2<<(c&7))):0));
+      if (gif==4 && plt)  plt = 0;
+      if (gif==4 && i==gifi) {
+        if (c>0 && b && gifc!=b) w=0;
+        if (c>0) b=gifc,gifc=c,gifi=gifi+c+1;
+        else if (!w) gif=2,gifi=i+3;
+        else {
+            type=GIF;
+            state=INFO;
+            info=w;
+            jstart=a-1;
+            jend=i-a+2;
+            return state;
+        }
+      }
+      if (gif==5 && i==gifi) {
+        if (c>0) gifi=gifi+c+1; else gif=2,gifi=i+3;
+      }
+    }
+    
+    if (type==GIF && state==INFO) {
+           state=START;
+           return state;
+    }
+     if (type==GIF && state==START && i==jend) {
+            state=END;
+            type=DEFAULT;
+            gif=0;
+           return state;
+    }
+    return NONE;
+}
+
+int main() {
+    reset();
+}
+ 
+ 
