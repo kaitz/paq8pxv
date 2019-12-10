@@ -1,6 +1,7 @@
 // text transform - encode
-char *s; 
-char *inpc,*p2;
+enum {BLOCK=110};
+char s[BLOCK]={}; 
+char inpc[4]={},p2[1024]={};
 char words[1129] = {
     'a',0x0,'a','n',0x0,'t','h','e',0x0,'t','h','i','s',0x0,'t','h','a','t',0x0,'t','h','e','s','e',0x0,'a','n','d',0x0,'o','r',0x0,'i','f',0x0,'t','h','e','n',0x0,'e','l','s','e',0x0,'n','o',
     't',0x0,'a','s',0x0,'b','e','c','a','u','s','e',0x0,'b','u','t',0x0,'l','i','k','e',0x0,'b','e',0x0,'b','e','e','n',0x0,'b','e','i','n','g',0x0,'a','m',0x0,'i','s',0x0,'a','r','e',0x0,'w',
@@ -36,9 +37,8 @@ char words[1129] = {
 //"output","bit","bits","gmt","uucp","mcvax","alberta","mnetor","uunet","formant","rnews","university","newsgroups","information","organization","field","sound","code","table","example","zone",
 //"pitch","lines","path","way","int","point","frequency","signal","filter","model","nothing","case","sup","sub","pp","id","eq","re","lo","hi","en","uk","pm","sp","cs","ds","ac","dec","ul","rn",
 //"lb","le","nr","nv","ha","hn","hp","hz"
-int *hash;
+int hash[224]={};
 int totalout,y;
-enum {BLOCK=110};
 
 void fputc(int wt){
     p2[y]=wt;y++;
@@ -96,10 +96,6 @@ int encode(int info,int len) {
 }
 int main() {
     int i,h,c,j;
-    if (!(s = malloc(BLOCK,sizeof(char)))) exit(-1);
-    if (!(inpc = malloc(4,1))) exit(-1);
-    if (!(hash = malloc(224,sizeof(int)))) exit(-1);
-    if (!(p2 = malloc(1024,sizeof(char)))) exit(-1);
     j=0;
     for (i=0;i<224;i++){
         h=0;

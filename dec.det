@@ -1,7 +1,7 @@
 // For DEC Alpha detection
 // compatible with paq8pxv_v11 and up
-int *absposDEC;
-int *relposDEC;
+int absposDEC[256]={};
+int relposDEC[256]={};
 int DECcount,DECpos,DEClast;
 int buf0,buf1,buf2,buf3,buf4;
 int type,state,jstart,jend;
@@ -29,7 +29,6 @@ void reset(){
     int r;
     state=NONE,type=DEFAULT,jstart=jend=DECcount=DECpos=DEClast=buf0=buf1=buf2=buf3=buf4=0;
     for (r=0;r<256;r++) relposDEC[r]=0,absposDEC[r]=0;
-
 }
 int bswap(int x){
   return  ((((x) & 0xff000000) >> 24) |
@@ -230,7 +229,5 @@ int detect(int c4,int i) {
 }
 
 int main() {
-    if (!(absposDEC = malloc(256,sizeof(int)))) { exit(-1); }
-    if (!(relposDEC = malloc(256,sizeof(int)))) { exit(-1); }
     reset();
 }

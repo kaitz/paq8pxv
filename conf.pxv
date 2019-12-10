@@ -75,3 +75,8 @@ detect gif.det
 decode -1
 encode -1
 compress 0
+type 10
+detect arm.det
+decode -1
+encode -1
+compress 0

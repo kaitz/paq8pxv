@@ -1,0 +1,86 @@
+// For ARM detection
+int abspos[256]={};
+int relpos[256]={};
+int ARMcount;
+int ARMpos;
+int ARMlast;
+int buf0,buf1,buf2,buf3,buf4;
+int type,state,jstart,jend;
+enum {DEFAULT=1,ARM}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    int r;
+    state=NONE,type=DEFAULT,jstart=jend=ARMcount=ARMpos= ARMlast=buf0=buf1=buf2=buf3=buf4=0;
+    for (r=0;r<256;r++) relpos[r]=0,abspos[r]=0;
+}
+int detect(int c4,int i) {
+    int r,a,rdist,adist;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   return jend;
+        if (state==INFO)  return 0xffffffff;
+    }
+    if (i==RESET) {
+        reset();
+        return 0xffffffff;
+    }
+	buf4=(buf4<<8)|(buf3>>24);
+	buf3=(buf3<<8)|(buf2>>24);
+	buf2=(buf2<<8)|(buf1>>24);
+    buf1=(buf1<<8)|(buf0>>24);
+    buf0=c4;
+    // detect header
+	// test if bl opcode and if last 3 opcodes are valid 
+    // BL(4) and (ADD(1) or MOV(4)) as previous, 64 bit
+    // ARMv8-A_Architecture_Reference_Manual_(Issue_A.a).pdf
+	if ((buf0>>26)==0x25 && 
+	((buf1>>26==0x25 || buf2>>26==0x25 ) || ( (buf1>>24)&0x7F==0x11 || (buf1>>23)&0x7F==0x25  || (buf1>>23)&0x7F==0xa5 || (buf1>>23)&0x7F==0x64 || (buf1>>24)&0x7F==0x2A))&&
+ 	buf1>>31==1 && 
+	buf2>>31==1 && 
+	buf3>>31==1 && 
+	buf4>>31==1){ 
+        r=(buf0)&0x3FFFFFF;
+        a=(buf0)&0xff;
+		r=r+((i)/4);
+        r=r&0xff;
+        rdist=(i-relpos[r]);
+        adist=(i-abspos[a]);
+        if (adist<rdist && adist<0x3FFFFF && abspos[a]>16 &&  adist>16 && adist%4==0) {
+            ARMlast=i;
+            ++ARMcount;
+            if (ARMpos==0 || ARMpos>abspos[a]) ARMpos=abspos[a];
+        }
+        else ARMcount=0;
+        if (type==DEFAULT && ARMcount>=18 && ARMpos>16){
+            type=ARM;
+            state=START;
+            jstart=ARMpos-5;
+            //printf("DETECT: ARM start %d\n",jstart);
+            return state;
+        }
+        abspos[a]=i;
+        relpos[r]=i;
+    }
+    if (i-ARMlast>0x4000) {
+        if (type==ARM) {
+            state=END;
+            type=DEFAULT;
+            jend=ARMlast-(ARMlast%4);
+            // printf("DETECT: ARM end %d\n",jend);
+            return state;
+        }
+        state=NONE;
+        type=DEFAULT;
+        ARMcount=ARMpos=0;
+    }
+    return NONE;
+}
+
+int main() {
+    reset();
+}

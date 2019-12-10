@@ -326,92 +326,6 @@ Most (not all) contexts start on a byte boundary and end on the bit
 immediately preceding the predicted bit.  The contexts below are
 modeled with both a run map and a nonstationary map unless indicated.
 
-- Order n.  The last n bytes, up to about 16.  For general purpose data.
-  Most of the compression occurs here for orders up to about 6.
-  An order 0 context includes only the 0-7 bits of the partially coded
-  byte and the number of these bits (255 possible values).
-
-- Sparse.  Usually 1 or 2 of the last 8 bytes preceding the byte containing
-  the predicted bit, e.g (2), (3),..., (8), (1,3), (1,4), (1,5), (1,6),
-  (2,3), (2,4), (3,6), (4,8).  The ordinary order 1 and 2 context, (1)
-  or (1,2) are included above.  Useful for binary data.
-
-- Text.  Contexts consists of whole words (a-z, converted to lower case
-  and skipping other values).  Contexts may be sparse, e.g (0,2) meaning
-  the current (partially coded) word and the second word preceding the
-  current one.  Useful contexts are (0), (0,1), (0,1,2), (0,2), (0,3),
-  (0,4).  The preceding byte may or may not be included as context in the
-  current word.
-
-- Formatted text.  The column number (determined by the position of
-  the last linefeed) is combined with other contexts: the charater to
-  the left and the character above it.
-
-- Fixed record length.  The record length is determined by searching for
-  byte sequences with a uniform stride length.  Once this is found, then
-  the record length is combined with the context of the bytes immediately
-  preceding it and the corresponding byte locations in the previous
-  one or two records (as with formatted text).
-
-- Context gap.  The distance to the previous occurrence of the order 1
-  or order 2 context is combined with other low order (1-2) contexts.
-
-- FAX.  For 2-level bitmapped images.  Contexts are the surrounding
-  pixels already seen.  Image width is assumed to be 1728 bits (as
-  in calgary/pic).
-
-- Image.  For uncompressed 8,24-bit color BMP, TIFF and TGA images.
-  Contexts are the high order bits of the surrounding pixels and linear
-  combinations of those pixels, including other color planes.  The
-  image width is detected from the file header.  When an image is
-  detected, other models are turned off to improve speed.
-
-- JPEG.  Files are further compressed by partially uncompressing back
-  to the DCT coefficients to provide context for the next Huffman code.
-  Only baseline DCT-Huffman coded files are modeled.  (This ia about
-  90% of images, the others are usually progresssive coded).  JPEG images
-  embedded in other files (quite common) are detected by headers.  The
-  baseline JPEG coding process is:
-  - Convert to grayscale and 2 chroma colorspace.
-  - Sometimes downsample the chroma images 2:1 or 4:1 in X and/or Y.
-  - Divide each of the 3 images into 8x8 blocks.
-  - Convert using 2-D discrete cosine transform (DCT) to 64 12-bit signed
-    coefficients.
-  - Quantize the coefficients by integer division (lossy).
-  - Split the image into horizontal slices coded independently, separated
-    by restart codes.
-  - Scan each block starting with the DC (0,0) coefficient in zigzag order
-    to the (7,7) coefficient, interleaving the 3 color components in
-    order to scan the whole image left to right starting at the top.
-  - Subtract the previous DC component from the current in each color.
-  - Code the coefficients using RS codes, where R is a run of R zeros (0-15)
-    and S indicates 0-11 bits of a signed value to follow.  (There is a
-    special RS code (EOB) to indicate the rest of the 64 coefficients are 0).
-  - Huffman code the RS symbol, followed by S literal bits.
-  The most useful contexts are the current partially coded Huffman code
-  (including S following bits) combined with the coefficient position
-  (0-63), color (0-2), and last few RS codes.
-
-- Match.  When a context match of 400 bytes or longer is detected,
-  the next bit of the match is predicted and other models are turned
-  off to improve speed.
-
-- Exe.  When a x86 file (.exe, .obj, .dll) is detected, sparse contexts
-  with gaps of 1-12 selecting only the prefix, opcode, and the bits
-  of the modR/M byte that are relevant to parsing are selected.
-  This model is turned off otherwise.
-
-- Indirect.  The history of the last 1-3 bytes in the context of the
-  last 1-2 bytes is combined with this 1-2 byte context.
-
-- DMC. A bitwise n-th order context is built from a state machine using
-  DMC, described in http://plg.uwaterloo.ca/~ftp/dmc/dmc.c
-  The effect is to extend a single context, one bit at a time and predict
-  the next bit based on the history in this context.  The model here differs
-  in that two predictors are used.  One is a pair of counts as in the original
-  DMC.  The second predictor is a bit history state mapped adaptively to
-  a probability as as in a Nonstationary Map.
-
 ARCHITECTURE
 
 The context models are mixed by several of several hundred neural networks
@@ -457,60 +371,6 @@ The preprocessor has 3 parts:
   It takes input either from a file or the arithmetic decoder.  Each call
   to the decoder returns a single decoded byte.
 
-The following transforms are used:
-
-- EXE:  CALL (0xE8) and JMP (0xE9) address operands are converted from
-  relative to absolute address.  The transform is to replace the sequence
-  E8/E9 xx xx xx 00/FF by adding file offset modulo 2^25 (signed range,
-  little-endian format).  Data to transform is identified by trying the
-  transform and applying a crude compression test: testing whether the
-  byte following the E8/E8 (LSB of the address) occurred more recently
-  in the transformed data than the original and within 4KB 4 times in
-  a row.  The block ends when this does not happen for 4KB.
-
-- DEC Alpha: Swap byte order, do call transform
-
-- ARM: do call transform
-
-- JPEG: detected by SOI and SOF and ending with EOI or any nondecodable
-  data.  No transform is applied.  The purpose is to separate images
-  embedded in execuables to block the EXE transform, and for a future
-  place to insert a transform.
-  
-- BASE64: Decodes BASE64 encoded data and recursively transformed
-  up to level 5. Input can be full stream or end-of-line coded.
-  
-- BASE85: Decodes Ascii85 encoded data and recursively transformed
-  up to level 5. Input can be full stream or end-of-line coded.
-  Supports: https://en.wikipedia.org/wiki/Ascii85#Adobe_version
-
-- UUENCODE: Decodes UUENCODE encoded data.
-
-- 24-bit images: 24-bit image data uses simple color transform
-  (b, g, r) -> (g, g-r, g-b)
-  
-- ZLIB:  Decodes zlib encoded data and recursively transformed
-  up to level 5. Supports zlib compressed images (4/8/24 bit) in pdf
-
-- GIF:  Gif (8 bit) image  recompression. 
-  
-- CD: mode 1 and mode 2 form 1+2 - 2352 bytes
-
-- MDF: wraped around CD, re-arranges subchannel and CD data
-
-- TEXT: All detected text blocks are transformed using dynamic dictionary
-  preprocessing (based on XWRT). If transformed block is larger from original
-  then transform is skipped.
-  
-- LZSS: (Haruhiko Okumura's LZSS): Decompresses Microsoft compress.exe archives.
-
-- MRB: 8, 4 bit images with RLE compression in hlp files
-
-- RLE: TGA, TIFF images
-
-- EOL: 
-
-
 IMPLEMENTATION
 
 Hash tables are designed to minimize cache misses, which consume most
@@ -540,14 +400,12 @@ whole byte.  There is no checksum.  Collisions are detected by comparing
 the current and matched context in a rotating buffer.
 
 The inner loops of the neural network prediction (1) and training (2)
-algorithms are implemented in MMX assembler, which computes 4 elements
-at a time.  Using assembler is 8 times faster than C++ for this code
-and 1/3 faster overall.  (However I found that SSE2 code on an AMD-64,
-which computes 8 elements at a time, is not any faster).
+algorithms are implemented in SIMD assembler, which computes 4 or more
+elements at a time.
 
 */
 
-#define VERSION "11"
+#define VERSION "12"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 #define MT            //uncomment for multithreading, compression only
@@ -2202,7 +2060,7 @@ class SmallStationaryContextMap {
   U16 *cp;
 public:
   SmallStationaryContextMap(int BitsOfContext, int InputBits = 8) : Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), Context(0), Mask((1<<BitsOfContext)-1), Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0) {
-    assert(BitsOfContext<=16);
+   // assert(BitsOfContext<=16);
     assert(InputBits>0 && InputBits<=8);
     Reset();
     cp=&Data[0];
@@ -3058,10 +2916,12 @@ typedef enum {FDECOMPRESS, FCOMPARE, FDISCARD} FMode;
 void encode_file(File* in, File* out, int len, int info,int type) {
     //set in and out file for vm read/write
     assert(vTypes[type].ensize!=-1);
+    vmEncode[type]->inpos=in->curpos();
     vmEncode[type]->inFile=in;
     vmEncode[type]->outFile=out;
     //encode file
     int jst=vmEncode[type]->encode(info,len);
+    //printf(" out len %d\n",(U32)vmEncode[type]->outFile->curpos());
 }
 
 uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint64_t &diffFound, int type) {
@@ -3158,7 +3018,7 @@ void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it, U64 s1, U
 
 void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, int info2, char *blstr, int it, U64 s1, U64 s2, U64 begin) {
     //encode data if type has encode defined
-    if (vTypes[type].type!=defaultType && vTypes[type].ensize!=-1 ) {
+    if (vTypes[type].type!=defaultType && vTypes[type].ensize!=-1 ) { // skip if encode data is missing
         U64 diffFound=0;
         FileTmp* tmp;
         tmp=new FileTmp;
@@ -3190,15 +3050,27 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
             if (vTypes[type].type>=defaultType ){
             
             direct_encode_blockstream(type, tmp, tmpsize, en, s1, s2, info==-1?(U32)begin:info);
-            } else if (vTypes[type].type<defaultType) {
+            } else if (vTypes[type].type<defaultType) { // recursive
                 segment.put1(type);
                 segment.put8(tmpsize);
                 segment.put4(info==-1?(U32)begin:info);
-               
-                    DetectRecursive( tmp, tmpsize, en, blstr,it+1, 0, tmpsize);//it+1
-                    tmp->close();
-                    return;
-               
+				if (info>0){ 
+					// not really, split header and data
+					// add header to defaultType and direct encode data
+					//tmp->setpos(0);
+					int hdrsize=( tmp->getc()<<8)+(tmp->getc()); // must be present in encoded file
+					tmp->setpos(0);
+					typenamess[defaultType][it]+=hdrsize,  typenamesc[defaultType][it]++; 
+					direct_encode_blockstream(defaultType, tmp, hdrsize, en,0, s2);
+					// process data
+					typenamess[type][it]+=tmpsize,  typenamesc[type][it]++;
+					direct_encode_blockstream(type, tmp, tmpsize-hdrsize, en, s1, s2, info);
+				}else{
+					// do recursion
+					DetectRecursive( tmp, tmpsize, en, blstr,it+1, 0, tmpsize);//it+1
+				}
+                tmp->close();
+                return;
             }
          
         }
@@ -3456,17 +3328,15 @@ int expand(String& archive, String& s, const char* fname, int base) {
 char *dmodel;
 Array<U64> filestreamsize(0);
 char *pp =
-"int *cxt,*t;int cxt1,cxt2,cxt3,cxt4,N;"
+"int cxt[4]={},t[0x40000]={};int cxt1,cxt2,cxt3,cxt4,N;"
 "int update(int y,int c0,int bpos,int c4,int pos){ int i,pr0;"
 "if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;"
-"for (i=0; i<N; ++i) t[cxt[i]]=smn(t[cxt[i]]);"
+"for (i=0;i<N;++i) t[cxt[i]&0x3ffff]=smn(t[cxt[i]&0x3ffff]);"
 "cxt[0]=(cxt1+c0),cxt[1]=(cxt2+c0+0x10000);"
 "cxt[2]=(cxt3+c0+0x20000),cxt[3]=(cxt4+c0+0x30000);"
-"pr0=0;for (i=0; i<4; ++i) pr0=pr0+smp(i,t[cxt[i]],1023);"
+"pr0=0;for (i=0;i<4;++i) pr0=pr0+smp(i,t[cxt[i]&0x3ffff],1023);"
 "pr0=pr0>>2;return apm(0,pr0,c0,7);}"
-"void block(int a,int b) {} int main() {   int i;  N=4;"
-"if (!(t = malloc((0x40000),sizeof(int)))) exit(-1);"
-"if (!(cxt = malloc(4,sizeof(int)))) exit(-1);"
+"void block(int a,int b){} int main(){int i; N=4;"
 "vms(N,1,0,0,0,0,0,0,0);for (i=0;i<N;i++) vmi(1,i,256,0,-1);"
 "vmi(2,0,256,0,-1);cxt1=cxt2=cxt3=cxt4=0;}";
 
@@ -3740,6 +3610,7 @@ int readConfigFile(FILE *fp){
                 vTypes[tsize].ensize=sid;        // set decode -1
               //  printf("type id=%d no encode model\n",vTypes[tsize].type);
             }else{ 
+                if ( vTypes[tsize].desize==-1) quit("bad config:encode   type d/encode not defined");
                 strcpy(vTypes[tsize].encode,ptr); // copy config file name
                // printf("type id=%d model=%s \n",vTypes[tsize].type,vTypes[tsize].encode);
             }
@@ -3757,6 +3628,7 @@ int readConfigFile(FILE *fp){
              //   printf("type id=%d no decode model\n",vTypes[tsize].type);
             }
             else{ 
+            if ( vTypes[tsize].ensize==-1) quit("bad config:decode   type d/encode not defined");
                 strcpy(vTypes[tsize].decode,ptr); // copy config file name
                // printf("type id=%d model=%s \n",vTypes[tsize].type,vTypes[tsize].decode);
             }
@@ -4559,6 +4431,7 @@ printf("\n");
                        app = (char *)calloc(len+1,1); //alloc mem for decompressed buf
                        // decompress model into buf pp
                        for (int k=0;k<len;++k) app[k]=enm->decompress();
+                       //printf("%s",app); //print model 
                        delete enm; //delete encoder and predictor
                     }
                     printf("DeCompressing ");

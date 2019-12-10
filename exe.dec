@@ -1,9 +1,9 @@
-char *c;
-char *buff,*obuff;
+char c[10]={};
 enum {BLOCK=0x10000};
+char buff[BLOCK]={},obuff[BLOCK]={};
 int min(int a, int b) {return a<b?a:b;}
 int decode(int info,int len) {
-    int  offset, a,i;
+    int offset,a,i;
     int bufpos,obufpos,total,size,bytesRead;
     bufpos=BLOCK;
     obufpos=size=0;
@@ -47,7 +47,4 @@ int decode(int info,int len) {
     return len;
 }
 int main() {
-    if (!(c = malloc(10,sizeof(char)))) exit(-1);
-    if (!(buff = malloc(BLOCK,sizeof(char)))) exit(-1);
-    if (!(obuff = malloc(BLOCK,sizeof(char)))) exit(-1);
 }

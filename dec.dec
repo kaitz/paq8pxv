@@ -1,6 +1,6 @@
 // DEC Alpha transform - decode
-char *blk;
 enum {BLOCK=0x10000};
+char blk[BLOCK]={};
 int min(int a, int b) {return a<b?a:b;}
 int bswap(int x){
   return  (((x & 0xff000000) >> 24) |
@@ -35,5 +35,4 @@ int decode(int info,int len) {
     return len;
 }
 int main() {
-    if (!(blk = malloc(BLOCK,sizeof(char)))) exit(-1);
 }

@@ -2,8 +2,7 @@ char etable[64] = {'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','
                   'Q','R','S','T','U','V','W','X','Y','Z','a','b','c','d','e','f',
                   'g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v',
                   'w','x','y','z','0','1','2','3','4','5','6','7','8','9','+','/'};
-char *inn;
-char *buff ,*ptr;
+char inn[10]={},buff[10]={},ptr[10]={};
 int min(int a, int b) {return a<b?a:b;}
 int decode(int info,int len1) {
     int i,len;
@@ -30,7 +29,4 @@ int decode(int info,int len1) {
     return ocount;
 }
 int main() {
-    if (!(inn = malloc(10,sizeof(char)))) exit(-1);
-    if (!(buff = malloc(10,sizeof(char)))) exit(-1);
-    if (!(ptr = malloc(10,sizeof(char)))) exit(-1);
 }

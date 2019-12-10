@@ -1,7 +1,7 @@
 // DEC Alpha transform - encode
 // bsr r26,offset
-char *blk;
 enum {BLOCK=0x10000};
+char blk[BLOCK]={};
 int min(int a, int b) {return a<b?a:b;}
 
 int bswap(int x){
@@ -28,8 +28,6 @@ int encode(int info,int len) {
                 offset=offset+(i/4);
                 op=op&(~0x1fffff);
                 op=op|(offset&0x1fffff);
-                
-                
             }
             op=bswap(op);
             blk[i]=op;
@@ -42,5 +40,4 @@ int encode(int info,int len) {
 }
 
 int main() {
-    if (!(blk = malloc(BLOCK,sizeof(char)))) {  exit(-1); }
 }

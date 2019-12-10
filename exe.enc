@@ -7,8 +7,8 @@
 // where xxxxxxxx is a relative address LSB first.  The address is
 // converted to an absolute address by adding the offset mod 2^25
 // (in range +-2^24).
-char *blk;
 enum {BLOCK=0x10000};
+char blk[BLOCK]={};
 int min(int a, int b) {return a<b?a:b;}
 int encode(int info,int len) {
     int offset;
@@ -39,5 +39,4 @@ int encode(int info,int len) {
 }
 
 int main() {
-    if (!(blk = malloc(BLOCK,sizeof(char)))) {  exit(-1); }
 }
