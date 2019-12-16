@@ -97,28 +97,26 @@ int main() {
 Main compression routine used when compressing .cfg/.dec files and main config file (conf.pxv).
 Stored uncompressed at the beginning of the output file.
 ```c
-int *cxt,*t;
-int cxt1,cxt2,cxt3,cxt4,N;
+int cxt[4]={};
+int cxt1,cxt2,cxt3,N;
+enum {SMC=1,APM1,DS,AVG,RCM,SCM,CM,MX,ST};
 
 // update is called by vm for every input bit
-// output must be prediction 0...4095
 // y    - last bit
 // c0   - last 0-7 bits of the partial byte with a leading 1 bit (1-255)
 // c4   - last 4,4 whole bytes, packed.  Last byte is bits 0-7.
 // bpos - bits in c0 (0 to 7)
 // pos  - current pos in input data
-int update(int y,int c0,int bpos,int c4,int pos){
-    int i,pr0;
-    if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;
-    for (i=0; i<N; ++i) t[cxt[i]]=smn(t[cxt[i]]);
+int update(int y,int c0,int bpos,int c4,int pos){ 
+    int i;
+    if (bpos==0) cxt3=cxt2,cxt2=cxt1,cxt1=(c4&0xff)*256;
     cxt[0]=(cxt1+c0);
     cxt[1]=(cxt2+c0+0x10000);
     cxt[2]=(cxt3+c0+0x20000);
-    cxt[3]=(cxt4+c0+0x30000);
-    pr0=0;
-    for (i=0; i<4; ++i) pr0=pr0+smp(i,t[cxt[i]],1023);
-    pr0=pr0>>2;
-    return apm(0,pr0,c0,7);
+    for (i=0;i<N;++i) 
+    vmx(DS,0,cxt[i]);// pr[0]--pr[2]  
+    vmx(APM1,0,c0);  // 
+    return 0;
 }
 
 // called at the start of every new data type
@@ -127,19 +125,15 @@ int update(int y,int c0,int bpos,int c4,int pos){
 void block(int a,int b) {}
 
 // called once at the start of compression
-int main() {
-    int i;
-    N=4;
-    if (!(t = malloc((0x40000),sizeof(int)))) exit(-1);
-    if (!(cxt = malloc(4,sizeof(int)))) exit(-1);
-    // init, use N number of StateMap's, 1 APM
-    vms(N,1,0,0,0,0,0,0,0);
-    // init StateMap[i], context size 256, no mixer (-1)
-    for (i=0;i<N;i++) vmi(1,i,256,0,-1);
-    // init APM[0], context size 256, no mixer (-1)
-    vmi(2,0,256,0,-1);
-    cxt1=cxt2=cxt3=cxt4=0;
-};
+int main(){int i; N=3;
+    vms(0,1,1,2,0,0,0,0,0);
+    vmi(DS,0,18,1023,N);  // pr[0]..pr[2]
+    vmi(AVG,0,0,1,2);     // pr[3]=avg(pr[1],pr[2])
+    vmi(AVG,1,0,0,3);     // pr[4]=avg(pr[0],pr[3])
+    vmi(APM1,0,256,7,4);  // pr[5]=apm(pr[4]) rate 7 -> pr[5] is final prediction
+    cxt1=cxt2=cxt3=0;
+}
+
 ```
 # Forum
 https://encode.su/threads/3064-paq8pxv-virtual-machine
