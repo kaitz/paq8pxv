@@ -405,7 +405,7 @@ elements at a time.
 
 */
 
-#define VERSION "12"
+#define VERSION "13"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
 #define MT            //uncomment for multithreading, compression only
@@ -427,7 +427,6 @@ elements at a time.
 #include <stdio.h>
 #include <time.h>
 #include <math.h>
-//#include "zlib.h"
 #define NDEBUG  // remove for debugging (turns on Array bound checks)
 #include <assert.h>
 #include <vector>
@@ -1492,11 +1491,17 @@ class APM1 {
   int index;     // last p, context
   const int N;   // number of contexts
   Array<U16> t;  // [N][33]:  p, context -> p
+  int rate,cxt;
   BlockData& x;
   int mask;
+  int p1;
 public:
-  APM1(int n,BlockData& x);
-  int p(int pr=2048, int cxt=0, int rate=7) {
+  APM1(int n,int r,int d,BlockData& x);
+  void set(int c){cxt=c;
+  }
+  inline int i1() {return p1;
+  }
+  int p(int pr=2048) {
     assert(pr>=0 && pr<4096 && rate>0 && rate<32);
     
     pr=stretch(pr);
@@ -1510,7 +1515,7 @@ public:
 };
 
 // maps p, cxt -> p initially
-APM1::APM1(int n,BlockData& bd): index(0), N(n), t(n*33),x(bd),mask(n-1) {
+APM1::APM1(int n,int r,int d,BlockData& bd): index(0), N(n), t(n*33),x(bd),mask(n-1),rate(r),cxt(0),p1(d) {
     assert(ispowerof2(n));
   for (int i=0; i<N; ++i)
     for (int j=0; j<33; ++j)
@@ -1530,7 +1535,9 @@ private:
   Array<int> pr;   // last result (scaled 12 bits)
   Array<ErrorInfo> info; 
   Array<int> rates; // learning rates
-public:  
+ 
+  int mcxtc;
+public:   Array<int> mcxt;
   BlockData& x;
   Mixer(int n, int m,BlockData& bd, int s=1, int w=0);
   
@@ -1680,7 +1687,7 @@ void train(short *t, short *w, int n, int err) {
       assert(err>=-32768 && err<32768);
       train(&tx[0], &wx[cxt[i]*N], nx, err);
     }
-    nx=base=ncxt=0;
+    reset();
   }
    void update1() {
     int target=x.y<<12;
@@ -1709,10 +1716,13 @@ void train(short *t, short *w, int n, int err) {
     reset();
   }
   void reset() {
-    nx=base=ncxt=0;
+    nx=base=ncxt=mcxtc=0;
   }
   void update2() {
-      if (nx==0) return;
+      if (nx==0) {
+      reset();
+      return;
+      }
       update();
   }
   // Input x (call up to N times)
@@ -1754,6 +1764,13 @@ void train(short *t, short *w, int n, int err) {
     cxt[ncxt++]=base+cx;
     base+=range;
   }
+  void mxcxt(int cx) {
+    assert(cx>=1);
+    mcxt[mcxtc++]=cx;
+  }
+  inline int gcxt(){
+     return mcxt[mcxtc++];
+  }
   // predict next bit
   int p(const int shift0=0, const int shift1=0) {
     while (nx&15) tx[nx++]=0;  // pad
@@ -1781,7 +1798,7 @@ Mixer::~Mixer() {
 
 Mixer::Mixer(int n, int m, BlockData& bd, int s, int w):
     N((n+15)&-16), M(m), S(s), wx(N*M),
-    cxt(S), ncxt(0), base(0), pr(S), mp(0),tx(N),nx(0),x(bd), info(S), rates(S) {
+    cxt(S), ncxt(0), base(0), pr(S), mp(0),tx(N),nx(0),x(bd), info(S), rates(S),mcxt(S),mcxtc(0){
   assert(n>0 && N>0 && (N&15)==0 && M>0);
    int i;
   for (i=0; i<S; ++i){
@@ -1853,67 +1870,44 @@ protected:
   Array<U32> t;       // cxt -> prediction in high 22 bits, count in low 10 bits
   int pr;
   int mask;
+  int limit;
   BlockData& x;
-  inline void update( int limit) {
+  int cx;
+  inline void update() {
     assert(cxt>=0 && cxt<N);
     assert(x.y==0 || x.y==1);
-    U32 &p=t[cxt];
-    int n=p&1023, pr=p>>10;  // count, prediction
-    p+=(n<limit);
-    p+=((((x.y<<22)-pr)>>3)*dt[n]&0xfffffc00);
+    U32 *p=&t[cxt], p0=p[0];
+    int n=p0&1023, pr1=p0>>10;  // count, prediction
+    //if (n<limit) ++p0;
+    //else p0=(p0&0xfffffc00)|limit;
+    p0+=(n<limit);
+    p0+=(((x.y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
+    p[0]=p0;
 }
 public:
-  StateMapContext(int n,  BlockData& x);//
+  StateMapContext(int n, int lim, BlockData& x);//
+   void set(int c) {   
+    cx=c;
+    update();
+    pr=t[cxt=(cx&mask)]>>20;
+  }
   // update bit y (0..1), predict next bit in context cx
-  int p(int cx,int limit=1023) {
-    assert(limit>0 && limit<1024);
-    update(limit);
-    return pr=t[cxt=(cx&mask)]>>20;
+  inline int p() {
+    
+    //update();
+    return pr;
   }
   void mix(Mixer& m) {   
-    m.add(stretch(pr));
+    m.add(stretch(p()));
   }
 };
 
-StateMapContext::StateMapContext(int n, BlockData& bd): N(n), cxt(0), t(n), mask(n-1), x(bd) {
+StateMapContext::StateMapContext(int n,int lim, BlockData& bd): N(n), cxt(0), t(n), mask(n-1), x(bd),limit(lim),cx(0),pr(2048) {
     assert(ispowerof2(n));
+    assert(limit>0 && limit<1024);
   for (int i=0; i<N; ++i)
     t[i]=1<<31; 
 } 
-// An APM maps a probability and a context to a new probability.  Methods:
-//
-// APM a(n) creates with n contexts using 96*n bytes memory.
-// a.pp(y, pr, cx, limit) updates and returns a new probability (0..4095)
-//     like with StateMap.  pr (0..4095) is considered part of the context.
-//     The output is computed by interpolating pr into 24 ranges nonlinearly
-//     with smaller ranges near the ends.  The initial output is pr.
-//     y=(0..1) is the last bit.  cx=(0..n-1) is the other context.
-//     limit=(0..1023) defaults to 255.
-
-class APM2: public StateMapContext {
-public:
-  APM2(int n, BlockData& bd);
-  int p(int pr, int cx, int limit=255) {
-    assert(pr>=0 && pr<4096);
-    assert(cx>=0 && cx<N/24);
-    assert(limit>0 && limit<1024);
-    update(limit);
-    pr=(stretch(pr)+2048)*23;
-    int wt=pr&0xfff;  // interpolation weight of next element
-    cx=cx*24+(pr>>12);
-    assert(cx>=0 && cx<N-1);
-    cxt=cx+(wt>>11);
-    pr=((t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt)>>19;
-    return pr;
-  }
-};
-
-APM2::APM2(int n, BlockData& bd): StateMapContext(n*24,bd)  {
-  for (int i=0; i<N; ++i) {
-    int p=((i%24*2+1)*4096)/48-2048;
-    t[i]=(U32(squash(p))<<20)+6;
-  }
-}
 
 //////////////////////////// hash //////////////////////////////
 
@@ -2135,6 +2129,77 @@ public:
     bCount++; B+=B+1;
     if (bCount==bTotal)
       bCount=B=0;
+  }
+};
+
+class StaticMap {
+int pr;
+int pr1;
+  BlockData& x;
+public:
+  StaticMap(int m,BlockData& bd): pr((m-128)*16),pr1(m*16),x(bd) {
+  if (m>255 || m<0) printf("StaticMap must be 0..255\n"),quit();
+  }
+  void set(U32 cx) {      
+  }
+  inline int p() {
+      return pr1;
+  }
+  int mix(Mixer& m) {
+    m.add(pr);
+    return 0;
+  }
+};
+
+class AvgMap {
+int pr;
+int p1,p2; // index to prediction array
+  BlockData& x;
+
+public:
+  AvgMap(int a,int b,BlockData& bd): pr(0),p1(a),p2(b),x(bd) {
+  }
+  inline int average(int a,int b){
+      return pr=(a+b+1)>>1;
+  }
+  inline int i1(){ return p1;  } //index 1
+  inline int i2(){ return p2;  } //index 2
+  inline int p() { return pr;  }
+  int mix(Mixer& m) {
+    m.add(stretch(pr));
+    return 0;
+  }
+};
+
+class DynamicSMap {
+int state;
+StateMap *sm;
+Array<int> cxt;
+int mask;
+Array<int>  pr;
+int limit;
+Array<U8> Contexts;
+  BlockData& x;
+  int index;
+  int count;
+public:
+  DynamicSMap(int m,int lim,int c,BlockData& bd): state(0),cxt(c),mask((1<<m)-1),pr(c),Contexts(mask+1),limit(lim),x(bd),index(0),count(c) {
+  sm=new StateMap[c];
+  }
+  void set(U32 cx) {//da hell is hapening??????????? nothing, all good :D
+       Contexts[cxt[index]]=nex(Contexts[cxt[index]],x.y);       //update state
+       cxt[index]=(cx)&mask;                                     // get new context
+       pr[index]=sm[index].p(Contexts[cxt[index]],x.y,limit);    // predict from new context
+       index++;
+       if (index==count) index=0;
+  }
+  inline int p() {
+      int pr0=pr[index++];
+      if (index==count) index=0;
+      return pr0;
+  }
+  int mix(Mixer& m) {
+    return 0;
   }
 };
 
@@ -2921,7 +2986,6 @@ void encode_file(File* in, File* out, int len, int info,int type) {
     vmEncode[type]->outFile=out;
     //encode file
     int jst=vmEncode[type]->encode(info,len);
-    //printf(" out len %d\n",(U32)vmEncode[type]->outFile->curpos());
 }
 
 uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint64_t &diffFound, int type) {
@@ -3024,14 +3088,13 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
         tmp=new FileTmp;
         encode_file(in, tmp, int(len), info==-1?(U32)begin:info,type);
         const U64 tmpsize= tmp->curpos();
-        
         int tfail=0;
         tmp->setpos(0);
         en.setFile(tmp);
         int ts=0;
         if ( vTypes[type].type>=defaultType){
             in->setpos(begin);
-            decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
+            outz=decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
         }else{
             in->setpos(begin);
             decode_file(tmp, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
@@ -3324,22 +3387,30 @@ int expand(String& archive, String& s, const char* fname, int base) {
 
 #endif
 #endif
-
 char *dmodel;
 Array<U64> filestreamsize(0);
-char *pp =
-"int cxt[4]={},t[0x40000]={};int cxt1,cxt2,cxt3,cxt4,N;"
-"int update(int y,int c0,int bpos,int c4,int pos){ int i,pr0;"
-"if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;"
-"for (i=0;i<N;++i) t[cxt[i]&0x3ffff]=smn(t[cxt[i]&0x3ffff]);"
-"cxt[0]=(cxt1+c0),cxt[1]=(cxt2+c0+0x10000);"
-"cxt[2]=(cxt3+c0+0x20000),cxt[3]=(cxt4+c0+0x30000);"
-"pr0=0;for (i=0;i<4;++i) pr0=pr0+smp(i,t[cxt[i]&0x3ffff],1023);"
-"pr0=pr0>>2;return apm(0,pr0,c0,7);}"
-"void block(int a,int b){} int main(){int i; N=4;"
-"vms(N,1,0,0,0,0,0,0,0);for (i=0;i<N;i++) vmi(1,i,256,0,-1);"
-"vmi(2,0,256,0,-1);cxt1=cxt2=cxt3=cxt4=0;}";
-
+char *pp ="int cxt[4]={};"
+"int cxt1,cxt2,cxt3,cxt4,N;"
+"enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST};"
+"int update(int y,int c0,int bpos,int c4,int pos){ "
+"    int i;"
+"    if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;"
+"    cxt[0]=(cxt1+c0);"
+"    cxt[1]=(cxt2+c0+0x10000);"
+"    cxt[2]=(cxt3+c0+0x20000);"
+"    cxt[3]=(cxt4+c0+0x30000);"
+"    for (i=0;i<N;++i) vmx(DS,0,cxt[i]);"
+"    vmx(APM1,0,c0);" 
+"    return 0;}" 
+"void block(int a,int b){} "
+"int main(){int i; N=4;"
+"    vms(0,1,1,3,0,0,0,0,0);"
+"    vmi(DS,0,18,1023,4); "    
+"    vmi(AVG,0,0,0,1);     "
+"    vmi(AVG,1,0,2,3);     "
+"    vmi(AVG,2,0,4,5);     "
+"    vmi(APM1,0,256,7,6);  "
+"    cxt1=cxt2=cxt3=cxt4=0;}";
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
     i=streamid;
