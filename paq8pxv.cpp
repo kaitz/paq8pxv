@@ -3094,7 +3094,7 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
         int ts=0;
         if ( vTypes[type].type>=defaultType){
             in->setpos(begin);
-            outz=decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
+            decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
         }else{
             in->setpos(begin);
             decode_file(tmp, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
