@@ -393,12 +393,6 @@ a priority.
 Stationary models are most appropriate for small contexts, so the
 context is used as a direct table lookup without hashing.
 
-The match model maintains a pointer to the last match until a mismatching
-bit is found.  At the start of the next byte, the hash table is referenced
-to find another match.  The hash table of pointers is updated after each
-whole byte.  There is no checksum.  Collisions are detected by comparing
-the current and matched context in a rotating buffer.
-
 The inner loops of the neural network prediction (1) and training (2)
 algorithms are implemented in SIMD assembler, which computes 4 or more
 elements at a time.
@@ -963,37 +957,6 @@ public:
   }
 } ;
 
-////////////////////////////// Buf /////////////////////////////
-
-// Buf(n) buf; creates an array of n bytes (must be a power of 2).
-// buf[i] returns a reference to the i'th byte with wrap (no out of bounds).
-// buf(i) returns i'th byte back from pos (i > 0)
-// buf.size() returns n.
-
-class Buf {
-  Array<U8> b;
-public:
-int pos;  // Number of input bytes in buf (is wrapped)
-int poswr; //wrapp
-  Buf(U32 i=0): b(i),pos(0) {poswr=i-1;}
-  void setsize(int i) {
-    if (!i) return;
-    assert(i>0 && (i&(i-1))==0);
-    poswr=i-1;
-    b.resize(i);
-  }
-  U8& operator[](int i) {
-    return b[i&(b.size()-1)];
-  }
-  int operator()(int i) const {
-    assert(i<b.size());
-    //assert(i>0);
-    return b[(pos-i)&(b.size()-1)];
-  }
-  int size() const {
-    return b.size();
-  }
-};
 
 // Buffer for file segment info 
 // type size info(if not -1)
@@ -1066,14 +1029,12 @@ public:
     int c0; // Last 0-7 bits of the partial byte with a leading 1 bit (1-255)
     U32 c4;//,c8; // Last 4,4 whole bytes, packed.  Last byte is bits 0-7.
     int bpos; // bits in c0 (0 to 7)
-    Buf buf;  // Rotating input queue set by Predictor
     int blpos; // Relative position in block
     int filetype;
     int finfo;
 BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1) {
         // Set globals according to option
         assert(level<=9);
-        buf.setsize(0x1000000); //limit 128mb
     }
 ~BlockData(){ }
 };
@@ -1917,6 +1878,9 @@ inline U32 hash0(U32 a, U32 b, U32 c=0xffffffff, U32 d=0xffffffff,
   U32 h=a*200002981u+b*30005491u+c*50004239u+d*70004807u+e*110002499u;
   return h^h>>9^a>>2^b>>3^c>>4^d>>5^e>>6;
 }
+inline U32 hash1(U32 a, U32 b) {
+  return (a  + 512) * 773+ b;
+}
 
 ///////////////////////////// BH ////////////////////////////////
 
@@ -2020,7 +1984,7 @@ class RunContextMap {
 public:
   RunContextMap(int m,BlockData& bd): t(m/4),x(bd) {cp=t[0]+1;}
   void set(U32 cx) {  // update count
-    if (cp[0]==0 || cp[1]!=x.buf(1)) cp[0]=1, cp[1]=x.buf(1);
+    if (cp[0]==0 || cp[1]!=(U8)x.c4) cp[0]=1, cp[1]=(U8)x.c4;
     else if (cp[0]<255) ++cp[0];
     cp=t[cx]+1;
   }
@@ -2129,6 +2093,20 @@ public:
     bCount++; B+=B+1;
     if (bCount==bTotal)
       bCount=B=0;
+  }
+};
+class MixMap {
+int pr,p1;
+  BlockData& x;
+public:
+  MixMap(int m,BlockData& bd): pr(2048),p1(m),x(bd) {   
+  }
+  inline int i1(){ return p1;  } //index 1
+  void set(U32 cx) { pr=cx;       }
+  inline int p() {   return pr;  }
+  int mix(Mixer& m) {
+    m.add(stretch(pr));
+    return 0;
   }
 };
 
@@ -2321,7 +2299,7 @@ public:
   ~ContextMap();
   void set(U32 cx, int next=-1);   // set next whole byte context to cx
     // if next is 0 then set order does not matter
-  int mix(Mixer& m) {return mix1(m, m.x.c0, m.x.bpos, m.x.buf(1), m.x.y);}
+  int mix(Mixer& m) {return mix1(m, m.x.c0, m.x.bpos, (U8)m.x.c4, m.x.y);}
   int get() {return result;}
     int inputs();
 };
@@ -2719,17 +2697,15 @@ public:
   void set() {  vm.block(x.finfo,0);  }
   void setdebug(int a){      vm.debug=a;  }
   void update()  {
-    //update0(); // Update global context: pos, bpos, c0, c4, buf
+    //update0(); // Update global context: pos, bpos, c0, c4
     x.c0+=x.c0+x.y;
     if (x.c0>=256) {
         x.c4=(x.c4<<8)+(x.c0&0xff);
-        x.buf[x.buf.pos++]=x.c0;
         x.c0=1;
         ++x.blpos;
-        x.buf.pos=x.buf.pos&x.buf.poswr; //wrap
     }
     x.bpos=(x.bpos+1)&7;
-    pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,x.buf.pos);
+    pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,0);
   }
 };
 //////////////////////////// Encoder ////////////////////////////
@@ -3134,17 +3110,14 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
 				}
                 tmp->close();
                 return;
-            }
-         
+            }         
         }
         tmp->close();
-    } else {
-         
+    } else {         
             const int i1=info;
             direct_encode_blockstream(type, in, len, en, s1, s2, i1);
          
-    }
-    
+    }    
 }
 
 void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=0, U64 s2=0) {
@@ -3394,7 +3367,7 @@ char *pp ="int cxt[4]={};"
 "enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST};"
 "int update(int y,int c0,int bpos,int c4,int pos){ "
 "    int i;"
-"    if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=buf(1)*256;"
+"    if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=(c4&0xff)*256;"
 "    cxt[0]=(cxt1+c0);"
 "    cxt[1]=(cxt2+c0+0x10000);"
 "    cxt[2]=(cxt3+c0+0x20000);"
@@ -3404,7 +3377,7 @@ char *pp ="int cxt[4]={};"
 "    return 0;}" 
 "void block(int a,int b){} "
 "int main(){int i; N=4;"
-"    vms(0,1,1,3,0,0,0,0,0);"
+"    vms(0,1,1,3,0,0,0,0,0,0);"
 "    vmi(DS,0,18,1023,4); "    
 "    vmi(AVG,0,0,0,1);     "
 "    vmi(AVG,1,0,2,3);     "
