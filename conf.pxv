@@ -67,8 +67,8 @@ encode -1 //text.enc
 compress 0
 type 8
 detect dec.det
-decode dec.dec
-encode dec.enc
+decode -1 //dec.dec
+encode -1 //dec.enc
 compress 0
 type 9
 detect gif.det
@@ -77,6 +77,6 @@ encode -1
 compress 0
 type 10
 detect arm.det
-decode arm.dec
-encode arm.enc
+decode -1 //arm.dec
+encode -1 //arm.enc
 compress 0
