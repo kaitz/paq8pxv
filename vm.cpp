@@ -235,6 +235,7 @@ void initcomponent(VM* v,int c,int i, int f,int d, int e){
     case vmAPM1:{v->prSize.resize(v->prSize.size()+1); if (ii>v->apm1) printf("VM vmi error: apm1(%d) defined %d, max %d\n",c,ii, v->apm1),quit(); 
         break; }
     case vmDS:{v->totalc=v->totalc+e-1;v->mcomp.resize(v->mcomp.size()+e); v->prSize.resize(v->prSize.size()+e); if (ii>v->ds) printf("VM vmi error: ds(%d) defined %d, max %d\n",c,ii, v->ds),quit();
+          if (f<1) printf("VM vmi error:ds(%d) memory bits must be larger then 0.",ii),quit();
         break;      }
     case vmRCM: { if (ii>v->rcm ) printf("VM vmi error: rcm(%d) defined %d, max %d\n",c,ii, v->rcm),quit(); 
         break;  }

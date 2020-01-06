@@ -78,7 +78,7 @@ int detect(int c4,int i) {
           else  if (type==DEFAULT && bpp==24){
             info=((x*3)+3)& 0xFFFFFFFC;// -4;
             type=BMPFILE;
-            state=INFO;
+            state=START;
             jstart=of+bmp-1;
             //printf("DETECT: BMP info %d\n",info);
             return state;
@@ -88,17 +88,15 @@ int detect(int c4,int i) {
       }
     }
     
-    if (type==BMPFILE && state==INFO) {
-            state=START;
+    if (type==BMPFILE && state==START) {
+            state=INFO;
             jend=info*y;
-            //printf("DETECT: BMP start %d\n",jstart);
            return state;
     }
      if (type==BMPFILE && state==START && i==jend) {
             state=END;
             type=DEFAULT;
             bmp=0;
-        //  printf("DETECT: BMP end %d\n",jend);
            return state;
     }
     return NONE;

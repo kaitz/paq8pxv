@@ -2156,18 +2156,18 @@ Array<int> cxt;
 int mask;
 Array<int>  pr;
 int limit;
-Array<U8> Contexts;
+Array<U8> CxtState;
   BlockData& x;
   int index;
   int count;
 public:
-  DynamicSMap(int m,int lim,int c,BlockData& bd): state(0),cxt(c),mask((1<<m)-1),pr(c),Contexts(mask+1),limit(lim),x(bd),index(0),count(c) {
+  DynamicSMap(int m,int lim,int c,BlockData& bd): state(0),cxt(c),mask((1<<m)-1),pr(c),CxtState(mask+1),limit(lim),x(bd),index(0),count(c) {
   sm=new StateMap[c];
   }
   void set(U32 cx) {//da hell is hapening??????????? nothing, all good :D
-       Contexts[cxt[index]]=nex(Contexts[cxt[index]],x.y);       //update state
+       CxtState[cxt[index]]=nex(CxtState[cxt[index]],x.y);       //update state
        cxt[index]=(cx)&mask;                                     // get new context
-       pr[index]=sm[index].p(Contexts[cxt[index]],x.y,limit);    // predict from new context
+       pr[index]=sm[index].p(CxtState[cxt[index]],x.y,limit);    // predict from new context
        index++;
        if (index==count) index=0;
   }
