@@ -1,7 +1,9 @@
 // text transform - encode
 enum {BLOCK=110};
+int totalout,y;
 char s[BLOCK]={}; 
 char inpc[4]={},p2[1024]={};
+int hash[224]={},slen[224]={};
 char words[1129] = {
     'a',0x0,'a','n',0x0,'t','h','e',0x0,'t','h','i','s',0x0,'t','h','a','t',0x0,'t','h','e','s','e',0x0,'a','n','d',0x0,'o','r',0x0,'i','f',0x0,'t','h','e','n',0x0,'e','l','s','e',0x0,'n','o',
     't',0x0,'a','s',0x0,'b','e','c','a','u','s','e',0x0,'b','u','t',0x0,'l','i','k','e',0x0,'b','e',0x0,'b','e','e','n',0x0,'b','e','i','n','g',0x0,'a','m',0x0,'i','s',0x0,'a','r','e',0x0,'w',
@@ -37,8 +39,8 @@ char words[1129] = {
 //"output","bit","bits","gmt","uucp","mcvax","alberta","mnetor","uunet","formant","rnews","university","newsgroups","information","organization","field","sound","code","table","example","zone",
 //"pitch","lines","path","way","int","point","frequency","signal","filter","model","nothing","case","sup","sub","pp","id","eq","re","lo","hi","en","uk","pm","sp","cs","ds","ac","dec","ul","rn",
 //"lb","le","nr","nv","ha","hn","hp","hz"
-int hash[224]={};
-int totalout,y;
+
+
 
 void fputc(int wt){
     p2[y]=wt;y++;
@@ -55,17 +57,17 @@ int encode(int info,int len) {
         if (((c>='a' && c<='z') || (c>='A' && c<='Z')) && s_size<BLOCK) {
             if (c>='A' && c<='Z') w=1;
             if (s_size==0 && w==1) wt=1; //frist uper
+            if (s_size>0 && ((wt==2 && w==0 )|| (wt==1 && w==0)||(wt==0 && w==1 ))) wt=3; //var
             if (s_size>0 && w==1 && wt!=3) wt=2; //upper
-            if (s_size>0 && ((wt==2 && w==0 )|| (wt==1 && w==0))) wt=3; //var
             s[s_size++]=c;
             if (c>='A' && c<='Z') c=c+('a'-'A');
-            dhash=h3(dhash,c,27);
+            dhash=h2(dhash,h2(c,23));
             w=0;
         }
         else {
-            if (s_size>0 && wt!=3) {
+            if (s_size>0 && (wt!=3)) {
                 for (j=0; j<224;j++){
-                    if (hash[j]==dhash){
+                    if (hash[j]==dhash && slen[j]==s_size){
                         if (wt>0)  fputc(wt);
                         wt=0,w=0;
                         if (j<112) {
@@ -92,18 +94,25 @@ int encode(int info,int len) {
             fputc(c);
         }
     }
+    if (s_size>0) {
+        for(k=0;k<s_size;k++)
+                fputc(s[k]);
+    }
     if (y>0) {write(p2,y);}
+   
 }
 int main() {
-    int i,h,c,j;
+    int i,h,c,j,k;
     j=0;
     for (i=0;i<224;i++){
-        h=0;
+        h=k=0;
         c=words[j++];
         while (c!=0){
-            h=h3(h,c,27);
+            k++;
+            h=h2(h,h2(c,23));
             c=words[j++];
         }
+        slen[i]=k;
         hash[i]=h;
     }
 }

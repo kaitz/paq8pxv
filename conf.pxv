@@ -8,7 +8,7 @@ model test3d.cfg
 stream 3
 model test3img.cfg
 stream 4
-model test3d.cfg
+model test3i8.cfg
 stream 5
 model test3i24.cfg
 // set types
@@ -62,8 +62,8 @@ encode b64.enc
 compress 0
 type 7
 detect text.det
-decode -1 //text.dec
-encode -1 //text.enc
+decode text.dec
+encode text.enc
 compress 0
 type 8
 detect dec.det

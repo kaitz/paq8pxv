@@ -1,7 +1,7 @@
 // For text detection
 int txtStart,txtLen;
 int txtMinLen;
-int type,state,jstart,jend;
+int type,state,jstart,jend,of;
 enum {DEFAULT=1,TEXT}; //internal enum
 enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
 // function will report its state 
@@ -10,7 +10,7 @@ enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enu
 void reset(){
     state=NONE,type=DEFAULT,jstart=jend=0;
     txtMinLen=1024*64;
-    txtStart=txtLen=0;
+    txtStart=txtLen=of=0;
 }
 int detect(int c4,int i) {
     int p ,c;
@@ -22,32 +22,36 @@ int detect(int c4,int i) {
         if (state==INFO)  return 1;
     }
     if (i==RESET) {
-        //reset();
+        reset();
         return 0xffffffff;
     }
     c=c4&0xff;
     //detect header
-    if (txtStart==0 && ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9 )) txtStart=1,jstart=i;
+    if (txtStart==0 && ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9 )) txtStart=1,of=i;
     if (txtStart) {
        if ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9) {
             ++txtLen;
             if (txtLen>txtMinLen && type==DEFAULT){
                 type=TEXT;
                 state=START;
+                jstart=of;
                 return state;
             }
-       } else if (type==TEXT && state==START) {
+            return NONE;
+       } 
+       if (type==TEXT && state==START) {
             state=INFO;
-            jend=i-1;
+            jend=i;
             return state;
-       } else if (type==TEXT && state==INFO) {
+       } else if (type==TEXT && state==INFO && i>=jend) {
             state=END;
             type=DEFAULT;
            return state;
-       } else {
+       } else if (type==TEXT){
             reset();
-       }
+       } else txtStart=0;
      }
+      
     return NONE;
 }
 
