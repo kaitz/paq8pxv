@@ -338,10 +338,7 @@ For images, only one neural network is used and its context is fixed.
 An APM is a stationary map combining a context and an input probability.
 The input probability is stretched and divided into 32 segments to
 combine with other contexts.  The output is interpolated between two
-adjacent quantized values of stretch(p1).  There are 2 APM stages in series:
-
-  p1 := (p1 + 3 APM(order 0, p1)) / 4.
-  p1 := (APM(order 1, p1) + 2 APM(order 2, p1) + APM(order 3, p1)) / 4.
+adjacent quantized values of stretch(p1).  
 
 PREPROCESSING
 
@@ -405,7 +402,8 @@ elements at a time.
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
 #define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
-//#define RCCODER                   // uncomment to use Rangecoder
+#define RCCODER                     // uncomment to use Rangecoder
+#define VMBOUNDS                    // uncomment to aad bounds chack at runtime
 
 #ifdef WINDOWS
 #ifdef MT

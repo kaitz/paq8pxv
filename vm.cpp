@@ -39,7 +39,7 @@ enum {  Num = 128, Fun, Sys, Glo, Loc, Id,
 };
 // opcodes
 enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI ,LS ,LC  ,SI ,SS ,SC  ,PSH ,
-       OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,VTHIS,
+       OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,BOUND,VTHIS,
         PRTF,VMS,VMI,VMX,MXS,H2,READ,WRTE,EXIT};
 
 // types
@@ -505,7 +505,7 @@ case ADJ: {*++e=val; break;}
 default:
 {break;}
 }
- /* printf("   %.4s",  
+  /*printf("   %.4s",  
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
          "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
          "PRTF,VMS ,VMI ,VMX ,MXS ,H2  ,READ,WRTE,EXIT"[op * 5]);
@@ -532,7 +532,7 @@ char *nam;
   }
   else if (tk == Id) {
     d = id; 
-   /* nam=(char*)id[Name];
+  /* nam=(char*)id[Name];
     printf("\n//");
         for (int y=0;y<id[IDLen];y++)printf("%c",nam[y]);
         if (id[UBound]>0)
@@ -639,6 +639,7 @@ char *nam;
     }
     else if (tk == Assign) {
       next();
+     if (ty > PTR) {  printf("%d: cant assign to pointer\n", line); exit(-1); }
       if (*e == LC || *e == LI || *e == LS) *e = PSH; else { kprintf("%d: bad lvalue in assignment\n", line); exit(-1); }
       expr(Assign); *++e = ((ty = t) == rCHAR) ? SC : ((ty = t) == sSHORT) ? SS : SI;
     }
@@ -653,17 +654,17 @@ char *nam;
     }
     else if (tk == Lor) { next(); emit(BNZ) ;  d = ++e; expr(Lan); *d = (int)(e + 1); ty = iINT; }
     else if (tk == Lan) { next(); emit(BZ) ;  d = ++e; expr(Or);  *d = (int)(e + 1); ty = iINT; }
-    else if (tk == Or)  { next();emit(PSH); expr(Xor); *++e = OR;  ty = iINT; }
-    else if (tk == Xor) { next(); emit(PSH); expr(And); *++e = XOR; ty = iINT; }
-    else if (tk == And) { next(); emit(PSH); expr(Eq);  *++e = AND; ty = iINT; }
-    else if (tk == Eq)  { next(); emit(PSH); expr(Lt);  *++e = EQ;  ty = iINT; }
-    else if (tk == Ne)  { next(); emit(PSH); expr(Lt);  *++e = NE;  ty = iINT; }
-    else if (tk == Lt)  { next(); emit(PSH); expr(Shl); *++e = LT;  ty = iINT; }
-    else if (tk == Gt)  { next(); emit(PSH); expr(Shl); *++e = GT;  ty = iINT; }
-    else if (tk == Le)  { next(); emit(PSH); expr(Shl); *++e = LE;  ty = iINT; }
-    else if (tk == Ge)  { next(); emit(PSH); expr(Shl); *++e = GE;  ty = iINT; }
-    else if (tk == Shl) { next();emit(PSH); expr(Add); *++e = SHL; ty = iINT; }
-    else if (tk == Shr) { next(); emit(PSH); expr(Add); *++e = SHR; ty = iINT; }
+    else if (tk == Or)  { next();emit(PSH); expr(Xor); emit( OR);  ty = iINT; }
+    else if (tk == Xor) { next(); emit(PSH); expr(And);emit( XOR); ty = iINT; }
+    else if (tk == And) { next(); emit(PSH); expr(Eq);  emit( AND); ty = iINT; }
+    else if (tk == Eq)  { next(); emit(PSH); expr(Lt);  emit( EQ);  ty = iINT; }
+    else if (tk == Ne)  { next(); emit(PSH); expr(Lt);  emit( NE);  ty = iINT; }
+    else if (tk == Lt)  { next(); emit(PSH); expr(Shl); emit( LT);  ty = iINT; }
+    else if (tk == Gt)  { next(); emit(PSH); expr(Shl); emit( GT);  ty = iINT; }
+    else if (tk == Le)  { next(); emit(PSH); expr(Shl); emit( LE);  ty = iINT; }
+    else if (tk == Ge)  { next(); emit(PSH); expr(Shl); emit( GE);  ty = iINT; }
+    else if (tk == Shl) { next();emit(PSH); expr(Add); emit( SHL); ty = iINT; }
+    else if (tk == Shr) { next(); emit(PSH); expr(Add); emit( SHR); ty = iINT; }
     else if (tk == Add) {
       next(); emit(PSH); expr(Mul);
       if ((ty = t) > PTR) {emit(PSH); emit(IMM,sizeof(int)); emit(MUL);  }//pointer
@@ -679,6 +680,7 @@ char *nam;
     else if (tk == Div) { next(); *++e = PSH; expr(Inc);emit(DIV);   ty = iINT; }
     else if (tk == Mod) { next(); *++e = PSH; expr(Inc); emit(MOD);   ty = iINT; }
     else if (tk == Inc || tk == Dec) {
+        if (ty > PTR) {  printf("%d: cant assign to pointer\n", line); exit(-1); }
       if (*e == LC) { *e = PSH; *++e = LC; }
       else if (*e == LI) { *e = PSH; *++e = LI; }
       else if (*e == LS) { *e = PSH; *++e = LS; }
@@ -693,6 +695,7 @@ char *nam;
     else if (tk == Brak) {
       unsigned int upperbound=id[UBound]-1;
       int directarray=(int)e;
+      int *boundptr;
       next(); 
       emit(PSH);
       expr(Assign);     
@@ -700,6 +703,13 @@ char *nam;
       if (tk == ']') next(); else { kprintf("%d: close bracket expected\n", line); exit(-1); }
       if (t > PTR) { 
         emit(PSH); 
+#ifdef VMBOUNDS        
+        //runtime bounds check
+        emit(PSH);                                              // push index value again
+        emit(IMM,upperbound);emit(GT);  emit(BZ);boundptr=++e;  // compare index>upperbound
+           emit(IMM,line); emit(PSH); emit(BOUND); emit(ADJ,1); // fail if larger
+        *boundptr = (int)(e + 1);
+#endif
         emit(IMM,((ty = t - PTR) == rCHAR) ? 1 : ((ty = t - PTR) == sSHORT) ? 2 : 4);
         emit(MUL);
       } //fixed to int !!!
@@ -783,7 +793,10 @@ void VM::stmt() {
 }
  
 U32 h2(U32 a, U32 b){ return hash1(a,b);}
-
+int vmbound(int line){
+    if (line!=0)printf("Bounds error line: %d\n",line);
+    exit(-1);
+}
 #ifndef VMJIT
 int VM::dovm(int *ttt){
   if (!(pc = ttt)) { kprintf("main() not defined\n"); return -1; }
@@ -842,6 +855,7 @@ int VM::dovm(int *ttt){
     else if (i == MXS) {a=0,  mxs(this, sp[1],*sp);}
     else if (i == H2)  a = h2((U32)sp[1], (U32)*sp);
     else if (i == VTHIS)  *--sp;  //ignore
+    else if (i == BOUND) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return vmbound(*sp); }
     else if (i == EXIT) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return *sp; }
     else if (i == READ) a = (int)readfile(this,(U8 *)sp[1], *sp); //pointer,lenght
     else if (i == WRTE) a = (int)writefile(this,(U8 *)sp[1], *sp); //pointer,lenght
@@ -1006,9 +1020,10 @@ int VM::dojit(){
     else if (i == VTHIS) { 
     *je++ = 0xb8; 
     *(int*)je =i=(unsigned int)(size_t(this));je += 4; *(int *)je++ = 0x50;dprintf("\tmov eax,DWORD %x\n\tpush eax    ;this\n",i); } //mov ecx,this b9
-    else if (i >= PRTF) {
+    else if (i >= PRTF || i==BOUND) {
         if (i == PRTF) { tmp = (int)printf;  }
         else if (i == EXIT) { tmp = (int)exit;  }
+        else if (i == BOUND) { tmp = (int)vmbound;  }
         else if (i == VMS) { tmp = (int)components;  }else if (i == VMI) { tmp = (int)initcomponent;  }
         else if (i == VMX) { tmp = (int)setcomponent;  }
         else if (i == MXS) { tmp = (int)mxs;  }
