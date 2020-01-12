@@ -401,19 +401,20 @@ elements at a time.
 
 #define VERSION "13"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
-#define SIMD_GET_SSE  //uncomment to use SSE2 in ContexMap
-#define MT            //uncomment for multithreading, compression only
-#define VMJIT  // uncomment to compile with x86 JIT
-#define SIMD_CM_R       // SIMD ContextMap byterun
+#define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
+#define MT                          // uncomment for multithreading, compression only
+#define VMJIT                       // uncomment to compile with x86 JIT
+#define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
+//#define RCCODER                   // uncomment to use Rangecoder
 
-#ifdef WINDOWS                       
+#ifdef WINDOWS
 #ifdef MT
 //#define PTHREAD       //uncomment to force pthread to igore windows native threads
 #endif
 #endif
 
 #ifdef UNIX
-#ifdef MT   
+#ifdef MT
 #define PTHREAD 1
 #endif
 #endif
@@ -2118,7 +2119,10 @@ public:
   StaticMap(int m,BlockData& bd): pr((m-128)*16),pr1(m*16),x(bd) {
   if (m>255 || m<0) printf("StaticMap must be 0..255\n"),quit();
   }
-  void set(U32 cx) {      
+  void set(U32 cx) {
+   //   if (cx>4096) cx=4096;
+  //pr1=cx;  
+  //pr=stretch(cx);    
   }
   inline int p() {
       return pr1;
@@ -2153,7 +2157,7 @@ class DynamicSMap {
 int state;
 StateMap *sm;
 Array<int> cxt;
-int mask;
+U32 mask;
 Array<int>  pr;
 int limit;
 Array<U8> CxtState;
@@ -2705,7 +2709,7 @@ public:
         ++x.blpos;
     }
     x.bpos=(x.bpos+1)&7;
-    pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,0);
+    pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
   }
 };
 //////////////////////////// Encoder ////////////////////////////
@@ -2727,6 +2731,9 @@ public:
 //   mode (for testing transforms).
 // If level (global) is 0, then data is stored without arithmetic coding.
 
+#ifdef RCCODER
+#include "sh_v1m.inc"
+#endif
 typedef enum {COMPRESS, DECOMPRESS} Mode;
 class Encoder {
 private:
@@ -2735,7 +2742,32 @@ private:
   U32 x1, x2;            // Range, initially [0, 1), scaled by 2^32
   U32 x;                 // Decompress mode: last 4 input bytes of archive
   File*alt;             // decompress() source in COMPRESS mode
-
+#ifdef RCCODER
+  
+  void code(int bit) {
+      int p = predictor->p();
+        assert(p>=0 && p<4096);
+//        p+=p<2048;
+        p = C0.SCALE-1-p*8;
+        if( p<1 ) p=1; if( p>=C0.SCALE) p=C0.SCALE-1;
+        C0.BProcess( p, bit ); 
+        predictor->x.y = bit;
+        predictor->update();
+       }
+       
+  int decode() {
+         int bit = 0;
+          int p = predictor->p();
+          assert(p>=0 && p<4096);
+//        p+=p<2048;
+          p = C1.SCALE-1-p*8;
+          if( p<1 ) p=1; if( p>=C1.SCALE) p=C1.SCALE-1;
+          C1.BProcess( p, bit ); 
+         predictor->x.y = bit;
+          predictor->update();
+         return bit;
+      }
+#else
   // Compress bit y or return decompressed bit
   void code(int i=0) {
     int p=predictor->p();
@@ -2767,8 +2799,14 @@ private:
     }
     return predictor->x.y;
   }
- 
+#endif
 public:
+#ifdef RCCODER
+    union {
+    Rangecoder_SH1m<0> C0;
+    Rangecoder_SH1m<1> C1;
+  };
+#endif
   Predictor *predictor;
   Encoder(Mode m, File* f,char *model);
   Mode getMode() const {return mode;}
@@ -2811,23 +2849,36 @@ public:
 };
 
 Encoder::Encoder(Mode m, File* f,char *model):
-    mode(m), archive(f), x1(0), x2(0xffffffff), x(0), alt(0) {
+    mode(m), archive(f), x1(0), x2(0xffffffff), x(0), alt(0) {        
     if (model!=0)         predictor=new Predictor(model);
     else predictor=0;
-    
-        
-  if (level>0 && mode==DECOMPRESS) {  // x = first 4 bytes of archive
-    for (int i=0; i<4; ++i)
-      x=(x<<8)+(archive->getc()&255);
-  }
-  for (int i=0; i<1024; ++i)
-    dt[i]=16384/(i+i+3);
-
+    // x = first 4 bytes of archive
+#ifdef RCCODER
+    if( (level>0) && (mode==COMPRESS) ) {  
+      C0.io.CodeFile = archive;
+      C0.Init();
+    }
+    if( (level>0) && (mode==DECOMPRESS) ) {
+      C1.io.CodeFile = archive;
+      C1.Init();
+    }
+#else 
+    if (level>0 && mode==DECOMPRESS) {
+      for (int i=0; i<4; ++i)
+        x=(x<<8)+(archive->getc()&255);
+    }
+#endif
+    for (int i=0; i<1024; ++i)
+      dt[i]=16384/(i+i+3);
 }
 
 void Encoder::flush() {
+      #ifdef RCCODER
+    if( (mode==COMPRESS) && (level>0) ) C0.Quit();  // Flush first unequal byte of range
+    #else 
   if (mode==COMPRESS && level>0)
     archive->put32(x1);  // Flush first unequal byte of range
+     #endif
 }
  
 /////////////////////////// Filters /////////////////////////////////
@@ -3219,6 +3270,8 @@ U64 decompressStreamRecursive(File*out, U64 size, Encoder& en, FMode mode, int i
                     if (a!=b && !diffFound) {
                         mode=FDISCARD;
                         diffFound=j+1;
+                        printf("Diff found: %d",diffFound);
+                        quit("");
                     }
                 } else en.decompress();
             }

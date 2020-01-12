@@ -45,7 +45,7 @@ enum { LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI ,LS ,LC  ,SI ,SS ,SC  ,PS
 // types
 enum { rCHAR, sSHORT, iINT, PTR };
 // identifier offsets (since we can't create an ident struct)
-enum { Tk, Hash, Name, Class, Type, Val, HClass, HType, HVal, Idsz };
+enum { Tk, Hash, Name, Class, Type, Val, HClass, HType, HVal,IDLen,UBound, Idsz };
 enum { VMCOMPRESS=0,VMDETECT,VMENCODE,VMDECODE};
 #ifdef VMMSG
 #define kprintf printf // prints error messages
@@ -319,6 +319,7 @@ void setcomponent(VM* v,int c,int i, U32 f){
              v->mxC[i]->set(f,v->mxC[i]->gcxt());//get mixer set value and set context
              break;}
         case vmST:{
+            //  v->stC[i]->set(f);
              break;}
         case vmMM: { 
              break;}
@@ -424,6 +425,7 @@ void VM::next(){
       }
       id[Name] = (int)pp;
       id[Hash] = tk;
+      id[IDLen] = p - pp;
       tk = id[Tk] = Id;
       return;
     }
@@ -496,18 +498,23 @@ case LEA: {*++e=val; break;}
 case IMM: {*++e=val; break;}
 case JMP: {*++e=val; break;}
 case JSR: {*++e=val; break;}
-case BZ : {*++e=val; break;}
-case BNZ: {*++e=val; break;}
-case ENT: { break;} 
+case BZ : {  break;}
+case BNZ: {  break;}
+case ENT: { *++e=val;break;} 
 case ADJ: {*++e=val; break;} 
 default:
 {break;}
 }
- 
+ /* printf("   %.4s",  
+        &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
+         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
+         "PRTF,VMS ,VMI ,VMX ,MXS ,H2  ,READ,WRTE,EXIT"[op * 5]);
+    if (op < JMP) printf("0x%08x",val); //? +1
+     else if (op <= ADJ) printf("0x%08x",val); //else dprintf("\n");*/
 }
 void VM::expr(int lev){
   int t, *d,fc;
-
+char *nam;
   if (!tk) { kprintf("%d: unexpected eof in expression\n", line); exit(-1); }
   else if (tk == Num) { emit( IMM, ival);/**++e = IMM; *++e = ival;*/ next(); ty = iINT; }
   else if (tk == '"') {
@@ -524,7 +531,14 @@ void VM::expr(int lev){
     ty = iINT;
   }
   else if (tk == Id) {
-    d = id; next();
+    d = id; 
+   /* nam=(char*)id[Name];
+    printf("\n//");
+        for (int y=0;y<id[IDLen];y++)printf("%c",nam[y]);
+        if (id[UBound]>0)
+        printf("// id-val 0x%08x, max size %d",id[Val], id[UBound]);
+        printf("\n");*/
+    next();
     if (tk == '(') {      
       if (d[Val]>=VMS &&  d[Val]<H2 || d[Val]==READ|| d[Val]==WRTE){//for special functions in vm
             emit(VTHIS);//*++e = VTHIS;
@@ -554,7 +568,7 @@ void VM::expr(int lev){
     }
       while (tk != ')') { expr(Assign); emit(PSH);/**++e = PSH;*/ ++t; if (tk == Comma) next(); }
       next();
-      if (d[Class] == Sys) {*++e = d[Val];
+      if (d[Class] == Sys) {emit( d[Val]);
       
     if (t!=fc && fc!=0){ kprintf("%d: wrong number of arguments, (%d) expected %d\n", line,t,fc); exit(-1);}
       }
@@ -630,40 +644,40 @@ void VM::expr(int lev){
     }
     else if (tk == Cond) {
       next();
-      *++e = BZ; d = ++e;
+      emit(BZ) ; d = ++e;
       expr(Assign);
       if (tk == ':') next(); else { kprintf("%d: conditional missing colon\n", line); exit(-1); }
       *d = (int)(e + 3); *++e = JMP; d = ++e;
       expr(Cond);
       *d = (int)(e + 1);
     }
-    else if (tk == Lor) { next(); *++e = BNZ; d = ++e; expr(Lan); *d = (int)(e + 1); ty = iINT; }
-    else if (tk == Lan) { next(); *++e = BZ;  d = ++e; expr(Or);  *d = (int)(e + 1); ty = iINT; }
-    else if (tk == Or)  { next(); *++e = PSH; expr(Xor); *++e = OR;  ty = iINT; }
-    else if (tk == Xor) { next(); *++e = PSH; expr(And); *++e = XOR; ty = iINT; }
-    else if (tk == And) { next(); *++e = PSH; expr(Eq);  *++e = AND; ty = iINT; }
-    else if (tk == Eq)  { next(); *++e = PSH; expr(Lt);  *++e = EQ;  ty = iINT; }
-    else if (tk == Ne)  { next(); *++e = PSH; expr(Lt);  *++e = NE;  ty = iINT; }
-    else if (tk == Lt)  { next(); *++e = PSH; expr(Shl); *++e = LT;  ty = iINT; }
-    else if (tk == Gt)  { next(); *++e = PSH; expr(Shl); *++e = GT;  ty = iINT; }
-    else if (tk == Le)  { next(); *++e = PSH; expr(Shl); *++e = LE;  ty = iINT; }
-    else if (tk == Ge)  { next(); *++e = PSH; expr(Shl); *++e = GE;  ty = iINT; }
-    else if (tk == Shl) { next(); *++e = PSH; expr(Add); *++e = SHL; ty = iINT; }
-    else if (tk == Shr) { next(); *++e = PSH; expr(Add); *++e = SHR; ty = iINT; }
+    else if (tk == Lor) { next(); emit(BNZ) ;  d = ++e; expr(Lan); *d = (int)(e + 1); ty = iINT; }
+    else if (tk == Lan) { next(); emit(BZ) ;  d = ++e; expr(Or);  *d = (int)(e + 1); ty = iINT; }
+    else if (tk == Or)  { next();emit(PSH); expr(Xor); *++e = OR;  ty = iINT; }
+    else if (tk == Xor) { next(); emit(PSH); expr(And); *++e = XOR; ty = iINT; }
+    else if (tk == And) { next(); emit(PSH); expr(Eq);  *++e = AND; ty = iINT; }
+    else if (tk == Eq)  { next(); emit(PSH); expr(Lt);  *++e = EQ;  ty = iINT; }
+    else if (tk == Ne)  { next(); emit(PSH); expr(Lt);  *++e = NE;  ty = iINT; }
+    else if (tk == Lt)  { next(); emit(PSH); expr(Shl); *++e = LT;  ty = iINT; }
+    else if (tk == Gt)  { next(); emit(PSH); expr(Shl); *++e = GT;  ty = iINT; }
+    else if (tk == Le)  { next(); emit(PSH); expr(Shl); *++e = LE;  ty = iINT; }
+    else if (tk == Ge)  { next(); emit(PSH); expr(Shl); *++e = GE;  ty = iINT; }
+    else if (tk == Shl) { next();emit(PSH); expr(Add); *++e = SHL; ty = iINT; }
+    else if (tk == Shr) { next(); emit(PSH); expr(Add); *++e = SHR; ty = iINT; }
     else if (tk == Add) {
-      next(); *++e = PSH; expr(Mul);
-      if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = MUL;  }
-      *++e = ADD;
+      next(); emit(PSH); expr(Mul);
+      if ((ty = t) > PTR) {emit(PSH); emit(IMM,sizeof(int)); emit(MUL);  }//pointer
+      emit(ADD); //*++e = ADD;
     }
     else if (tk == Sub) {
       next(); *++e = PSH; expr(Mul);
-      if (t > PTR && t == ty) { *++e = SUB; *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = DIV; ty = iINT; }
-      else if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e = MUL; *++e = SUB; }
+      if (t > PTR && t == ty) { *++e = SUB; *++e = PSH; emit(IMM,sizeof(int));emit(DIV); ty = iINT; }
+      else if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); emit(MUL); emit(SUB);   }
       else *++e = SUB;
     }
-    else if (tk == Mul) { next(); *++e = PSH; expr(Inc); *++e = MUL; ty = iINT; }
-    else if (tk == Div) { next(); *++e = PSH; expr(Inc); *++e = DIV; ty = iINT; }
-    else if (tk == Mod) { next(); *++e = PSH; expr(Inc); *++e = MOD; ty = iINT; }
+    else if (tk == Mul) { next(); *++e = PSH; expr(Inc); emit(MUL);   ty = iINT; }
+    else if (tk == Div) { next(); *++e = PSH; expr(Inc);emit(DIV);   ty = iINT; }
+    else if (tk == Mod) { next(); *++e = PSH; expr(Inc); emit(MOD);   ty = iINT; }
     else if (tk == Inc || tk == Dec) {
       if (*e == LC) { *e = PSH; *++e = LC; }
       else if (*e == LI) { *e = PSH; *++e = LI; }
@@ -677,13 +691,22 @@ void VM::expr(int lev){
       next();
     }
     else if (tk == Brak) {
-      next(); *++e = PSH; expr(Assign);
+      unsigned int upperbound=id[UBound]-1;
+      int directarray=(int)e;
+      next(); 
+      emit(PSH);
+      expr(Assign);     
+      if (((int)e-directarray)==(4*3) && *(e-2)==PSH && *(e-1)==IMM && (unsigned int)*e>upperbound) printf("Array out of bounds: defined %d used %d, line %d\n",upperbound,*e, line), exit(-1);
       if (tk == ']') next(); else { kprintf("%d: close bracket expected\n", line); exit(-1); }
-      if (t > PTR) { *++e = PSH; *++e = IMM; *++e = ((ty = t - PTR) == rCHAR) ? 1 : ((ty = t - PTR) == sSHORT) ? 2 : 4; *++e = MUL;  } //fixed to int !!!
+      if (t > PTR) { 
+        emit(PSH); 
+        emit(IMM,((ty = t - PTR) == rCHAR) ? 1 : ((ty = t - PTR) == sSHORT) ? 2 : 4);
+        emit(MUL);
+      } //fixed to int !!!
       else if (t < PTR) { kprintf("%d: pointer type expected\n", line); exit(-1); }
-      *++e = ADD;
+      emit(ADD);
       char aa=((ty = t - PTR) == rCHAR) ? LC : ((ty = t - PTR) == sSHORT) ? LS : LI;//9 i 10 s 11 c
-      *++e = aa;
+      emit(aa);
     }
     else { kprintf("%d: compiler error tk=%d\n", line, tk); exit(-1); }
   }
@@ -697,7 +720,7 @@ void VM::stmt() {
         if (tk == '(') next(); else { kprintf("%d: open paren expected\n", line); exit(-1); }
         expr(Assign);
         if (tk == ')') next(); else { kprintf("%d: close paren expected\n", line); exit(-1); }
-        *++e = BZ; b = ++e;
+        emit(BZ) ; b = ++e;
         stmt();
         if (tk == Else) {
             *b = (int)(e + 3); *++e = JMP; b = ++e;
@@ -712,7 +735,7 @@ void VM::stmt() {
         if (tk == '(') next(); else { kprintf("%d: open paren expected\n", line); exit(-1); }
         expr(Comma);
         if (tk == ')') next(); else { kprintf("%d: close paren expected\n", line); exit(-1); }
-        *++e = BZ; b = ++e;
+        emit(BZ) ; b = ++e;
         stmt();
         *++e = JMP; *++e = (int)a;
         *b = (int)(e + 1);
@@ -724,7 +747,7 @@ void VM::stmt() {
         next();
         a = e + 1;
         if (tk != ';') expr(Comma); //2
-        *++e = BZ; b = ++e;
+        emit(BZ) ; b = ++e;
         next();
         if (tk != ')'){
             *++e = JMP; c=e+1;*++e = (int)0; //j1
@@ -1215,6 +1238,7 @@ int VM::initvm() {
   // parse declarations
   line = 1;
   next();
+  char *nam;
   while (tk) {
     bt = iINT; // basetype
     if (tk == Int) next();
@@ -1249,6 +1273,10 @@ int VM::initvm() {
       next();
       id[Type] = ty;
       if (tk == '(') { // function
+        /*nam=(char*)id[Name];
+        printf("\n// FUNCTION: ");
+        for (int y=0;y<id[IDLen];y++)printf("%c",nam[y]);
+        printf("\n");*/
         id[Class] = Fun;
         id[Val] = (int)(e + 1);
         next(); i = 0;
@@ -1286,9 +1314,9 @@ int VM::initvm() {
           }
           next();
         }
-        *++e = ENT; *++e = i - loc;
+         emit(  ENT, i - loc);
         while (tk != '}') stmt();
-        *++e = LEV;
+        emit( LEV);
         id = sym; // unwind symbol table locals
         while (id[Tk]) {
           if (id[Class] == Loc) {
@@ -1313,6 +1341,7 @@ int VM::initvm() {
         }
         if (tk != Num )          { kprintf("%d: bad global declaration: size=%d\n", line,i); return -1; }
         if (i==0 )               { kprintf("%d: array to small \n", line); return -1; }
+        id[UBound]=i;
         next();if (tk != ']')    { kprintf("%d: missing closing braket\n", line); return -1; }
         next();if (tk != Assign) { kprintf("%d: missing array assingn \n", line); return -1; }
         next();if (tk != '{')    { kprintf("%d: missing array { \n", line); return -1; }
