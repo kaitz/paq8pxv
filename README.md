@@ -71,29 +71,22 @@ int main() {
     reset();
 }
 ```
-# Detection and transform
+# Data detection, transform and compression
 
-* b64.dec - decode/reverse Base64 transform
-* b64.det - detect Base64 encoded data
-* b64.enc - encode/remove Base64 transform
-* bmp1.det - detect 1bit .bmp image
-* bmp24.det - detect 24bit .bmp image
-* bmp8.det - detect 8bit .bmp image
-* dec.dec - decode/reverse DEC Alpha executable code transform
-* dec.det - detect DEC Alpha executable code
-* dec.enc - encode DEC Alpha executable code, swap byte order
-* exe.dec - encode x86 executable code
-* exe.det - detect x86 executable code
-* exe.enc - decode x86 executable code
-* jpeg.cfg - compress jpeg image data
-* jpeg.det- detect jpeg image
-* test3d.cfg - main compression for default data
-* test3i24.cfg - compress 24bit image data
-* test3i8.cfg - compress 8bit image data
-* test3img.cfg - compress 1bit image data
-* text.det - detect text
+|Type|Detect|Encode|Decode|Compress|Recursive|Description|
+| --- | --- | --- | --- | --- | --- | --- |
+| b64| b64.det|b64.enc |b64.dec | none |y| Base64 transform|
+| bmp1| bmp1.det| none| none| test3img.cfg|n| 1bit .bmp image|
+| bmp8| bmp8.det| none| none| test3i8.cfg| n|8bit .bmp image|
+| bmp24| bmp24.det| none| none| test3i24.cfg|n |24bit .bmp image|
+| dec| dec.det| dec.enc| dec.dec| test3d.cfg|n | DEC Alpha executable code transform, swap byte order|
+| exe| exe.det| exe.enc| exe.dec| test3d.cfg|n |x86 executable code|
+| arm| arm.det| arm.enc| arm.dec| test3d.cfg|n |arm executable code|
+| text| text.det| text.enc|text.dec | test3d.cfg| n|text|
+| jpeg| jpeg.det| none| none| jpeg.cfg|n |jpeg image|
+ 
 
-# .cfg/.dec Compression
+# General .cfg/.dec compression
 Main compression routine used when compressing .cfg/.dec files and main config file (conf.pxv).
 Stored uncompressed at the beginning of the output file.
 ```c
