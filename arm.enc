@@ -1,0 +1,32 @@
+// ARM call transform - encode
+enum {BLOCK=0x10000};
+char blk[BLOCK]={};
+int min(int a, int b) {return a<b?a:b;}
+
+int encode(int info,int len) {
+    int offset,size,bytesRead;
+    int i,op,j;
+    // Transform
+    for  (j=0; j<len; j=j+BLOCK)  {
+        size=min((len-j), BLOCK);
+        bytesRead=read(blk, size);
+        if (bytesRead!=size) exit(-1);
+        for (i=0; i<bytesRead-3; i=i+4) {
+            op=blk[i]|(blk[i+1]<<8)|(blk[i+2]<<16)|(blk[i+3]<<24);//op=blk[i+3]|(blk[i+2]<<8)|(blk[i+1]<<16)|(blk[i]<<24);
+            if ((op>>26)==0x25) {
+                offset=op&0x3FFFFFF;
+                offset=offset+(i/4);
+                op=op&(~0x3FFFFFF);
+                op=op|(offset&0x3FFFFFF);
+            }
+            blk[i]=op;
+            blk[i+1]=op>>8;
+            blk[i+2]=op>>16;
+            blk[i+3]=op>>24;
+        }
+        write(blk,bytesRead);
+    }
+}
+
+int main() {
+}

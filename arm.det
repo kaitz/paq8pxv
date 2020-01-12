@@ -59,7 +59,7 @@ int detect(int c4,int i) {
         if (type==DEFAULT && ARMcount>=18 && ARMpos>16){
             type=ARM;
             state=START;
-            jstart=ARMpos-5;
+            jstart=ARMpos-(ARMpos%4);
             //printf("DETECT: ARM start %d\n",jstart);
             return state;
         }
