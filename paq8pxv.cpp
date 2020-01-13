@@ -396,13 +396,13 @@ elements at a time.
 
 */
 
-#define VERSION "13"
+#define VERSION "14"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
-#define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
-#define RCCODER                     // uncomment to use Rangecoder
+//#define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
+
 #define VMBOUNDS                    // uncomment to aad bounds chack at runtime
 
 #ifdef WINDOWS
@@ -558,7 +558,7 @@ public:
 #ifndef NDEBUG
 static void chkindex(U64 index, U64 upper_bound) {
   if (index>=upper_bound) {
-    fprintf(stderr, "out of upper bound\n");
+    fprintf(stderr, "out of upper bound %d\n",upper_bound);
     quit();
   }
 }
@@ -1031,7 +1031,15 @@ public:
     int blpos; // Relative position in block
     int filetype;
     int finfo;
-BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1) {
+    struct Inputs{
+        int ncount;     // mixer input count
+        //int wcount;     // mixer weights count
+        Array<short,32> n;      // input array
+        void add(int p){ n[ncount++]=p; }
+    } ;
+    Array<Inputs> mxInputs; // array of inputs
+    int cInputs;
+BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),mxInputs(0),cInputs(-1) {
         // Set globals according to option
         assert(level<=9);
     }
@@ -1485,21 +1493,21 @@ APM1::APM1(int n,int r,int d,BlockData& bd): index(0), N(n), t(n*33),x(bd),mask(
 class Mixer {
 private: 
   const int N, M, S;   // max inputs, max contexts, max context sets
-  Array<short, 32> tx; // N inputs from add()  
+   short*tx; // N inputs from add()  
   Array<short, 32> wx; // N*M weights
-  Array<int> cxt;  // S contexts
-  int ncxt;        // number of contexts (0 to S)
-  int base;        // offset of next context
-  int nx;          // Number of inputs in tx, 0 to N  
-  Mixer* mp;       // points to a Mixer to combine results
-  Array<int> pr;   // last result (scaled 12 bits)
-  Array<ErrorInfo> info; 
-  Array<int> rates; // learning rates
+  int cxt;  // S contexts
+  //int ncxt;        // number of contexts (0 to S)
+  //int base;        // offset of next context
+  //int nx;          // Number of inputs in tx, 0 to N  
+ // Mixer* mp;       // points to a Mixer to combine results
+  int pr;   // last result (scaled 12 bits)
+  ErrorInfo info; 
+  int rates; // learning rates
  
-  int mcxtc;
-public:   Array<int> mcxt;
+  int shift1;
+public:   //Array<int> mcxt;
   BlockData& x;
-  Mixer(int n, int m,BlockData& bd, int s=1, int w=0);
+  Mixer(int n, int m,BlockData& bd,short* mn, int s=1, int w=0);
   
 #if defined(__AVX2__)
  int dot_product (const short* const t, const short* const w, int n) {
@@ -1641,15 +1649,12 @@ void train(short *t, short *w, int n, int err) {
 #endif 
 
   // Adjust weights to minimize coding cost of last prediction
-  void update() {
-    for (int i=0; i<ncxt; ++i) {
-      int err=((x.y<<12)-pr[i])*7;
+  void update(int m) {
+      int err=((x.y<<12)-pr)*7;
       assert(err>=-32768 && err<32768);
-      train(&tx[0], &wx[cxt[i]*N], nx, err);
-    }
-    reset();
+      train(&tx[0], &wx[cxt*N], N, err);
   }
-   void update1() {
+ /*  void update1(int m) {
     int target=x.y<<12;
     if(nx>0)
     for (int i=0; i<ncxt; ++i) {
@@ -1673,24 +1678,10 @@ void train(short *t, short *w, int n, int err) {
           memset(&info[i], 0, sizeof(ErrorInfo));
         }
     }
-    reset();
-  }
-  void reset() {
-    nx=base=ncxt=mcxtc=0;
-  }
-  void update2() {
-      if (nx==0) {
-      reset();
-      return;
-      }
-      update();
-  }
-  // Input x (call up to N times)
-  void add(int x) {
-    assert(nx<N);
-    tx[nx++]=x;
-  }
-  void add32(U32 a){
+    reset(  m);
+  }*/
+ 
+  /*void add32(U32 a){
       assert(nx+2<N);
      ((U32 *) &tx[nx],a);
     nx=nx+2;
@@ -1713,63 +1704,33 @@ void train(short *t, short *w, int n, int err) {
     _mm256_storeu_si256 ((YMM *) &tx[nx],a);
     nx=nx+16;
   }
-  #endif
+  #endif*/
   // Set a context (call S times, sum of ranges <= M)
-  void set(int cx, int range) {
-    assert(range>=0);
-    assert(ncxt<S);
+  void set(int cx) {
     assert(cx>=0);
-    assert(cx<range);
-    assert(base+cx<M);
-    cxt[ncxt++]=base+cx;
-    base+=range;
-  }
-  void mxcxt(int cx) {
-    assert(cx>=1);
-    mcxt[mcxtc++]=cx;
-  }
-  inline int gcxt(){
-     return mcxt[mcxtc++];
+    assert(cx<M);
+    cxt=cx;
   }
   // predict next bit
-  int p(const int shift0=0, const int shift1=0) {
-    while (nx&15) tx[nx++]=0;  // pad
-    if (mp) {  // combine outputs
-      mp->update2();
-      for (int i=0; i<ncxt; ++i) {
-          int dp=((dot_product(&tx[0], &wx[cxt[i]*N], nx)));//*7)>>8);
-          dp=dp>>(5+shift0);
-          pr[i]=squash(dp);
-          mp->add(dp);
-      }
-      mp->set(0, 1);
-      return mp->p(shift0, shift1);
-    }
-    else {  // S=1 context
-    return pr[0]=squash(dot_product(&tx[0], &wx[0], nx)>>(8+shift1));
-    }
+  int p( int m) {
+    return pr=squash(dot_product(&tx[0], &wx[cxt*N], N)>>( shift1));
   }
   ~Mixer();
 };
 
 Mixer::~Mixer() {
-  delete mp;
+
 }
 
-Mixer::Mixer(int n, int m, BlockData& bd, int s, int w):
-    N((n+15)&-16), M(m), S(s), wx(N*M),
-    cxt(S), ncxt(0), base(0), pr(S), mp(0),tx(N),nx(0),x(bd), info(S), rates(S),mcxt(S),mcxtc(0){
+Mixer::Mixer(int n, int m, BlockData& bd,short* mn, int s, int w):
+    N((n+15)&-16), M(m), S(1), wx(N*M), cxt(0), tx(mn),x(bd), shift1(s){
   assert(n>0 && N>0 && (N&15)==0 && M>0);
    int i;
-  for (i=0; i<S; ++i){
-    pr[i]=2048; //initial p=0.5
-    rates[i] = DEFAULT_LEARNING_RATE;
-    memset(&info[i], 0, sizeof(ErrorInfo));
-  }
-
+    pr=2048; //initial p=0.5
+    rates = DEFAULT_LEARNING_RATE;
+    memset(&info, 0, sizeof(ErrorInfo));
   for (i=0; i<N*M; ++i)
     wx[i]=w;
-  if (S>1) mp=new Mixer(S, 1,x ,1);
 }
 
 //////////////////////////// StateMap, APM //////////////////////////
@@ -1857,8 +1818,9 @@ public:
     //update();
     return pr;
   }
-  void mix(Mixer& m) {   
-    m.add(stretch(p()));
+  void mix(int m) {   
+    x.mxInputs[m].add(stretch(p()));
+   // m.add();
   }
 };
 
@@ -1993,8 +1955,9 @@ public:
     else
       return 0;
   }
-  int mix(Mixer& m) {  // return run length
-    m.add(p());
+  int mix(int m) {  // return run length
+    //m.add(p());
+    x.mxInputs[m].add(p());
     return cp[0]!=0;
   }
 };
@@ -2015,8 +1978,13 @@ class SmallStationaryContextMap {
   Array<U16> Data;
   int Context, Mask, Stride, bCount, bTotal, B;
   U16 *cp;
+  BlockData& x;
 public:
-  SmallStationaryContextMap(int BitsOfContext, int InputBits = 8) : Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), Context(0), Mask((1<<BitsOfContext)-1), Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0) {
+  SmallStationaryContextMap(int BitsOfContext, BlockData& bd, int InputBits = 8) : 
+  Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), 
+  Context(0), Mask((1<<BitsOfContext)-1), 
+  Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0)  ,x(bd)
+  {
    // assert(BitsOfContext<=16);
     assert(InputBits>0 && InputBits<=8);
     Reset();
@@ -2030,13 +1998,15 @@ public:
     for (U32 i=0; i<Data.size(); ++i)
       Data[i]=0x7FFF;
   }
-  void mix(Mixer& m, const int rate = 7, const int Multiplier = 1, const int Divisor = 4) {
-    *cp+=((m.x.y<<16)-(*cp)+(1<<(rate-1)))>>rate;
-    B+=(m.x.y && B>0);
+  void mix(int m, const int rate = 7, const int Multiplier = 1, const int Divisor = 4) {
+    *cp+=((x.y<<16)-(*cp)+(1<<(rate-1)))>>rate;
+    B+=(x.y && B>0);
     cp = &Data[Context+B];
     int Prediction = (*cp)>>4;
-    m.add((stretch(Prediction)*Multiplier)/Divisor);
-    m.add(((Prediction-2048)*Multiplier)/(Divisor*2));
+   // m.add((stretch(Prediction)*Multiplier)/Divisor);
+    x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);
+   // m.add(((Prediction-2048)*Multiplier)/(Divisor*2));
+    x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));
     bCount++; B+=B+1;
     if (bCount==bTotal)
       bCount=B=0;
@@ -2061,8 +2031,12 @@ class StationaryMap {
   Array<U32> Data;
   int Context, Mask, Stride, bCount, bTotal, B;
   U32 *cp;
+  BlockData& x;
 public:
-  StationaryMap(int BitsOfContext, int InputBits = 8, int Rate = 0): Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), Context(0), Mask((1<<BitsOfContext)-1), Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0) {
+  StationaryMap(int BitsOfContext,BlockData& bd, int InputBits = 8, int Rate = 0): 
+  
+  Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), Context(0), 
+  Mask((1<<BitsOfContext)-1), Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0),x(bd) {
     assert(InputBits>0 && InputBits<=8);
     assert(BitsOfContext+InputBits<=24);
     Reset(Rate);
@@ -2076,19 +2050,21 @@ public:
     for (U32 i=0; i<Data.size(); ++i)
       Data[i]=(0x7FF<<20)|min(1023,Rate);
   }
-  void mix(Mixer& m, const int Multiplier = 1, const int Divisor = 4, const U16 Limit = 1023) {
+  void mix(int m, const int Multiplier = 1, const int Divisor = 4, const U16 Limit = 1023) {
     // update
     U32 Count = min(min(Limit,0x3FF), ((*cp)&0x3FF)+1);
-    int Prediction = (*cp)>>10, Error = (m.x.y<<22)-Prediction;
+    int Prediction = (*cp)>>10, Error = (x.y<<22)-Prediction;
     Error = ((Error/8)*dt[Count])/1024;
     Prediction = min(0x3FFFFF,max(0,Prediction+Error));
     *cp = (Prediction<<10)|Count;
     // predict
-    B+=(m.x.y && B>0);
+    B+=(x.y && B>0);
     cp=&Data[Context+B];
     Prediction = (*cp)>>20;
-    m.add((stretch(Prediction)*Multiplier)/Divisor);
-    m.add(((Prediction-2048)*Multiplier)/(Divisor*2));
+  //  m.add((stretch(Prediction)*Multiplier)/Divisor);
+    x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);
+    //m.add(((Prediction-2048)*Multiplier)/(Divisor*2));
+    x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));
     bCount++; B+=B+1;
     if (bCount==bTotal)
       bCount=B=0;
@@ -2103,8 +2079,8 @@ public:
   inline int i1(){ return p1;  } //index 1
   void set(U32 cx) { pr=cx;       }
   inline int p() {   return pr;  }
-  int mix(Mixer& m) {
-    m.add(stretch(pr));
+  int mix(int m) {
+    x.mxInputs[m].add(stretch(pr));
     return 0;
   }
 };
@@ -2125,8 +2101,9 @@ public:
   inline int p() {
       return pr1;
   }
-  int mix(Mixer& m) {
-    m.add(pr);
+  int mix(int m) {
+    //m.add(pr);
+    x.mxInputs[m].add(pr);
     return 0;
   }
 };
@@ -2145,8 +2122,9 @@ public:
   inline int i1(){ return p1;  } //index 1
   inline int i2(){ return p2;  } //index 2
   inline int p() { return pr;  }
-  int mix(Mixer& m) {
-    m.add(stretch(pr));
+  int mix(int m) {
+    //m.add(stretch(pr));
+    x.mxInputs[m].add(stretch(pr));
     return 0;
   }
 };
@@ -2178,7 +2156,7 @@ public:
       if (index==count) index=0;
       return pr0;
   }
-  int mix(Mixer& m) {
+  int mix(int m) {
     return 0;
   }
 };
@@ -2293,15 +2271,17 @@ class ContextMap {
   //void update(U32 cx, int c);  // train model that context cx predicts c
   Random rnd;
   int result;
-  int mix1(Mixer& m, int cc, int bp, int c1, int y1);
+  BlockData& x;
+  
+  int mix1(int m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
     
 public:
-  ContextMap(U64 m, int c=1);  // m = memory in bytes, a power of 2, C = c
+  ContextMap(U64 m, int c ,BlockData& bd);  // m = memory in bytes, a power of 2, C = c
   ~ContextMap();
   void set(U32 cx, int next=-1);   // set next whole byte context to cx
     // if next is 0 then set order does not matter
-  int mix(Mixer& m) {return mix1(m, m.x.c0, m.x.bpos, (U8)m.x.c4, m.x.y);}
+  int mix(int m) {return mix1(m,  x.c0,  x.bpos, (U8) x.c4,  x.y);}
   int get() {return result;}
     int inputs();
 };
@@ -2420,8 +2400,8 @@ for (int i=pcount; i<7; ++i) {
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-ContextMap::ContextMap(U64 m, int c): C(c),  t(m>>6), cp(C), cp0(C),
-    cxt(C), runp(C), r0(C),r1(C),r0i(C),rmask(C),cn(0),result(0) {
+ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(C),
+    cxt(C), runp(C), r0(C),r1(C),r0i(C),rmask(C),cn(0),result(0),x(bd) {
   assert(m>=64 && (m&m-1)==0);  // power of 2?
   assert(sizeof(E)==64);
   sm=new StateMap[C];
@@ -2451,23 +2431,23 @@ inline void ContextMap::set(U32 cx, int next) {
 // Predict to mixer m from bit history state s, using sm to map s to
 // a probability.
 
-inline int mix2(Mixer& m, int s, StateMap& sm) {
-  int p1=sm.p(s,m.x.y);
+inline int mix2(BlockData& x, int m, int s, StateMap& sm) {
+  int p1=sm.p(s,x.y);
   int n0=-!nex(s,2);
   int n1=-!nex(s,3);
   int st=stretch(p1)>>2;
-  m.add(st);
+  x.mxInputs[m].add(st); //m.add(st);
   p1>>=4;
   int p0=255-p1;
-  m.add(p1-p0);
-  m.add(st*(n1-n0));
-  m.add((p1&n0)-(p0&n1));
-  m.add((p1&n1)-(p0&n0));
+  x.mxInputs[m].add(p1-p0);//m.add(p1-p0);
+  x.mxInputs[m].add(st*(n1-n0));//m.add(st*(n1-n0));
+  x.mxInputs[m].add((p1&n0)-(p0&n1));//m.add((p1&n0)-(p0&n1));
+  x.mxInputs[m].add((p1&n1)-(p0&n0));//m.add((p1&n1)-(p0&n0));
   return s>0;
 }
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
-int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
+int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
   // Update model with y
    result=0;
 
@@ -2482,7 +2462,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
     }
 
     // Update context pointers
-    if (m.x.bpos>1 && runp[i][0]==0)
+    if (x.bpos>1 && runp[i][0]==0)
     {
      cp[i]=0;
     }
@@ -2490,7 +2470,7 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
     {
      U16 chksum=cxt[i]>>16;
      U64 tmask=t.size()-1;
-     switch(m.x.bpos)
+     switch(x.bpos)
      {
       case 1: case 3: case 6: cp[i]=cp0[i]+1+(cc&1); break;
       case 4: case 7: cp[i]=cp0[i]+3+(cc&3); break;
@@ -2528,12 +2508,12 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
     int s = 0;
     if (cp[i]) s = *cp[i];
     if (s>0) result++;
-    mix2(m, s, sm[i]);
+    mix2(x,m, s, sm[i]);
 
 
   }else{
     for (int i=0; i<(inputs()-1); i++)
-        m.add(0);     
+       x.mxInputs[m].add(0);// m.add(0);     
   }
   }
     // predict from last byte in context
@@ -2668,8 +2648,8 @@ int ContextMap::mix1(Mixer& m, int cc, int bp, int c1, int y1) {
 #else          
     for (int i=0; i<cn; ++i) {
         if (rmask[i] && ((r1[i  ]+256)>>(8-bp)==cc)) {
-            m.add(((r1[i  ]>>(7-bp)&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
-        else   m.add(0);
+            x.mxInputs[m].add(((r1[i  ]>>(7-bp)&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
+        else   x.mxInputs[m].add(0);//m.add(0);
       }
 #endif    
    
@@ -2729,9 +2709,6 @@ public:
 //   mode (for testing transforms).
 // If level (global) is 0, then data is stored without arithmetic coding.
 
-#ifdef RCCODER
-#include "sh_v1m.inc"
-#endif
 typedef enum {COMPRESS, DECOMPRESS} Mode;
 class Encoder {
 private:
@@ -2740,32 +2717,7 @@ private:
   U32 x1, x2;            // Range, initially [0, 1), scaled by 2^32
   U32 x;                 // Decompress mode: last 4 input bytes of archive
   File*alt;             // decompress() source in COMPRESS mode
-#ifdef RCCODER
-  
-  void code(int bit) {
-      int p = predictor->p();
-        assert(p>=0 && p<4096);
-//        p+=p<2048;
-        p = C0.SCALE-1-p*8;
-        if( p<1 ) p=1; if( p>=C0.SCALE) p=C0.SCALE-1;
-        C0.BProcess( p, bit ); 
-        predictor->x.y = bit;
-        predictor->update();
-       }
-       
-  int decode() {
-         int bit = 0;
-          int p = predictor->p();
-          assert(p>=0 && p<4096);
-//        p+=p<2048;
-          p = C1.SCALE-1-p*8;
-          if( p<1 ) p=1; if( p>=C1.SCALE) p=C1.SCALE-1;
-          C1.BProcess( p, bit ); 
-         predictor->x.y = bit;
-          predictor->update();
-         return bit;
-      }
-#else
+
   // Compress bit y or return decompressed bit
   void code(int i=0) {
     int p=predictor->p();
@@ -2797,14 +2749,8 @@ private:
     }
     return predictor->x.y;
   }
-#endif
+
 public:
-#ifdef RCCODER
-    union {
-    Rangecoder_SH1m<0> C0;
-    Rangecoder_SH1m<1> C1;
-  };
-#endif
   Predictor *predictor;
   Encoder(Mode m, File* f,char *model);
   Mode getMode() const {return mode;}
@@ -2851,32 +2797,17 @@ Encoder::Encoder(Mode m, File* f,char *model):
     if (model!=0)         predictor=new Predictor(model);
     else predictor=0;
     // x = first 4 bytes of archive
-#ifdef RCCODER
-    if( (level>0) && (mode==COMPRESS) ) {  
-      C0.io.CodeFile = archive;
-      C0.Init();
-    }
-    if( (level>0) && (mode==DECOMPRESS) ) {
-      C1.io.CodeFile = archive;
-      C1.Init();
-    }
-#else 
     if (level>0 && mode==DECOMPRESS) {
       for (int i=0; i<4; ++i)
         x=(x<<8)+(archive->getc()&255);
     }
-#endif
     for (int i=0; i<1024; ++i)
       dt[i]=16384/(i+i+3);
 }
 
 void Encoder::flush() {
-      #ifdef RCCODER
-    if( (mode==COMPRESS) && (level>0) ) C0.Quit();  // Flush first unequal byte of range
-    #else 
   if (mode==COMPRESS && level>0)
     archive->put32(x1);  // Flush first unequal byte of range
-     #endif
 }
  
 /////////////////////////// Filters /////////////////////////////////
