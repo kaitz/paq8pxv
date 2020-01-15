@@ -58,9 +58,9 @@ enum { VMCOMPRESS=0,VMDETECT,VMENCODE,VMDECODE};
 
 class VM {
 private:
- 
+ Array<char> data1;
 char *p, *lp, // current position in source code
-     *data,*data0,   // data/bss pointer
+     *data,*data0,   // data/bss pointer,
      *jitmem, // executable memory for JIT-compiled native code
      *je;     // current position in emitted native code
 int *e, *le, *text,*codestart,  // current position in emitted code
@@ -196,7 +196,7 @@ void VM::killvm( ){
     smc=apm1=rcm=scm=cm=mx=mm=st=av=ds=currentc=totalc=initdone=mindex=0;
     if (sym) free(sym),sym=0;
     if (text) free(text),text=0;
-    if (data) free(data),data=0;
+    //if (data) free(data),data=0;
     if (sp0) free(sp0),sp0=sp=0;
   
 }
@@ -284,18 +284,12 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
      if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+6*d;
         break;  }
     case vmMX: {v->prSize.resize(v->prSize.size()+1);  if (ii>v->mx  ) printf("VM vmi error: mx(%d) defined %d, max %d\n",component,ii, v->mx),quit(); 
-        if (v->x.mxInputs[indexOfInputs].n.size()==0) {
-            v->x.mxInputs[indexOfInputs].ncount=(v->x.mxInputs[indexOfInputs].ncount+15)&-16 ;
-            v->x.mxInputs[indexOfInputs].n.resize(v->x.mxInputs[indexOfInputs].ncount ); // resize inputs[x] to correct size
-            v->x.mxInputs[indexOfInputs].ncount=0;
-        }
         break;  }
     case vmST: {if ( indexOfInputs==-1)v->prSize.resize(v->prSize.size()+1); if (ii>v->st )  printf("VM vmi error: st(%d) defined %d, max %d\n",component,ii, v->st),quit();
         if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break;  }
     case vmMM: { if (ii>v->mm )  printf("VM vmi error: mmm(%d) defined %d, max %d\n",component,ii, v->mm),quit(); 
-        //v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
-        v->x.mxInputs[indexOfInputs].n.resize(v->x.mxInputs[indexOfInputs].n.size()+1 );
+        v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break;  }
     default: quit("VM vmi error\n");
     }
@@ -319,11 +313,11 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         break;
     case vmCM: v->cmC[componentIndex] = new ContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*(U64)f),d,v->x);
         break;
-    case vmMX: v->mxC[componentIndex] = new Mixer(v->x.mxInputs[indexOfInputs].n.size(),d,  v->x,&v->x.mxInputs[indexOfInputs].n[0],f); //ninputs,context,create mixer and set inputs index,shift
+    case vmMX: v->mxC[componentIndex] = new Mixer(d,  v->x,f); //context,shift
         break;
     case vmST:  v->stC[componentIndex] = new StaticMap(f, v->x);
         break;
-    case vmMM:  v->mmC[componentIndex] = new MixMap(indexOfInputs, v->x);
+    case vmMM:  v->mmC[componentIndex] = new MixMap(d, v->x);
         break;
     default:
         quit("VM vmi error\n");
@@ -336,15 +330,18 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
      for (int j=0;j< indexOfInputs;j++) v->mcomp[v->currentc++] =m+((prindex-indexOfInputs+j+1)<<24)+(componentIndex<<16)+(component<<8);
      }else{
      
-    v->mcomp[v->currentc++] =m+(prindex<<24)+(componentIndex<<16)+(component<<8); // 0x00iiccmm index,component, mixer
+    v->mcomp[v->currentc++] =m+(prindex<<24)+(componentIndex<<16)+(component<<8); // 0x00iiccmm index,component, inputs
     }
 #ifndef NDEBUG
     int pri=v->mcomp[v->currentc-1]>>24&0xff;
     printf("0x%08x ", v->mcomp[v->currentc-1]);
     if (pri==0) printf("      (");else printf(" pr[%d](",pri-1);
     printcomponent(v->mcomp[v->currentc-1]>>8&0xff);
-    printf("[%d]) input[%d]\n",v->mcomp[v->currentc-1]>>16&0xff,v->mcomp[v->currentc-1]&0xff);
+    printf("[%d]) input[%d] ",v->mcomp[v->currentc-1]>>16&0xff,v->mcomp[v->currentc-1]&0xff);
+    //if (v->mcomp[v->currentc-1]&0xff=vmMM) printf("pr[%d] ",v->mcomp[v->currentc-1]>>16&0xff);
+    printf("\n" );
 #endif
+//#endif
 }
 //set context to component
 void setcomponent(VM* v,int c,int i, U32 f){
@@ -353,13 +350,13 @@ void setcomponent(VM* v,int c,int i, U32 f){
              v->smC[i]->set(f);
              break;}
         case vmAPM1:{ 
-             v->apm1C[i]->set(f) ; 
+             v->apm1C[i]->set(f); 
              break;}
         case vmDS:{ 
-             v->dsC[i]->set(f) ; 
+             v->dsC[i]->set(f); 
              break;}
         case vmRCM:{ 
-             v->rcmC[i]->set(f) ; 
+             v->rcmC[i]->set(f); 
              break;}
         case vmSCM:{ 
              v->scmC[i]->set(f);
@@ -429,7 +426,8 @@ int mxc(VM* v,int input){
     return 0;
 }
 
-VM::VM(char* m,BlockData& bd,int mode):x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0) {
+VM::VM(char* m,BlockData& bd,int mode):x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),data1(2024*1024) {
+    data=&data1[0];
     mod=m;
     smc=apm1=rcm=scm=cm=mx=st=av=mm=ds=currentc=totalc=initdone=mindex=0;
     debug=0;
@@ -438,6 +436,28 @@ VM::VM(char* m,BlockData& bd,int mode):x(bd),vmMode(mode),mem(0),memSize(0),memb
     exit(1);  //load cfg file, if error then exit
     initdone=1;
     totalc=currentc; //update total count to current count 
+    
+    // if mixer is used parse all input arrays
+    if(x.cInputs>=0 && x.cInputs<256&& idupdate[Val]){ 
+        // init input arrays
+        for (int j=0;j<x.cInputs+1;j++)  {
+            x.mxInputs[j].ncount=(x.mxInputs[j].ncount+15)&-16 ;
+            x.mxInputs[j].n.resize(x.mxInputs[j].ncount ); 
+            // resize inputs[x] to correct size
+        }     
+        // provide inputs array info to mixers
+        for (int i=0;i<totalc;i++){
+            int prindex=mcomp[i]>>24;
+            int compnr=(mcomp[i]>>8)&0xff;
+            // individual components
+            if (prindex>0 && compnr==vmMX){
+                int index=(mcomp[i]>>16)&0xff;
+                int input=mcomp[i]&0xff;
+                // set input 
+                mxC[index]->setTxWx(x.mxInputs[input].n.size(),&x.mxInputs[input].n[0]);
+            }
+        }
+    }
 }
 
 VM::~VM() {killvm();
@@ -1069,7 +1089,7 @@ int VM::dojit(){
         else if (i == VMI) { tmp = (int)initcomponent;  }
         else if (i == VMX) { tmp = (int)setcomponent;  }
         //else if (i == MXS) { tmp = (int)mxs;  }
-       // else if (i == H2) { tmp = (int)h2;  }
+        //else if (i == H2) { tmp = (int)h2;  }
         else if (i == READ) { tmp = (int)readfile;  }
         else if (i == WRTE) { tmp = (int)writefile;  }
         
@@ -1266,10 +1286,6 @@ p=0;
                 break; 
             }                
             case vmMX: {
-                /*// pad 
-                  for (int i=x.mxInputs[mixnr].ncount;i<x.mxInputs[mixnr].n.size();i++)  x.mxInputs[mixnr].n[i]=0;
-                             x.mxInputs[mixnr].ncount=x.mxInputs[mixnr].n.size();
-                             */
                 prSize[prindex-1]=mxC[index]->p(mixnr);            // predict from result
                 break;  
             }
@@ -1292,16 +1308,16 @@ p=0;
 }
 
 int VM::initvm() { 
-  poolsz = 1024*1024; // arbitrary size
+  poolsz = 2024*1024; // arbitrary size
 
   if (!(sym = (int *)malloc(poolsz))) { kprintf("could not malloc(%d) symbol area\n", poolsz); return -1; }
   if (!(text = le = e = (int *)malloc(poolsz))) { kprintf("could not malloc(%d) text area\n", poolsz); return -1; }
-  if (!(data =data0= (char *)malloc(poolsz))) { kprintf("could not malloc(%d) data area\n", poolsz); return -1; }
+  //if (!(data =data0= (char *)malloc(poolsz))) { kprintf("could not malloc(%d) data area\n", poolsz); return -1; }
   if (!(sp =sp0= (int *)malloc(poolsz))) { kprintf("could not malloc(%d) stack area\n", poolsz); return -1; }
- 
+ data0 =data;
   memset(sym,  0, poolsz);
   memset(e,    0, poolsz);
-  memset(data, 0, poolsz);
+  //memset(data, 0, poolsz);
   memset(sp, 0, poolsz);
    p = "char else enum if int short return for sizeof while printf vms vmi vmx mxs h2 read write exit void block update main detect decode encode";
   i = Char; while (i <= While) { next(); id[Tk] = i++; } // add keywords to symbol table
@@ -1479,7 +1495,7 @@ if (dojit()!=0) return -1;
   *--sp = (int)t;
 r= dovm((int *)idmain[Val]);
 #endif
- 
+    //no code here, JIT kills this
 return r;
 }
  

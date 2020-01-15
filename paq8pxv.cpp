@@ -396,7 +396,7 @@ elements at a time.
 
 */
 
-#define VERSION "14"
+#define VERSION "15"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
 #define MT                          // uncomment for multithreading, compression only
@@ -1492,7 +1492,7 @@ APM1::APM1(int n,int r,int d,BlockData& bd): index(0), N(n), t(n*33),x(bd),mask(
 
 class Mixer {
 private: 
-  const int N, M, S;   // max inputs, max contexts, max context sets
+   int N, M;   // max inputs, max contexts, max context sets
    short*tx; // N inputs from add()  
   Array<short, 32> wx; // N*M weights
   int cxt;  // S contexts
@@ -1501,13 +1501,13 @@ private:
   //int nx;          // Number of inputs in tx, 0 to N  
  // Mixer* mp;       // points to a Mixer to combine results
   int pr;   // last result (scaled 12 bits)
-  ErrorInfo info; 
-  int rates; // learning rates
+ // ErrorInfo info; 
+ // int rates; // learning rates
  
   int shift1;
 public:   //Array<int> mcxt;
   BlockData& x;
-  Mixer(int n, int m,BlockData& bd,short* mn, int s=1, int w=0);
+  Mixer(int m,BlockData& bd,int s);
   
 #if defined(__AVX2__)
  int dot_product (const short* const t, const short* const w, int n) {
@@ -1713,7 +1713,16 @@ void train(short *t, short *w, int n, int err) {
   }
   // predict next bit
   int p( int m) {
+        assert(cxt<M);
     return pr=squash(dot_product(&tx[0], &wx[cxt*N], N)>>( shift1));
+  }
+  void setTxWx(int n,short* mn){
+      N=(n+15)&-16;
+      wx.resize(N*M);
+      tx=mn; 
+      for (int i=0; i<N*M; ++i)
+    wx[i]=0;
+    //printf("Mixer inputs %d, context limit %d, mixer shift %d\n",N,M,shift1);
   }
   ~Mixer();
 };
@@ -1722,15 +1731,15 @@ Mixer::~Mixer() {
 
 }
 
-Mixer::Mixer(int n, int m, BlockData& bd,short* mn, int s, int w):
-    N((n+15)&-16), M(m), S(1), wx(N*M), cxt(0), tx(mn),x(bd), shift1(s){
-  assert(n>0 && N>0 && (N&15)==0 && M>0);
-   int i;
+Mixer::Mixer(int m, BlockData& bd, int s):
+     M(m),   cxt(0), x(bd), shift1(s),wx(0){
+  assert( M>0);
+ //  int i;
+  // 
     pr=2048; //initial p=0.5
-    rates = DEFAULT_LEARNING_RATE;
-    memset(&info, 0, sizeof(ErrorInfo));
-  for (i=0; i<N*M; ++i)
-    wx[i]=w;
+  //  rates = DEFAULT_LEARNING_RATE;
+  //  memset(&info, 0, sizeof(ErrorInfo));
+ 
 }
 
 //////////////////////////// StateMap, APM //////////////////////////
