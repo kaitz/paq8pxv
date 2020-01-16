@@ -27,7 +27,7 @@ int detect(int c4,int i) {
     }
     c=c4&0xff;
     //detect header
-    if (txtStart==0 && ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9 )) txtStart=1,of=i;
+    if (txtStart==0 && ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9)) txtStart=1,of=i;
     if (txtStart) {
        if ((c<128 && c>=32) || c==10 || c==13 || c==0x12 || c==9) {
             ++txtLen;
@@ -39,6 +39,7 @@ int detect(int c4,int i) {
             }
             return NONE;
        } 
+       //txtLen=0;
        if (type==TEXT && state==START) {
             state=INFO;
             jend=i;
@@ -49,7 +50,7 @@ int detect(int c4,int i) {
            return state;
        } else if (type==TEXT){
             reset();
-       } else txtStart=0;
+       } else txtStart=txtLen=0;
      }
       
     return NONE;
