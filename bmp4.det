@@ -1,4 +1,4 @@
-// For BMP 24 bit detection
+// For BMP 1 bit detection
 int bmp;
 int bpp;
 int x;
@@ -75,17 +75,17 @@ int detect(int c4,int i) {
             of=of+((buf0)?bswap(buf0)*4:4<<bpp);
           of=of+(bmp-1)*(bmp<1);
           if (hdrless && size && size<((x*y*bpp)>>3)) { }//Guard against erroneous DIB detections
-          else  if (type==DEFAULT && bpp==24){
-            info=((x*3)+3)& 0xFFFFFFFC;// -4;
+          else  if (type==DEFAULT && bpp==4){
+            info=(((x-1)>>5)+1)*4;
             type=BMPFILE;
-            state=START;
+            state=START;//INFO;
             jstart=of+bmp-1;
-            //printf("DETECT: BMP info %d\n",info);
             return state;
         }
         }
         reset();
       }
+	  //fail here if bpp not correct..... 
     }
     
     if (type==BMPFILE && state==START) {

@@ -93,7 +93,7 @@ int detect(int c4,int i) {
             jend=info*y;
            return state;
     }
-     if (type==BMPFILE && state==START && i==jend) {
+     if (type==BMPFILE && state==INFO && i>=jend) {
             state=END;
             type=DEFAULT;
             bmp=0;

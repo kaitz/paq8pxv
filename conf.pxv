@@ -80,3 +80,8 @@ detect arm.det
 decode arm.dec
 encode arm.enc
 compress 0
+type 11
+detect bmp4.det
+decode -1
+encode -1
+compress 0
