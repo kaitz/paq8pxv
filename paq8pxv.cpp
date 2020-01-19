@@ -105,15 +105,15 @@ Recommended compiler commands and optimizations:
 
   MINGW g++ (x86,x64):
    with multithreading:
-    g++ paq8pxv.cpp -DWINDOWS -DMT -msse2 -O3 -s -static -o paq8pxv.exe 
+    g++ paq8pxv.cpp -DWINDOWS -DMT -msse2 -O2 -s -static -o paq8pxv.exe 
    without multithreading:
-    g++ paq8pxv.cpp -DWINDOWS -msse2 -O3 -s -static -o paq8pxv.exe 
+    g++ paq8pxv.cpp -DWINDOWS -msse2 -O2 -s -static -o paq8pxv.exe 
 
   UNIX/Linux (PC x86,x64):
    with multithreading:
-    g++ paq8pxv.cpp -DUNIX -DMT -msse2 -O3 -s -static -lpthread -o paq8pxv
+    g++ paq8pxv.cpp -DUNIX -DMT -msse2 -O2 -s -static -lpthread -o paq8pxv
    without multithreading:
-    g++ paq8pxv.cpp -DUNIX -msse2 -O3 -s -static -lpthread -o paq8pxv
+    g++ paq8pxv.cpp -DUNIX -msse2 -O2 -s -static -lpthread -o paq8pxv
 
   Non PC (e.g. PowerPC under MacOS X)
     g++ paq8pxv.cpp -O2 -DUNIX -s -o paq8pxv
@@ -396,7 +396,7 @@ elements at a time.
 
 */
 
-#define VERSION "15"
+#define VERSION "16"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
 #define MT                          // uncomment for multithreading, compression only
@@ -419,10 +419,12 @@ elements at a time.
 #include <sys/stat.h>
 #include <stdio.h>
 #include <time.h>
-#include <math.h>
+//#include <math.h>
 #define NDEBUG  // remove for debugging (turns on Array bound checks)
 #include <assert.h>
+#ifdef MT
 #include <vector>
+#endif
 #ifdef UNIX
 #include <stdio.h>
 #include <sys/types.h>
@@ -482,11 +484,13 @@ inline int max(int a, int b) {return a<b?b:a;}
 #endif
 #endif
 
-
+#ifdef MT
 #ifdef PTHREAD
 #include "pthread.h"
 #endif
+#endif
 #define ispowerof2(x) ((x&(x-1))==0)
+
 // Error handler: print message if any, and exit
 void quit(const char* message=0) {
     #ifdef  MT 
@@ -558,7 +562,7 @@ public:
 #ifndef NDEBUG
 static void chkindex(U64 index, U64 upper_bound) {
   if (index>=upper_bound) {
-    fprintf(stderr, "out of upper bound %d\n",upper_bound);
+    fprintf(stderr, "out of upper bound %d\n",index);
     quit();
   }
 }
@@ -608,6 +612,9 @@ template<class T, const int Align> void Array<T,Align>::create(U64 requested_siz
   ptr=(char*)calloc(bytes_to_allocate,1);
   if(!ptr){
       printf("Requested size %d MB\n",(U32)((bytes_to_allocate)/1024)/1024);
+      #ifdef MT
+      printf("Try using lower option ex. -s7 or reduce thread count.\n");
+      #endif
       quit("Out of memory.");
   }
   U64 pad=padding();
@@ -1459,9 +1466,9 @@ class APM1 {
   int index;     // last p, context
   const int N;   // number of contexts
   Array<U16> t;  // [N][33]:  p, context -> p
-  int rate,cxt;
   BlockData& x;
   int mask;
+  int rate,cxt;
   int p1;
 public:
   APM1(int n,int r,int d,BlockData& x);
@@ -1499,13 +1506,12 @@ private:
   //int ncxt;        // number of contexts (0 to S)
   //int base;        // offset of next context
   //int nx;          // Number of inputs in tx, 0 to N  
- // Mixer* mp;       // points to a Mixer to combine results
   int pr;   // last result (scaled 12 bits)
  // ErrorInfo info; 
  // int rates; // learning rates
  
-  int shift1;
-public:   //Array<int> mcxt;
+  int shift1; 
+public:    
   BlockData& x;
   Mixer(int m,BlockData& bd,int s);
   
@@ -1678,19 +1684,9 @@ void train(short *t, short *w, int n, int err) {
           memset(&info[i], 0, sizeof(ErrorInfo));
         }
     }
-    reset(  m);
   }*/
  
-  /*void add32(U32 a){
-      assert(nx+2<N);
-     ((U32 *) &tx[nx],a);
-    nx=nx+2;
-  }
-  void add64(U64 a){
-      assert(nx+4<N);
-     ((U64 *) &tx[nx],a);
-    nx=nx+4;
-  }
+  /*
     #if defined(__MMX__)
   void addXMM(XMM a){
     assert(nx+8<N);
@@ -1721,8 +1717,7 @@ void train(short *t, short *w, int n, int err) {
       wx.resize(N*M);
       tx=mn; 
       for (int i=0; i<N*M; ++i)
-    wx[i]=0;
-    //printf("Mixer inputs %d, context limit %d, mixer shift %d\n",N,M,shift1);
+       wx[i]=0;
   }
   ~Mixer();
 };
@@ -1732,10 +1727,9 @@ Mixer::~Mixer() {
 }
 
 Mixer::Mixer(int m, BlockData& bd, int s):
-     M(m),   cxt(0), x(bd), shift1(s),wx(0){
+     M(m), wx(0) , cxt(0), shift1(s),x(bd){
   assert( M>0);
- //  int i;
-  // 
+
     pr=2048; //initial p=0.5
   //  rates = DEFAULT_LEARNING_RATE;
   //  memset(&info, 0, sizeof(ErrorInfo));
@@ -1833,7 +1827,7 @@ public:
   }
 };
 
-StateMapContext::StateMapContext(int n,int lim, BlockData& bd): N(n), cxt(0), t(n), mask(n-1), x(bd),limit(lim),cx(0),pr(2048) {
+StateMapContext::StateMapContext(int n,int lim, BlockData& bd): N(n), cxt(0), t(n),pr(2048), mask(n-1),limit(lim), x(bd),cx(0) {
     assert(ispowerof2(n));
     assert(limit>0 && limit<1024);
   for (int i=0; i<N; ++i)
@@ -1965,7 +1959,6 @@ public:
       return 0;
   }
   int mix(int m) {  // return run length
-    //m.add(p());
     x.mxInputs[m].add(p());
     return cp[0]!=0;
   }
@@ -2012,9 +2005,7 @@ public:
     B+=(x.y && B>0);
     cp = &Data[Context+B];
     int Prediction = (*cp)>>4;
-   // m.add((stretch(Prediction)*Multiplier)/Divisor);
     x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);
-   // m.add(((Prediction-2048)*Multiplier)/(Divisor*2));
     x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));
     bCount++; B+=B+1;
     if (bCount==bTotal)
@@ -2070,9 +2061,7 @@ public:
     B+=(x.y && B>0);
     cp=&Data[Context+B];
     Prediction = (*cp)>>20;
-  //  m.add((stretch(Prediction)*Multiplier)/Divisor);
     x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);
-    //m.add(((Prediction-2048)*Multiplier)/(Divisor*2));
     x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));
     bCount++; B+=B+1;
     if (bCount==bTotal)
@@ -2111,7 +2100,6 @@ public:
       return pr1;
   }
   int mix(int m) {
-    //m.add(pr);
     x.mxInputs[m].add(pr);
     return 0;
   }
@@ -2132,7 +2120,6 @@ public:
   inline int i2(){ return p2;  } //index 2
   inline int p() { return pr;  }
   int mix(int m) {
-    //m.add(stretch(pr));
     x.mxInputs[m].add(stretch(pr));
     return 0;
   }
@@ -2150,7 +2137,7 @@ Array<U8> CxtState;
   int index;
   int count;
 public:
-  DynamicSMap(int m,int lim,int c,BlockData& bd): state(0),cxt(c),mask((1<<m)-1),pr(c),CxtState(mask+1),limit(lim),x(bd),index(0),count(c) {
+  DynamicSMap(int m,int lim,int c,BlockData& bd): state(0),cxt(c),mask((1<<m)-1),pr(c),limit(lim),CxtState(mask+1),x(bd),index(0),count(c) {
   sm=new StateMap[c];
   }
   void set(U32 cx) {//da hell is hapening??????????? nothing, all good :D
@@ -2170,6 +2157,87 @@ public:
   }
 };
 
+#define ispowerof2(x) ((x&(x-1))==0)
+class DynamicHSMap {
+  int state;
+  StateMap *sm;
+  Array<int>  pr;
+  int limit;
+  BlockData& x;
+  int index;
+  const int count;
+  const int hashElementCount;
+  const int hashSearchLimit;
+  Array<U8*> cp;
+  const int bitscount;
+  U32 n;
+  Array<U8,32> t;
+  public:
+  DynamicHSMap(int bits,int membits,int countOfContexts,BlockData& bd): 
+  state(0),pr(countOfContexts),
+  limit(1023),x(bd),index(0),count(countOfContexts),
+  // for jpeg there is 3 bits -> 8
+  // for bmp4 there is 4 bits -> 16
+  hashElementCount((1<<bits)), //+1 for checksum 
+  hashSearchLimit(4),
+  cp(countOfContexts),  
+  bitscount(bits),
+  n((1<<membits)-1),
+  t(hashElementCount*(1<<membits))
+  {
+     /* printf("hashElementCount %d\n",hashElementCount);
+      printf("countOfContexts %d\n",countOfContexts);
+      printf("bits %d\n",bits);
+      printf("n %d\n",n);
+      printf("t.size %d\n",t.size());
+      printf("membits %d %d %d\n",membits,1<<membits,hashElementCount*(1<<membits));*/
+    sm=new StateMap[countOfContexts];
+    for (int i=0;i<countOfContexts;i++)
+      cp[i]=&t[0]+1;
+  }
+  void set(U32 cx) {
+   if (cp[count-1])  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],x.y);   //update state
+      if (cx>255){
+         cp[index]=find(cx)+1 ;                                      // find new
+         pr[index]=sm[index].p(*cp[index],x.y,limit);
+         index++;
+         if (index==count) index=0;
+      }else{
+          if (cx==0) {
+          index=0;
+          return;}
+        for ( int i=0; i<count; ++i) {
+        cp[i]+=cx;
+        pr[i]=sm[i].p(*cp[i],x.y,limit);                             // predict from new context
+        }
+        index=0;
+      }      
+  }
+  inline int p() {
+      int pr0=pr[index++];
+      if (index==count) index=0;
+      return pr0;
+  }
+  int mix(int m) {
+    return 0;
+  }
+  U8* find(U32 i) {
+    U8 chk=(i>>24^i>>12^i);
+    i&=n;
+    int bi=i, b=256;  // best replacement so far
+    U8 *p;
+    for (int j=0; j<hashSearchLimit; ++j) {
+      p=&t[(i^j)*hashElementCount];
+      if (p[0]==chk) return p;  // match
+      else if (p[1]==0) return p[0]=chk, p;  // empty
+      else if (p[1]<b) b=p[1], bi=i^j;  // best replacement so far
+    }
+    p=&t[bi*hashElementCount];  // replacement element
+    memset(p, 0, hashElementCount);
+    p[0]=chk;
+  return p;
+}
+};
 /*
 class IndirectMap {
   Array<U8> Data;
@@ -2292,7 +2360,7 @@ public:
     // if next is 0 then set order does not matter
   int mix(int m) {return mix1(m,  x.c0,  x.bpos, (U8) x.c4,  x.y);}
   int get() {return result;}
-    int inputs();
+  int inputs();
 };
 
 #if defined(SIMD_GET_SSE) 
@@ -2427,8 +2495,8 @@ ContextMap::~ContextMap() {
 // Set the i'th context to cx
 inline void ContextMap::set(U32 cx, int next) {
   int i=cn++;
-  i&=next;
-  assert(i>=0 && i<C);
+  //i&=next;
+ //assert(i>=0 && i<C);
   if (cx==0){ cxt[i]=0; rmask[i]=0;}
   else{
   cx=cx*987654323+i;  // permute (don't hash) cx to spread the distribution
@@ -2683,7 +2751,7 @@ public:
  int pr;  
   VM vm;
   Predictor(char *m): pr(2048),vm(m,x,VMCOMPRESS) {setdebug(0); }
-  int p()  const {assert(pr>=0 && pr<4096); return pr;} 
+  int p()  {assert(pr>=0 && pr<4096); return pr;} 
   ~Predictor(){ vm.killvm( );}
   void set() {  vm.block(x.finfo,0);  }
   void setdebug(int a){      vm.debug=a;  }
@@ -2696,7 +2764,12 @@ public:
         ++x.blpos;
     }
     x.bpos=(x.bpos+1)&7;
+    vm.updateComponents();
     pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
+    if (pr!=0) quit();
+    //printf("%d",x.cInputs);
+    pr=vm.getPrediction(x.cInputs);
+    //printf("%d",x.cInputs);
   }
 };
 //////////////////////////// Encoder ////////////////////////////
@@ -2950,7 +3023,7 @@ void encode_file(File* in, File* out, int len, int info,int type) {
     vmEncode[type]->inFile=in;
     vmEncode[type]->outFile=out;
     //encode file
-    int jst=vmEncode[type]->encode(info,len);
+    vmEncode[type]->encode(info,len);
 }
 
 uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint64_t &diffFound, int type) {
@@ -3353,7 +3426,7 @@ int expand(String& archive, String& s, const char* fname, int base) {
 #endif
 char *dmodel;
 Array<U64> filestreamsize(0);
-char *pp ="int cxt[4]={};"
+static char   pp[] ="int cxt[4]={};"
 "int cxt1,cxt2,cxt3,cxt4,N;"
 "enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST};"
 "int update(int y,int c0,int bpos,int c4,int pos){ "
@@ -3368,7 +3441,7 @@ char *pp ="int cxt[4]={};"
 "    return 0;}" 
 "void block(int a,int b){} "
 "int main(){int i; N=4;"
-"    vms(0,1,1,3,0,0,0,0,0,0);"
+"    vms(0,1,1,3,0,0,0,0,0,0,0);"
 "    vmi(DS,0,18,1023,4); "    
 "    vmi(AVG,0,0,0,1);     "
 "    vmi(AVG,1,0,2,3);     "
@@ -3383,7 +3456,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
     U64 datasegmentlen=0;
     int datasegmentpos=0;
     int datasegmentinfo=0;
-    U64 scompsize=0;
+    //U64 scompsize=0;
     U32 currentpos;
     int modelSize=0;
     int modelSizeCompressed=0;
@@ -3568,9 +3641,9 @@ thread(void *arg) {
 #endif
 
 // read global config file conf.pxv
-int readConfigFile(FILE *fp){ 
+void readConfigFile(FILE *fp){ 
     char str[60];
-    int result, findNL;
+    int result;//, findNL;
     int ssize=-1,tsize=-1; // stream index
     /* opening file for reading */
     if(fp == NULL) quit("Error opening conf.pxv file\n");
@@ -3712,7 +3785,7 @@ int readConfigFile(FILE *fp){
 }   
 
 void createDetectVM(){
-    FILE *f;
+   // FILE *f;
     char *detectModel;
     vmDetect = new VM*[vTypes.size()];
     for (int i=0;i<vTypes.size();i++){
@@ -3735,7 +3808,7 @@ void createDetectVM(){
     }
 }
 void createEncodeVM(){
-    FILE *f;
+    //FILE *f;
     char *encodeModel;
     vmEncode = new VM*[vTypes.size()];
     for (int i=0;i<vTypes.size();i++){
@@ -3759,7 +3832,7 @@ void createEncodeVM(){
 }
 
 void createDecodeVM(){
-    FILE *f;
+    //FILE *f;
     char *decodeModel;
     vmDecode = new VM*[vTypes.size()];
     for (int i=0;i<vTypes.size();i++){
@@ -3858,7 +3931,7 @@ void DecompressType(File *out){
     for (int k=0;k<len;++k) putc(enm->decompress(),conf); 
     fseek(conf,0,SEEK_SET);
     readConfigFile(conf);
-    if (defaultType=getUnknownType()==-1) quit("Default type not defined (type x detect -1)");
+    if ((defaultType=getUnknownType())==-1) quit("Default type not defined (type x detect -1)");
     //decompress type files if present
     vmDecode = new VM*[vTypes.size()];
     for (int i=0; i<(int)vTypes.size();i++){
@@ -3867,7 +3940,7 @@ void DecompressType(File *out){
         len+=enm->decompress()<<8;
         len+=enm->decompress();
         if (len>0){
-            int a=0;
+            //int a=0;
             decodeModel = (char *)calloc(len+1,1);
             for (int k=0;k<len;++k) decodeModel[k]=enm->decompress(); 
             //cread VM for type
@@ -4021,7 +4094,7 @@ printf("\n");
            FILE *conf;
            conf = fopen("conf.pxv" , "rb");
            readConfigFile(conf);
-           if (defaultType=getUnknownType()==-1) quit("Default type not defined (type x detect -1)"); //
+           if ((defaultType=getUnknownType())==-1) quit("Default type not defined (type x detect -1)"); //
            createDetectVM();
            createEncodeVM();
            createDecodeVM();  // stored in archive, at header
@@ -4454,7 +4527,7 @@ printf("\n");
                     //read compressed file header and data
                     app=0;
                     if (level>0) {                  
-                       int fsz=0;  
+                       //int fsz=0;  
                        Encoder* enm;
                        enm=new Encoder(DECOMPRESS, archive,dmodel);
                        enm->predictor->set();

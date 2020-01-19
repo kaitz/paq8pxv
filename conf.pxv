@@ -2,7 +2,7 @@
 stream 0
 model test3d.cfg
 stream 1
-model test3d.cfg
+model jpeg.cfg
 stream 2
 model test3d.cfg
 stream 3
@@ -11,6 +11,8 @@ stream 4
 model test3i8.cfg
 stream 5
 model test3i24.cfg
+stream 6
+model test3i4.cfg
 // set types
 // -1 (negative) means detect type is recursive
 // 0  its unknown data type
@@ -84,4 +86,4 @@ type 11
 detect bmp4.det
 decode -1
 encode -1
-compress 0
+compress 6
