@@ -2,7 +2,7 @@
 
 This is paq8 like compressor, witch uses config files for compression models, detection, data decoding and encoding.
 Compression models and data decoding models will be saved into final archive, so that decompressor can use them when data is extracted.
-Also main config file (conf.pxf) is stored compressed. Main compression routine is stored uncompressed.
+Also main config file (conf.pxv) is stored compressed. Main compression routine is stored uncompressed.
 
 paq8pxv uses virtual machine, which compiles c like code to bytecode at runtime and executes it.
 There is also x86 JIT version.
@@ -73,10 +73,13 @@ int main() {
 ```
 # Data detection, transform and compression
 
+Usage is definded in main configuration file conf.pxv
+
 |Type|Detect|Encode|Decode|Compress|Recursive|Description|
 | --- | --- | --- | --- | --- | --- | --- |
 | b64| b64.det|b64.enc |b64.dec | none |y| Base64 transform|
 | bmp1| bmp1.det| none| none| test3img.cfg|n| 1bit .bmp image|
+| bmp4| bmp4.det| none| none| test3im4.cfg|n| 4bit .bmp image|
 | bmp8| bmp8.det| none| none| test3i8.cfg| n|8bit .bmp image|
 | bmp24| bmp24.det| none| none| test3i24.cfg|n |24bit .bmp image|
 | dec| dec.det| dec.enc| dec.dec| test3d.cfg|n | DEC Alpha executable code transform, swap byte order|
