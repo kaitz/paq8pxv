@@ -133,7 +133,7 @@ Using above example.
 ### vms - component counts
 vms(countOfSMC,countOfAPM1,countOfDS,...);
 
-component counts, 10 parameters with ID order, like in Components table below. Only usable in function main()
+component counts, 11 parameters with ID order, like in Components table below. Only usable in function main()
 
 ```
 // use:
@@ -183,6 +183,7 @@ vmx(APM1,0,c0);
 |Mixer |MX |8|yes|no|
 |StaticMap |ST|9|yes|yes|
 |MixMap| MM|10|no|yes|
+|DynamicHashStateMap| DHS |11|yes|no|
 
 Yes in prediction means that component outputs prediction into internal array pr[]
 
