@@ -76,7 +76,7 @@ int detect(int c4,int i) {
           of=of+(bmp-1)*(bmp<1);
           if (hdrless && size && size<((x*y*bpp)>>3)) { }//Guard against erroneous DIB detections
           else  if (type==DEFAULT && bpp==4){
-            info=(((x-1)>>5)+1)*4;
+            info=((x*4+31)>>5)*4;
             type=BMPFILE;
             state=START;//INFO;
             jstart=of+bmp-1;
