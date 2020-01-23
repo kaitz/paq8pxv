@@ -902,7 +902,7 @@ int VM::dovm(int *ttt){
  /*if (debug) {
       kprintf("%d>%x  %.4s", cycle,pc-pc0,
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
-         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
+         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,BOUN,THIS,"
          "PRTF,VMS ,VMI ,VMX ,H2  ,READ,WRTE,EXIT"[i * 5]);
     if (i < JMP) kprintf(" %d\n",*pc); //? +1MALC,MSET,MCMP,MCPY,
      else if (i <= ADJ) kprintf(" %x\n",(int *)*pc-pc0+1); else kprintf("\n");
@@ -973,7 +973,7 @@ int VM::dojit(){
     //dprintf("// %x: ",pc);
     dprintf("   %.4s",  
         &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
-         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
+         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,BOUN,THIS,"
          "PRTF,VMS ,VMI ,VMX ,H2  ,READ,WRTE,EXIT"[i * 5]);
     if (i < JMP) dprintf(" 0x%x\n",*(pc+1)); //? +1
      else if (i <= ADJ) dprintf(" 0x%x\n",(int *)*pc); else dprintf("\n");
@@ -990,7 +990,13 @@ int VM::dojit(){
       i = 4 * *pc++; if (i < -128 || i > 127) { kprintf("jit: ENT out of bounds\n"); return -1; }
       *(int *)je = 0xe58955; je = je + 3;
       dprintf("\tpush ebp\n\tmov ebp, esp\n",i);
-      if (i > 0) { *(int *)je = 0xec83; je = je + 2; *(int*)je++ = i; dprintf("\tsub esp,BYTE %x\n",i); *(int *)je++ = 0x56;dprintf("\tpush esi\n"); }
+      if (i > 0) { 
+         *(int *)je = 0xec83; je = je + 2; 
+         *(int*)je++ = i; 
+         dprintf("\tsub esp,BYTE %x\n",i); 
+         *(int *)je++ = 0x56;*(int *)je++ = 0x51;*(int *)je++ = 0x52;*(int *)je++ =0x53;*(int *)je++ =0x57;
+         dprintf("\tpush esi push ecx push edx  push ebx push   edi\n"); 
+      }
     }
     else if (i == IMM) { 
     if (*(pc+1)==LI){
@@ -1030,7 +1036,11 @@ int VM::dojit(){
           je = je + 3; 
 	}
     else if (i == PSH) {  *(int *)je++ = 0x50;dprintf("\tpush eax\n"); }
-    else if (i == LEV) { *(int *)je++ = 0x5e;dprintf("\tpop esi\n");  *(int *)je = 0xc35dec89; je = je + 4; dprintf("\tmov esp, ebp\n\tpop ebp\n\tret\n"); }
+    else if (i == LEV) {
+         *(int *)je++ = 0x5f;*(int *)je++ =0x5b;*(int *)je++ = 0x5a;*(int *)je++ = 0x59; *(int *)je++ = 0x5e; 
+         dprintf("\tpop edi pop ebx pop edx pop ecx pop esi\n");
+         *(int *)je = 0xc35dec89; je = je + 4; 
+         dprintf("\tmov esp, ebp\n\tpop ebp\n\tret\n"); }
     else if ((i == LI ||i == LC ||i == LS )&& *(pc)==PSH && *(pc+1)==IMM && 
 	    (*(pc+3)==SHR || *(pc+3)==SHL || *(pc+3)==SUB|| *(pc+3)==ADD|| 
 		(*(pc+3)==MUL && *(pc+4)!=ADD) ||
@@ -1091,7 +1101,7 @@ int VM::dojit(){
     else if (i == BZ)  { ++pc; *(int*)je = 0x840fc085; je = je + 8;dprintf("\ttest eax, eax\n\tjz  %x\n", *(pc-1) ); } // test %eax, %eax; jz <off32>
     else if (i == BNZ) { ++pc; *(int*)je = 0x850fc085; je = je + 8;dprintf("\ttest eax, eax\n\tjnz  %x\n", *(pc-1)  );  } // test %eax, %eax; jnz <off32>
     else if (i==H2){
-         ++pc;++pc;                    // skip H2 and ADJ
+         pc++;pc++;                    // skip H2 and ADJ
          *je=0x59; je++;               //     pop    ecx
          *je=0x58; je++;               //     pop    eax
          *je=0x05; je++;               //     add    eax,0x200
@@ -1103,11 +1113,15 @@ int VM::dojit(){
          *je=0x05; je++; 
          *je=0x03; je++;            
          *je=0x00; je++; 
-         *je=0x00; je++;                             
+         *je=0x00; je++; 
          *je=0xf7; je++;               //     mul    ebx
          *je=0xe3; je++;     
          *je=0x01; je++;               //     add    eax,ecx //|| lea eax, [ecx+395776+eax] 8d 84 02 00 0a 06 00
-         *je=0xc8; je++;                    
+         *je=0xc8; je++; 
+         dprintf("// H2 start\n");
+         dprintf("\tpop ecx\n\t pop    eax\n\t add    eax,0x200\n");
+         dprintf("\tmov    ebx,0x305\n\t mul    ebx\n\t add    eax,ecx\n");
+         dprintf("// H2 end\n");
     }
     else if (i == VTHIS) { 
     *je++ = 0xb8; 
@@ -1119,7 +1133,7 @@ int VM::dojit(){
         else if (i == VMS) { tmp = (int)components;  }
         else if (i == VMI) { tmp = (int)initcomponent;  }
         else if (i == VMX) { tmp = (int)setcomponent;  }
-        //else if (i == H2) { tmp = (int)h2;  }
+        //else if (i == H2) { tmp = (int)h2; }
         else if (i == READ) { tmp = (int)readfile;  }
         else if (i == WRTE) { tmp = (int)writefile;  }
         

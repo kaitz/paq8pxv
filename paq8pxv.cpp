@@ -3426,28 +3426,15 @@ int expand(String& archive, String& s, const char* fname, int base) {
 #endif
 char *dmodel;
 Array<U64> filestreamsize(0);
-static char   pp[] ="int cxt[4]={};"
-"int cxt1,cxt2,cxt3,cxt4,N;"
-"enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST};"
-"int update(int y,int c0,int bpos,int c4,int pos){ "
-"    int i;"
-"    if (bpos==0) cxt4=cxt3,cxt3=cxt2,cxt2=cxt1,cxt1=(c4&0xff)*256;"
-"    cxt[0]=(cxt1+c0);"
-"    cxt[1]=(cxt2+c0+0x10000);"
-"    cxt[2]=(cxt3+c0+0x20000);"
-"    cxt[3]=(cxt4+c0+0x30000);"
-"    for (i=0;i<N;++i) vmx(DS,0,cxt[i]);"
-"    vmx(APM1,0,c0);" 
-"    return 0;}" 
-"void block(int a,int b){} "
-"int main(){int i; N=4;"
-"    vms(0,1,1,3,0,0,0,0,0,0,0);"
-"    vmi(DS,0,18,1023,4); "    
-"    vmi(AVG,0,0,0,1);     "
-"    vmi(AVG,1,0,2,3);     "
-"    vmi(AVG,2,0,4,5);     "
-"    vmi(APM1,0,256,7,6);  "
-"    cxt1=cxt2=cxt3=cxt4=0;}";
+static char   pp[] ="int t[5]={};"
+"enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST,MM,DHS};"
+"int update(int y,int c0,int bpos,int c4,int pr){ int i;"
+" if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(t[i-1],c4&0xff);}"
+" for (i=1;i<5;++i) vmx(DS,0,(c0)|(t[i]<<8));"
+" vmx(APM1,0,c0); return 0;}"
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0);"
+" vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
+" vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
     i=streamid;
