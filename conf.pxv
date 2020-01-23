@@ -54,8 +54,8 @@ encode -1
 compress 3
 type 6
 detect bmp24.det
-decode -1
-encode -1
+decode bmp24.dec
+encode bmp24.enc
 compress 5
 type -1
 detect b64.det

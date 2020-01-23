@@ -1,0 +1,39 @@
+// bmp24 transform - decode
+char buf[1024]={};
+char buf1[1024]={};
+int pos, pos1;
+char get(){
+    char a;
+    a=buf[pos++ ];
+    if (pos==1024) {pos=0;read(buf,1024);}
+    return a;
+}
+void put(char a){
+    buf1[pos1++ ]=a;
+    if (pos1==1024) {pos1=0;write(buf1,1024);}
+}
+int decode(int info,int len){
+    int  i,j;
+    char r,g,b;
+    int  cols,rows,rem;
+    cols=(info/3);
+    rows=(len/info);
+    rem =(info%3);
+    pos=pos1=0;
+    read(buf, 1024);
+    for (i=0; i<rows; i++){
+        for (j=0; j<cols; j++){
+            b=get(), g=get(), r=get();
+            put(b-r);
+            put(b);
+            put(b-g);
+        }
+        for (j=0; j<rem; j++){
+            put(get());
+        }
+    }
+    if (pos1) {write(buf1,pos1);}
+    return len;
+}
+int main() {
+}
