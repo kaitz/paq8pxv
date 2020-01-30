@@ -89,10 +89,10 @@ int detect(int c4,int i) {
     
     if (type==BMPFILE && state==START) {
             state=INFO;
-            jend=info*y;
+            jend=info*y+jstart;
            return state;
     }
-     if (type==BMPFILE && state==INFO && i>=jend) {
+     if (type==BMPFILE && state==INFO && i==(jend-1)) {
             state=END;
             type=DEFAULT;
             bmp=0;

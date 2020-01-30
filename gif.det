@@ -54,10 +54,10 @@ int detect(int c4,int i) {
         else if (!w) gif=2,gifi=i+3;
         else {
             type=GIF;
-            state=INFO;
+            state=START;
             info=w;
             jstart=a-1;
-            jend=i-a+2;
+            jend=i+1;
             return state;
         }
       }
@@ -66,11 +66,11 @@ int detect(int c4,int i) {
       }
     }
     
-    if (type==GIF && state==INFO) {
-           state=START;
+    if (type==GIF && state==START) {
+           state=INFO;
            return state;
     }
-     if (type==GIF && state==START && i==jend) {
+     if (type==GIF && state==INFO ) {//&& i==jend-1
             state=END;
             type=DEFAULT;
             gif=0;

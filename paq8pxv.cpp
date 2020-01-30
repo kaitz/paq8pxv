@@ -2956,6 +2956,11 @@ struct vType {
     char encode[16]; // model for encode
     int ensize;    // size of above model, -1 if no model
     int used;
+    int state;     // state of current detection
+    int start;     // start pos of type data in block
+    int end;       // end pos of type data in block
+    int info;      // info of the block if present
+    int rpos;      // pos where start was set in block
 };
 Array<vStream> vStreams(0);
 Array<vType> vTypes(0);
@@ -2964,23 +2969,31 @@ VM   **vmDetect;
 VM   **vmEncode;
 VM   **vmDecode;
 VM   **vmStream;
-enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; 
+enum {NONE=0,START,INFO,END,DISABLE=0xfffffffd,RESET=0xfffffffe,REQUEST=0xffffffff}; 
+
+// Detect multiple different similar types.
+// Change default retorted type to last normal type if recursion type found 
+// and report it only if it fits to min size of that type.
+// If two conflicting detections are found disable first type that reported end state
 
 int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) {
     U32 buf0=0;  // last 8 bytes
     U64 start= in->curpos();
-info=-1;
-    static int deth=0,detd=0;  // detected header/data size in bytes
-    static int dett;      // detected block type
-    if (deth >1) return  in->setpos(start+deth),deth=0,dett;
-    else if (deth ==-1) return  in->setpos(start),deth=0,dett;
-    else if (detd) return  in->setpos( start+detd),detd=0,defaultType;
-    int dstate=0;
+    info=-1;
+    static int foundblock=-1;
+    //int dstate=0;
+    if (foundblock >-1) {
+       // report type and set to default type
+       info=vTypes[foundblock].info;
+       in->setpos(start+vTypes[foundblock].end);
+       foundblock=-1;
+       return defaultType;
+    }
     for (int j=0;j<vTypes.size();j++){
         if ( vTypes[j].dsize!=-1){
             //reset states            
-            dstate=vmDetect[j]->detect(0,RESET);
-            if (dstate!=-1 ){     }
+            vTypes[j].state=NONE;
+            vmDetect[j]->detect(0,RESET);
         }
     }
     for (U64 i=0; i<n; ++i) {
@@ -2989,28 +3002,84 @@ info=-1;
         buf0=buf0<<8|c;
         
         for (int j=0;j<vTypes.size();j++){
-            if ( vTypes[j].dsize!=-1){
+            if (vTypes[j].dsize!=-1 && vTypes[j].state!=DISABLE){
                 //open type detection file and load into memory
-                dstate=vmDetect[j]->detect(buf0,i);
-                if (dstate==START && type==defaultType){ //start vTypes[j].type
-                    //start
+                int dstate=vmDetect[j]->detect(buf0,i);
+                if (dstate==START && type==defaultType){
+                    //printf("T=%d START\n",j);
                     //request current state data
                     int jst=vmDetect[j]->detect(buf0,REQUEST);
-                    return  in->setpos(start+jst), j;// rturn array index for now // vTypes[j].type;
+                    vTypes[j].state=START;
+                    vTypes[j].start=jst; // save type start pos
+                    vTypes[j].rpos=i;    // save relative pos
                 }
-                if (dstate==INFO){ //info
-                    info=vmDetect[j]->detect(buf0,REQUEST);
-                    // expect START state next
+                else if (dstate==INFO){
+                    vTypes[j].state=INFO;
+                    vTypes[j].info=vmDetect[j]->detect(buf0,REQUEST);
+                    //printf("T=%d INFO %d\n",j,vTypes[j].info);
                 }
-                if (dstate==END){ //end
-                    //request current state data
-                    
+                else if (dstate==END){
+                    // printf("T=%d END\n",j);
+                    // request current state data
+                    vTypes[j].state=END;
+                    foundblock=j;
                     int jst=vmDetect[j]->detect(buf0,REQUEST);
-                    return in->setpos( start+jst),defaultType;
+                    vTypes[j].end=jst-vTypes[j].start; // save type end pos
                 }
             }
         }
+        if (foundblock >-1) {
+            bool isrecursionType=false;
+            // look for active recursive type
+            for (int j=0;j<vTypes.size();j++){
+                if (vTypes[j].type<defaultType && vTypes[j].dsize!=-1 && (vTypes[j].state==END)){
+                   isrecursionType=true;
+                   foundblock=j;
+                   break;
+                }
+             }
+            // search for type that still does detection
+            for (int j=0;j<vTypes.size();j++){
+                if  (isrecursionType==true && vTypes[j].type>defaultType){ 
+                //disable nonrecursive type
+                 if ((vTypes[j].state==START || vTypes[j].state==INFO)){ //return acive type
+                  // printf("Type %d s=%d e=%d \n",foundblock,vTypes[foundblock].start, vTypes[foundblock].end);
+                  // printf("Type %d s=%d e=%d r=%d \n",j,vTypes[j].start, vTypes[j].end , vTypes[j].rpos);
+                  if (vTypes[foundblock].start>vTypes[j].rpos){  
+                    // if have we real block with good size
+                    // reset pos and set non-default type, restart 
+                    foundblock=-1;
+                    return  in->setpos(start+vTypes[j].start), j;
+                  }
+                 }
+                 vTypes[j].state=DISABLE;
+                 //   printf("T=%d DISABLE NON-RECURSIVE\n",j);
+                }
+                else if (vTypes[j].type>defaultType && vTypes[j].dsize!=-1 && 
+                        (vTypes[j].state==START || vTypes[j].state==INFO) && (j!=foundblock)){
+                   vTypes[foundblock].state=DISABLE;
+                    //printf("T=%d DISABLE TYPE\n",j);
+                   foundblock=-1;
+                   break;
+                }
+             }
+             
+             if (foundblock ==-1) continue;
+             // if single full block then report back
+             // printf("s=%d e=%d \n",vTypes[foundblock].start, vTypes[foundblock].end);
+             return  in->setpos(start+vTypes[foundblock].start), foundblock;
+        }
     }
+    for (int j=0;j<vTypes.size();j++){
+        if ( vTypes[j].state==START || vTypes[j].state==INFO){
+            foundblock=j;
+            vTypes[j].end=n-vTypes[j].start;
+            vTypes[j].state=END;            
+            //printf("s=%d e=%d \n",vTypes[j].start, vTypes[j].end);
+            return  in->setpos(start+vTypes[j].start), j;
+        }
+    }
+     
     return type;
 }
 
@@ -3506,12 +3575,16 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
             for (int ii=0; ii<8; ii++) datasegmentlen<<=8,datasegmentlen+=segment(datasegmentpos++);
             for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
             if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
+            //printf("Len %d Info %d \n",(U32)datasegmentlen,datasegmentinfo);
             if (level>0){
                 threadencode->predictor->x.filetype=datasegmenttype;
                 threadencode->predictor->x.blpos=0;
                 threadencode->predictor->x.finfo=datasegmentinfo;
+                if (datasegmentlen){
                 threadencode->predictor->set();
                 threadencode->predictor->setdebug(0);
+                }
+                
             }
         }
         for (U64 k=0; k<datasegmentlen; ++k) {
@@ -4541,11 +4614,13 @@ printf("\n");
                                 //skip if type is recursive or not in current stream
                                 if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
                                 if (level>0) {
-                                defaultencoder->predictor->x.filetype=datasegmenttype;
-                                defaultencoder->predictor->x.blpos=0;
-                                defaultencoder->predictor->x.finfo=datasegmentinfo; 
-                                defaultencoder->predictor->set();
-                                defaultencoder->predictor->setdebug(0);
+                                   defaultencoder->predictor->x.filetype=datasegmenttype;
+                                   defaultencoder->predictor->x.blpos=0;
+                                   defaultencoder->predictor->x.finfo=datasegmentinfo; 
+                                   if (datasegmentlen){
+                                      defaultencoder->predictor->set();
+                                      defaultencoder->predictor->setdebug(0);
+                                }
                                 }
                         }
                         for (U64 k=0; k<datasegmentlen; ++k) {
