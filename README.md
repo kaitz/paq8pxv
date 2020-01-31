@@ -81,7 +81,7 @@ Usage is definded in main configuration file conf.pxv
 | bmp1| bmp1.det| none| none| test3img.cfg|n| 1bit .bmp image|
 | bmp4| bmp4.det| none| none| test3im4.cfg|n| 4bit .bmp image|
 | bmp8| bmp8.det| none| none| test3i8.cfg| n|8bit .bmp image|
-| bmp24| bmp24.det| none| none| test3i24.cfg|n |24bit .bmp image|
+| bmp24| bmp24.det| bmp24.enc| bmp24.dec| test3i24.cfg|n |24bit .bmp image|
 | dec| dec.det| dec.enc| dec.dec| test3d.cfg|n | DEC Alpha executable code transform, swap byte order|
 | exe| exe.det| exe.enc| exe.dec| test3d.cfg|n |x86 executable code|
 | arm| arm.det| arm.enc| arm.dec| test3d.cfg|n |arm executable code|
@@ -93,25 +93,23 @@ Usage is definded in main configuration file conf.pxv
 Main compression routine used when compressing .cfg/.dec files and main config file (conf.pxv).
 Stored uncompressed at the beginning of the output file.
 ```c
-int cxt[4]={};
-int cxt1,cxt2,cxt3,N;
-enum {SMC=1,APM1,DS,AVG,RCM,SCM,CM,MX,ST};
-
 // update is called by vm for every input bit
 // y    - last bit
 // c0   - last 0-7 bits of the partial byte with a leading 1 bit (1-255)
 // c4   - last 4,4 whole bytes, packed.  Last byte is bits 0-7.
 // bpos - bits in c0 (0 to 7)
-// pos  - current pos in input data
-int update(int y,int c0,int bpos,int c4,int pos){ 
+// pr   - last prediction
+int t[5]={};
+enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST,MM,DHS};
+
+int update(int y,int c0,int bpos,int c4,int pr){
     int i;
-    if (bpos==0) cxt3=cxt2,cxt2=cxt1,cxt1=(c4&0xff)*256;
-    cxt[0]=(cxt1+c0);
-    cxt[1]=(cxt2+c0+0x10000);
-    cxt[2]=(cxt3+c0+0x20000);
-    for (i=0;i<N;++i) 
-    vmx(DS,0,cxt[i]);// pr[0]--pr[2]  
-    vmx(APM1,0,c0);  // 
+    if (bpos==0) {
+        for (i=4; i>0; --i) t[i]=h2(t[i-1],c4&0xff);
+    }
+    for (i=1;i<5;++i) 
+    vmx(DS,0,(c0)|(t[i]<<8));
+    vmx(APM1,0,c0);
     return 0;
 }
 
@@ -121,13 +119,13 @@ int update(int y,int c0,int bpos,int c4,int pos){
 void block(int a,int b) {}
 
 // called once at the start of compression
-int main(){int i; N=3;
-    vms(0,1,1,2,0,0,0,0,0);
-    vmi(DS,0,18,1023,N);  // pr[0]..pr[2]
-    vmi(AVG,0,0,1,2);     // pr[3]=avg(pr[1],pr[2])
-    vmi(AVG,1,0,0,3);     // pr[4]=avg(pr[0],pr[3])
-    vmi(APM1,0,256,7,4);  // pr[5]=apm(pr[4]) rate 7 -> pr[5] is final prediction
-    cxt1=cxt2=cxt3=0;
+int main(){ 
+    vms(0,1,1,3,0,0,0,0,0,0,0);
+    vmi(DS,0,18,1023,4);        // pr[0]..pr[3]
+    vmi(AVG,0,0,0,1);           // pr[4]=avg(pr[0],pr[1])
+    vmi(AVG,1,0,2,3);           // pr[5]=avg(pr[2],pr[3])
+    vmi(AVG,2,0,4,5);           // pr[6]=avg(pr[4],pr[5])
+    vmi(APM1,0,256,7,6);        // pr[7]=apm(pr[6]) rate 7 -> pr[7] is final prediction
 }
 
 ```
