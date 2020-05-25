@@ -39,39 +39,69 @@ initialize component upto number specified in vms. Only usable in function main(
 vmx(Component,Index,Context);
 
 set component context. Only usable in function update(...)
-```
+```c
 // Set APM1(0) context = c0
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
 // third parameter is context
-vmx(APM1,0,c0);
+vmx(APM1,index,c0);
 ```
 # Individual components
 
 ### SMC
-```
+```c
 // Create SMC component (0)
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(SMC,0,0,1,2);
+// third parameter is memory size
+// forth parameter is limit=1...1023
+// sixth parameter is output (pr index=-1,MX input=0...MX)
+//                    output=-1 use pr[index] where index=0...lastComponent
+//                    output>=0 select MX component as output
+//
+// vmi(SMC,index,size,limit,output);
+```
+Prediction to mixer:
+```c
+// in update
+vmx(SMC,0,val1);      //  set component SMC(0) context to val1
+vmx(SMC,1,val2);      //  set component SMC(1) context to val2
+// in main
+vmi(SMC,0,0x10,1023,0);  //  mixer[0].add(smc(0).p())
+vmi(SMC,1,0x10,1023,0);  //  mixer[0].add(smc(1).p())
+```
+Direct prediction:
+```c
+// in update
+vmx(SMC,0,val1);      //  set component SMC(0) context to val1
+vmx(SMC,1,val2);      //  set component SMC(1) context to val2
+// in main
+vmi(SMC,0,0x10,1023,-1);  //  pr[0]=smc(0).predict()
+vmi(SMC,1,0x10,1023,-1);  //  pr[1]=smc(1).predict()
 ```
 ### APM1
-```
+```c
 // Create APM1 component (0)
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(APM1,0,0,1,2);
+// third parameter is size
+// forth parameter is rate
+// sixth parameter is predictionIndex
+//
+// vmi(APM1,index,size,rate,predictionIndex);
+
+// in update
+vmx(SMC,0,val1);          //  set component SMC(0) context to val1
+vmx(APM1,0,val2);      //  set component APM1(0) context to val2
+// in main
+vmi(SMC,0,0x10,1023,-1);  //  pr[0]=smc(0).predict()
+vmi(APM1,0,0x1000,7,0);   //  pr[1]=apm(pr[0])
+
 ```
 ### DS
-```
+```c
 // Create DS component (0)
 // 
 // first parameter is component ID
@@ -82,7 +112,7 @@ vmi(APM1,0,0,1,2);
 vmi(DS,0,0,1,2);
 ```
 ### AVG
-```
+```c
 // Create AVG component (0)
 // Calculate average and output prediction - pr[3]=(pr[1]+pr[2]+1)>>1
 // first parameter is component ID
@@ -93,7 +123,7 @@ vmi(DS,0,0,1,2);
 vmi(AVG,0,0,1,2);
 ```
 ### SCM
-```
+```c
 // Create SCM component (0)
 // 
 // first parameter is component ID
@@ -104,7 +134,7 @@ vmi(AVG,0,0,1,2);
 vmi(SCM,0,0,1,2);
 ```
 ### RCM
-```
+```c
 // Create RCM component (0)
 // 
 // first parameter is component ID
@@ -115,7 +145,7 @@ vmi(SCM,0,0,1,2);
 vmi(RCM,0,0,1,2);
 ```
 ### CM
-```
+```c
 // Create CM component (0)
 // 
 // first parameter is component ID
@@ -126,7 +156,7 @@ vmi(RCM,0,0,1,2);
 vmi(CM,0,0,1,2);
 ```
 ### MX
-```
+```c
 // Create MX component (0)
 // 
 // first parameter is component ID
@@ -137,7 +167,7 @@ vmi(CM,0,0,1,2);
 vmi(MX,0,0,1,2);
 ```
 ### ST
-```
+```c
 // Create ST component (0)
 // 
 // first parameter is component ID
@@ -148,7 +178,7 @@ vmi(MX,0,0,1,2);
 vmi(ST,0,0,1,2);
 ```
 ### MM
-```
+```c
 // Create MM component (0)
 // 
 // first parameter is component ID
@@ -159,7 +189,7 @@ vmi(ST,0,0,1,2);
 vmi(MM,0,0,1,2);
 ```
 ### DHS
-```
+```c
 // Create DHS component (0)
 // 
 // first parameter is component ID
@@ -170,7 +200,7 @@ vmi(MM,0,0,1,2);
 vmi(DHS,0,0,1,2);
 ```
 ### SK
-```
+```c
 // Create SK component (0)
 // 
 // first parameter is component ID
