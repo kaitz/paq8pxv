@@ -398,12 +398,12 @@ elements at a time.
 
 #define VERSION "16"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
-#define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
+//#define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
 //#define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
 
-#define VMBOUNDS                    // uncomment to aad bounds chack at runtime
+//#define VMBOUNDS                    // uncomment to add bounds chack at runtime
 
 #ifdef WINDOWS
 #ifdef MT
@@ -496,7 +496,7 @@ void quit(const char* message=0) {
     #ifdef  MT 
     printf("%s",message);
     #endif
-  throw message;
+    exit(1);
 }
 
 // strings are equal ignoring case?
@@ -3674,15 +3674,15 @@ thread(void *arg) {
   // Do the work and receive status in msg
   Job* job=(Job*)arg;
   const char* result=0;  // error message unless OK
-  try {
+  //try {
     if (job->command==0) 
       compressStream(job->streamid,job->datasegmentsize,job->in,job->out);
     else if (job->command==1)
       decompress(*job); 
-  }
+ /* }
   catch (const char* msg) {
     result=msg;
-  }
+  }*/
 // Call f and check that the return code is 0
 
   // Let controlling thread know we're done and the result
@@ -4016,7 +4016,7 @@ void DecompressType(File *out){
 // To decompress: paq8pxv file1.paq8pxv [output_dir]
 int main(int argc, char** argv) {
     bool pause=argc<=2;  // Pause when done?
-    try {
+     {
 
         // Get option
         bool doExtract=false;  // -d option
@@ -4650,9 +4650,6 @@ printf("\n");
         }
         archive->close();
         if (!doList) programChecker.print();
-    }
-    catch(const char* s) {
-        if (s) printf("%s\n", s);
     }
     if (pause) {
         printf("\nClose this window or press ENTER to continue...\n");
