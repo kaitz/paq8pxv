@@ -344,7 +344,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         break;
     case vmST:  v->stC[componentIndex] = new StaticMap(f, v->x);
         break;
-    case vmMM:  v->mmC[componentIndex] =(MixMap*) new MixMap(d, v->x);
+    case vmMM:  v->mmC[componentIndex] =(MixMap*) new MixMap(d,f, v->x);
         break;
     default:
         quit("VM vmi error\n");
@@ -985,22 +985,17 @@ int VM::dojit(){
       *(int*)je = 0x458d; je = je + 2; *je++ = i;
       dprintf("\tlea eax,[ebp%s%d]\n",i>=0?"+":"",i);
     }
-    else if (i == ENT ) {
-       i = 4 * *pc++; if (i < -128 || i > 127) { kprintf("jit: ENT out of bounds\n"); return -1; }
-       if (*(pc)==LEV && i==0){
-           *je++ = 0xc3; //ret
-           dprintf("\tBlank proc\n\tret\n"); 
-           *pc++;
-       }else{
-           *(int *)je = 0xe58955; je = je + 3;
-           dprintf("\tpush ebp\n\tmov ebp, esp\n",i);
-           if (i > 0) { 
-           *(int *)je = 0xec83; je = je + 2; 
-           *(int*)je++ = i; 
-           dprintf("\tsub esp,BYTE %x\n",i); 
-       }
-       dprintf("\tpush esi push ecx push edx  push ebx push   edi\n"); 
-       *(int *)je++ = 0x56;*(int *)je++ = 0x51;*(int *)je++ = 0x52;*(int *)je++ =0x53;*(int *)je++ =0x57;
+    else if (i == ENT) {
+      //*je++ = 0xcc; 
+      i = 4 * *pc++; if (i < -128 || i > 127) { kprintf("jit: ENT out of bounds\n"); return -1; }
+      *(int *)je = 0xe58955; je = je + 3;
+      dprintf("\tpush ebp\n\tmov ebp, esp\n",i);
+      if (i > 0) { 
+         *(int *)je = 0xec83; je = je + 2; 
+         *(int*)je++ = i; 
+         dprintf("\tsub esp,BYTE %x\n",i); 
+         *(int *)je++ = 0x56;*(int *)je++ = 0x51;*(int *)je++ = 0x52;*(int *)je++ =0x53;*(int *)je++ =0x57;
+         dprintf("\tpush esi push ecx push edx  push ebx push   edi\n"); 
       }
     }
     else if (i == IMM) { 
@@ -1446,7 +1441,22 @@ int VM::initvm() {
     while (tk != ';' && tk != '}') {
       ty = bt;
       //while (tk == Mul) { next(); ty = ty + PTR; } // global pointer char *name;
-      if (tk != Id) { kprintf("%d: bad global declaration\n", line); return -1; }
+      if (tk != Id) { 
+		if (tk== Assign) { // look for global variable assignment
+		  int negative=0;
+		  next();
+		  if (tk == Sub) negative=1,next(); // if negative number
+		  if (tk != Num) { kprintf("%d: bad glabal variable value. %d\n", line,tk); return -1; }
+		  *((int *)data)=negative?(int)-ival:(int)ival;
+		  id[Class] = Glo;
+          id[Val] =(int)data;
+          data = data + 4;
+          next();
+          if (tk == Comma){next();}
+          continue;
+		}
+		kprintf("%d: bad global declaration\n", line); return -1;
+	  }
       if (id[Class]) { kprintf("%d: duplicate global definition\n", line); return -1; }
       next();
       id[Type] = ty;
@@ -1551,6 +1561,7 @@ int VM::initvm() {
       else {
         id[Class] = Glo;
         id[Val] = (int)data;
+        *((int *)data)=0;
         data = data + sizeof(int);
       }
       if (tk == Comma) next();

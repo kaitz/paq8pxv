@@ -398,12 +398,12 @@ elements at a time.
 
 #define VERSION "16"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
-//#define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
+#define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
 //#define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
 
-//#define VMBOUNDS                    // uncomment to add bounds chack at runtime
+#define VMBOUNDS                    // uncomment to aad bounds chack at runtime
 
 #ifdef WINDOWS
 #ifdef MT
@@ -496,7 +496,7 @@ void quit(const char* message=0) {
     #ifdef  MT 
     printf("%s",message);
     #endif
-    exit(1);
+  throw message;
 }
 
 // strings are equal ignoring case?
@@ -2069,16 +2069,18 @@ public:
   }
 };
 class MixMap {
-int pr,p1;
+int pr,p1,c1;
   BlockData& x;
 public:
-  MixMap(int m,BlockData& bd): pr(2048),p1(m),x(bd) {   
+  MixMap(int m,int c,BlockData& bd): pr(2048),p1(m),c1(c),x(bd) {   
   }
   inline int i1(){ return p1;  } //index 1
   void set(U32 cx) { pr=cx;       }
   inline int p() {   return pr;  }
   int mix(int m) {
-    x.mxInputs[m].add(stretch(pr));
+    if (c1==1)x.mxInputs[m].add(stretch(pr)>>1);
+    else if (c1>1)x.mxInputs[m].add((pr-2048)>>c1);
+    else x.mxInputs[m].add(stretch(pr));
     return 0;
   }
 };
@@ -2363,117 +2365,21 @@ public:
   int inputs();
 };
 
-#if defined(SIMD_GET_SSE) 
-
-#define xmmbshl(x,n)  _mm_slli_si128(x,n) // xm <<= 8*n  -- BYTE shift left
-#define xmmbshr(x,n)  _mm_srli_si128(x,n) // xm >>= 8*n  -- BYTE shift right
-#define xmmshl64(x,n) _mm_slli_epi64(x,n) // xm.hi <<= n, xm.lo <<= n
-#define xmmshr64(x,n) _mm_srli_epi64(x,n) // xm.hi >>= n, xm.lo >>= n
-#define xmmand(a,b)   _mm_and_si128(a,b)
-#define xmmor(a,b)    _mm_or_si128(a,b)
-#define xmmxor(a,b)   _mm_xor_si128(a,b)
-#define xmmzero       _mm_setzero_si128()
-#ifdef _MSC_VER
-#include <intrin.h>
-U32 __inline clz(U32 value){ //asume newer version of vc
-    unsigned long leading_zero = 0;
-    if (_BitScanReverse( &leading_zero, value)) return 31-leading_zero;
-    else return 32;
-}
-  U32 __inline ctz(U32 x ){
-    unsigned long leading_zero = 0;
-   if (_BitScanForward(&leading_zero, x )) {
-       return  leading_zero;
-    }
-    else{
-         return 0; // Same remarks as above
-    }
-}
-
-#elif ((__GNUC__ >= 4) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4)))
-U32 __inline clz(U32 value){ 
-    return __builtin_clz(value);
-}
-U32 __inline ctz(U32 value){ 
-    return __builtin_ctz(value);
-}
-#endif
-#endif
+ 
 
 // Find or create hash element matching checksum ch
 inline U8* ContextMap::E::get(U16 ch) {
     
   if (chk[last&15]==ch) return &bh[last&15][0];
   int b=0xffff, bi=0;
-#if defined(SIMD_GET_SSE)   && defined(__MMX__)
-  const XMM xmmch=_mm_set1_epi16 (short(ch)); //fill 8 ch values
-//load 8 values, discard last one as only 7 are needed.
-//reverse order and compare 7 chk values to ch
-//get mask is set get first index and return value  
-  XMM tmp=_mm_load_si128 ((XMM *) &chk[0]); //load 8 values (8th will be discarded)
-#if defined(__SSSE3__)
-#include <xmmintrin.h>
- // const XMM vm=;// initialise vector mask 
-  tmp=_mm_shuffle_epi8(tmp,_mm_setr_epi8(14,15,12,13,10,11,8,9,6,7,4,5,2,3,0,1));   
-#elif   defined(__SSE2__) 
-  tmp=_mm_shufflelo_epi16(tmp,0x1B); //swap order for mask  (0,1,2,3)
-  tmp=_mm_shufflehi_epi16(tmp,0x1B);                      //(0,1,2,3)
-  tmp=_mm_shuffle_epi32(tmp,0x4E);                        //(1,0,3,2)   
-#endif
-  tmp=_mm_cmpeq_epi16 (tmp,xmmch); //compare ch values
-  tmp=_mm_packs_epi16(tmp,xmmzero); //pack result
-  U32 t=(_mm_movemask_epi8(tmp))>>1; //get mask of comparsion, bit is set if eq, discard 8th bit
-  U32 a;    //index into bh or 7 if not found
-  if(t){
-      a=(clz(t)-1)&7;
-      return last=last<<4|a, (U8*)&bh[a][0];
-  }
-
- XMM   lastl=_mm_set1_epi8((last&15));
- XMM   lasth=_mm_set1_epi8((last>>4));
- XMM   one1  =_mm_set1_epi8(1);
- XMM   vm=_mm_setr_epi8(0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7);
-
- XMM   lastx=_mm_unpacklo_epi64(lastl,lasth); //last&15 last>>4
- XMM   eq0  =_mm_cmpeq_epi8 (lastx,vm); //compare   values
-
- eq0=_mm_or_si128(eq0,_mm_srli_si128 (eq0, 8));    //or low values with high
-
- lastx = _mm_and_si128(one1, eq0);                //set to 1 if eq
- XMM sum1 = _mm_sad_epu8(lastx,xmmzero);        //cout values, abs(a0 - b0) + abs(a1 - b1) .... up to b8
- const U32 pcount=_mm_cvtsi128_si32(sum1); //population count
-/*for (int i=0; i<7; ++i) {
-   bh[i][0]=i+1;
-    
-  }*/
- U32 t0=(~_mm_movemask_epi8(eq0));
-for (int i=pcount; i<7; ++i) {
-    int bitt =ctz(t0);     //get index 
-//#if ((__GNUC__ >= 4) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 4)))    
-//asm("btr %1,%0" : "+r"(t0) : "r"(bitt)); // clear bit set and test again https://gcc.gnu.org/bugzilla/show_bug.cgi?id=47769
-//#else
-    t0 &= ~(1 << bitt); // clear bit set and test again
-//#endif 
-   int pri=bh[bitt][0];
-    if (pri<b  ) b=pri, bi=bitt;
-
-
-  }  
-  /*
-  //uncomment above SIMD version and comment out code below to use full SIMD (SSE2) version
-  for (int i=0; i<7; ++i) {
-    int pri=bh[i][0];
-    if (pri<b && (last&15)!=i && (last>>4)!=i) b=pri, bi=i;
-  }*/
-  return last=0xf0|bi, chk[bi]=ch, (U8*)memset(&bh[bi][0], 0, 7);
-#else
+ 
   for (int i=0; i<7; ++i) {
     if (chk[i]==ch) return last=last<<4|i, (U8*)&bh[i][0];
     int pri=bh[i][0];
     if (pri<b && (last&15)!=i && last>>4!=i) b=pri, bi=i;
   }
   return last=0xf0|bi, chk[bi]=ch, (U8*)memset(&bh[bi][0], 0, 7);
-#endif
+ 
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
@@ -3674,15 +3580,15 @@ thread(void *arg) {
   // Do the work and receive status in msg
   Job* job=(Job*)arg;
   const char* result=0;  // error message unless OK
-  //try {
+  try {
     if (job->command==0) 
       compressStream(job->streamid,job->datasegmentsize,job->in,job->out);
     else if (job->command==1)
       decompress(*job); 
- /* }
+  }
   catch (const char* msg) {
     result=msg;
-  }*/
+  }
 // Call f and check that the return code is 0
 
   // Let controlling thread know we're done and the result
@@ -4016,7 +3922,7 @@ void DecompressType(File *out){
 // To decompress: paq8pxv file1.paq8pxv [output_dir]
 int main(int argc, char** argv) {
     bool pause=argc<=2;  // Pause when done?
-     {
+    try {
 
         // Get option
         bool doExtract=false;  // -d option
@@ -4650,6 +4556,9 @@ printf("\n");
         }
         archive->close();
         if (!doList) programChecker.print();
+    }
+    catch(const char* s) {
+        if (s) printf("%s\n", s);
     }
     if (pause) {
         printf("\nClose this window or press ENTER to continue...\n");
