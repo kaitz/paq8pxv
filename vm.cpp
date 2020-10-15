@@ -985,17 +985,22 @@ int VM::dojit(){
       *(int*)je = 0x458d; je = je + 2; *je++ = i;
       dprintf("\tlea eax,[ebp%s%d]\n",i>=0?"+":"",i);
     }
-    else if (i == ENT) {
-      //*je++ = 0xcc; 
-      i = 4 * *pc++; if (i < -128 || i > 127) { kprintf("jit: ENT out of bounds\n"); return -1; }
-      *(int *)je = 0xe58955; je = je + 3;
-      dprintf("\tpush ebp\n\tmov ebp, esp\n",i);
-      if (i > 0) { 
-         *(int *)je = 0xec83; je = je + 2; 
-         *(int*)je++ = i; 
-         dprintf("\tsub esp,BYTE %x\n",i); 
-         *(int *)je++ = 0x56;*(int *)je++ = 0x51;*(int *)je++ = 0x52;*(int *)je++ =0x53;*(int *)je++ =0x57;
-         dprintf("\tpush esi push ecx push edx  push ebx push   edi\n"); 
+    else if (i == ENT ) {
+       i = 4 * *pc++; if (i < -128 || i > 127) { kprintf("jit: ENT out of bounds\n"); return -1; }
+       if (*(pc)==LEV && i==0){
+           *je++ = 0xc3; //ret
+           dprintf("\tBlank proc\n\tret\n"); 
+           *pc++;
+       }else{
+           *(int *)je = 0xe58955; je = je + 3;
+           dprintf("\tpush ebp\n\tmov ebp, esp\n",i);
+           if (i > 0) { 
+           *(int *)je = 0xec83; je = je + 2; 
+           *(int*)je++ = i; 
+           dprintf("\tsub esp,BYTE %x\n",i); 
+       }
+       dprintf("\tpush esi push ecx push edx  push ebx push   edi\n"); 
+       *(int *)je++ = 0x56;*(int *)je++ = 0x51;*(int *)je++ = 0x52;*(int *)je++ =0x53;*(int *)je++ =0x57;
       }
     }
     else if (i == IMM) { 
