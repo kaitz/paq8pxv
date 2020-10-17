@@ -183,9 +183,16 @@ vmi(ST,0,0,1,2);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
+// third parameter is option:
+//         0 adds stretch(pr) to mixer
+//         1 adds stretch(pr) >> 1  to mixer
+//         3...x  (pr-2048 >> 3...x) to mixer
+// forth parameter is pr index
+// sixth parameter is mixer index
+
+```
+```c
+// mixer[2].add(strech(pr[1]))
 vmi(MM,0,0,1,2);
 ```
 ### DHS
@@ -194,10 +201,21 @@ vmi(MM,0,0,1,2);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(DHS,0,0,1,2);
+// third parameter is input bits
+// forth parameter is memory bits, memory usage is ((1<<bits)*(1<<memory))
+// sixth parameter is number of contexts
+
+//main
+// creates DHS with 10 context using 256MB of memory where state count per context is 16 (1<<4)
+vmi(DHS,0,4,24,10);
+
+// update
+// set DHS contexts at the start of state update
+for ( i=0; i<10; i++) {  vmx(DHS,0,cxt[i]);}
+
+// update DHS contexts states where j is in range 0...16
+vmx(DHS,0,j);
+
 ```
 ### SK
 ```c
