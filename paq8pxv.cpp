@@ -496,7 +496,7 @@ void quit(const char* message=0) {
     #ifdef  MT 
     printf("%s",message);
     #endif
-  throw message;
+    exit(1);
 }
 
 // strings are equal ignoring case?
@@ -2198,7 +2198,7 @@ class DynamicHSMap {
       cp[i]=&t[0]+1;
   }
   void set(U32 cx) {
-   if (cp[count-1])  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],x.y);   //update state
+   if (cp[count-1] && index==0)  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],x.y);   //update state
       if (cx>255){
          cp[index]=find(cx)+1 ;                                      // find new
          pr[index]=sm[index].p(*cp[index],x.y,limit);
@@ -3404,8 +3404,8 @@ Array<U64> filestreamsize(0);
 static char   pp[] ="int t[5]={};"
 "enum {SMC=1,APM1,DS,AVG,SCM,RCM,CM,MX,ST,MM,DHS};"
 "int update(int y,int c0,int bpos,int c4,int pr){ int i;"
-" if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(t[i-1],c4&0xff);}"
-" for (i=1;i<5;++i) vmx(DS,0,(c0)|(t[i]<<8));"
+" if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
+" for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
 "void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0);"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
@@ -3580,15 +3580,11 @@ thread(void *arg) {
   // Do the work and receive status in msg
   Job* job=(Job*)arg;
   const char* result=0;  // error message unless OK
-  try {
-    if (job->command==0) 
-      compressStream(job->streamid,job->datasegmentsize,job->in,job->out);
-    else if (job->command==1)
-      decompress(*job); 
-  }
-  catch (const char* msg) {
-    result=msg;
-  }
+  if (job->command==0) 
+    compressStream(job->streamid,job->datasegmentsize,job->in,job->out);
+  else if (job->command==1)
+    decompress(*job); 
+
 // Call f and check that the return code is 0
 
   // Let controlling thread know we're done and the result
@@ -3922,7 +3918,6 @@ void DecompressType(File *out){
 // To decompress: paq8pxv file1.paq8pxv [output_dir]
 int main(int argc, char** argv) {
     bool pause=argc<=2;  // Pause when done?
-    try {
 
         // Get option
         bool doExtract=false;  // -d option
@@ -4556,10 +4551,7 @@ printf("\n");
         }
         archive->close();
         if (!doList) programChecker.print();
-    }
-    catch(const char* s) {
-        if (s) printf("%s\n", s);
-    }
+    
     if (pause) {
         printf("\nClose this window or press ENTER to continue...\n");
         getchar();
