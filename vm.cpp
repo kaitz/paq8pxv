@@ -9,7 +9,7 @@
 // + port to paq Kaido Orav
 
 
-#define VMMSG  // prints error messages and x86 asm to console
+
 
 #ifdef WINDOWS
 #define PROT_NONE       0
@@ -113,7 +113,7 @@ public:
     int currentc; //current component, used in vmi
     int initdone; //set to 1 after main exits
     int mindex;        // count fo memory allocations
-    File *inFile, *outFile; // files for decoding and encoding
+    FILE *inFile, *outFile; // files for decoding and encoding
     int inpos;
 
 VM(char* m,BlockData& bd,int mode);
@@ -140,7 +140,7 @@ void updateComponents();
 // keep track of pointers and sizes in bytes
 // no bounds test
 char* vmmalloc(VM* v,size_t i,int w){
-  programChecker.alloc(U64(i*w));
+  //programChecker.alloc(U64(i*w));
   char*ptr= (char*)calloc(i*w,1);
   if (ptr==0) perror("mem error "),printf("%d ",i),quit("VM mem alloc fail");
   v->mem.resize(v->mem.size()+1);
@@ -178,7 +178,7 @@ void VM::killvm( ){
 
         for (int i=0;i<mindex;i++){
             free(mem[i]);
-            programChecker.free((U64)memSize[i]); // meaningless if MT enabled and thread count 1+ 
+            //programChecker.free((U64)memSize[i]); // meaningless if MT enabled and thread count 1+ 
         }
     }
     smc=apm1=rcm=scm=cm=mx=mm=st=av=ds=dhs=currentc=totalc=initdone=mindex=0;
@@ -191,8 +191,8 @@ void VM::killvm( ){
 }
 //vms - set number of components
 void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i,int j,int k){
-    if (v->initdone==1) printf("VM vms error: vms allowed only in main\n "),quit();
-    if (v->totalc>0) printf("VM vms error: vms allready called\n "),quit();
+    if (v->initdone==1) {kprintf("VM vms error: vms allowed only in main\n ");quit();}
+    if (v->totalc>0) {kprintf("VM vms error: vms allready called\n ");quit();}
     v->smc=a, v->apm1=b,v->ds=c,v->av=d,v->scm=e, v->rcm=f,   v->cm=g, v->mx=h,v->st=i,v->mm=j,v->dhs=k;
     v->totalc= a+b+c+d+e+f+g+h+i+j+h;
     v->mcomp.resize(v->totalc); 
@@ -235,8 +235,8 @@ switch (component) {
 void initcomponent(VM* v,int component,int componentIndex, int f,int d, int indexOfInputs){
     assert(componentIndex>=0); //component index
     assert(d>=0); //component context
-    if (v->initdone==1) printf("VM vmi error: vmi allowed only in main\n "),quit();
-    if (v->currentc>  v->totalc) printf("VM vmi error: component %d not set %d - %d\n ",component,v->currentc, v->totalc),quit();
+    if (v->initdone==1) {kprintf("VM vmi error: vmi allowed only in main\n ");quit();}
+    if (v->currentc>  v->totalc) {kprintf("VM vmi error: component %d not set %d - %d\n ",component,v->currentc, v->totalc);quit();}
 
     const int ii=componentIndex+1;
     bool isInputs= (component==vmAPM1 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1));
@@ -250,37 +250,35 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     }
    
     switch (component) {
-    case vmSMC: {if ( indexOfInputs==-1)v->prSize.resize(v->prSize.size()+1); if (ii>v->smc ) printf("VM vmi error: smc(%d) defined %d, max %d\n",component,ii, v->smc),quit();  
+    case vmSMC: {if ( indexOfInputs==-1)v->prSize.resize(v->prSize.size()+1); if (ii>v->smc ) {kprintf("VM vmi error: smc(%d) defined %d, max %d\n",component,ii, v->smc);quit(); } 
                 if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break; }
-    case vmAPM1:{v->prSize.resize(v->prSize.size()+1); if (ii>v->apm1) printf("VM vmi error: apm1(%d) defined %d, max %d\n",component,ii, v->apm1),quit(); 
+    case vmAPM1:{v->prSize.resize(v->prSize.size()+1); if (ii>v->apm1) {kprintf("VM vmi error: apm1(%d) defined %d, max %d\n",component,ii, v->apm1);quit();} 
         break; }
-    case vmDS:{v->totalc=v->totalc+indexOfInputs-1;v->mcomp.resize(v->mcomp.size()+indexOfInputs); v->prSize.resize(v->prSize.size()+indexOfInputs); if (ii>v->ds) printf("VM vmi error: ds(%d) defined %d, max %d\n",component,ii, v->ds),quit();
-          if (f<1) printf("VM vmi error:ds(%d) memory bits must be larger then 0.",ii),quit();
+    case vmDS:{v->totalc=v->totalc+indexOfInputs-1;v->mcomp.resize(v->mcomp.size()+indexOfInputs); v->prSize.resize(v->prSize.size()+indexOfInputs); if (ii>v->ds) {kprintf("VM vmi error: ds(%d) defined %d, max %d\n",component,ii, v->ds);quit();}
+          if (f<1) {kprintf("VM vmi error:ds(%d) memory bits must be larger then 0.",ii);quit();}
         break;      }
-    case vmDHS:{v->totalc=v->totalc+indexOfInputs-1;v->mcomp.resize(v->mcomp.size()+indexOfInputs); v->prSize.resize(v->prSize.size()+indexOfInputs); if (ii>v->dhs) printf("VM vmi error: dhs(%d) defined %d, max %d\n",component,ii, v->dhs),quit();
-          if (f<1) printf("VM vmi error:dhs(%d) memory bits must be larger then 0.",ii),quit();
+    case vmDHS:{v->totalc=v->totalc+indexOfInputs-1;v->mcomp.resize(v->mcomp.size()+indexOfInputs); v->prSize.resize(v->prSize.size()+indexOfInputs); if (ii>v->dhs) {kprintf("VM vmi error: dhs(%d) defined %d, max %d\n",component,ii, v->dhs);quit();}
+          if (f<1) {kprintf("VM vmi error:dhs(%d) memory bits must be larger then 0.",ii);quit();}
         break;      }
-    case vmRCM: { if (ii>v->rcm ) printf("VM vmi error: rcm(%d) defined %d, max %d\n",component,ii, v->rcm),quit(); 
+    case vmRCM: { if (ii>v->rcm ) {kprintf("VM vmi error: rcm(%d) defined %d, max %d\n",component,ii, v->rcm);quit(); }
      if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break;  }
-    case vmSCM: { if (ii>v->scm ) printf("VM vmi error: scm(%d) defined %d, max %d\n",component,ii, v->scm),quit(); 
+    case vmSCM: { if (ii>v->scm ) {kprintf("VM vmi error: scm(%d) defined %d, max %d\n",component,ii, v->scm);quit(); }
      if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+2;
         break;  }
-    case vmAVG:{ v->prSize.resize(v->prSize.size()+1); if (ii>v->av ) printf("VM vmi error: AVG(%d) defined %d, max %d\n",component,ii, v->av),quit();
+    case vmAVG:{ v->prSize.resize(v->prSize.size()+1); if (ii>v->av ) {kprintf("VM vmi error: AVG(%d) defined %d, max %d\n",component,ii, v->av);quit();}
         break;  }
     case vmCM: {
         v->cmC.resize(v->cmC.size()+1);
         if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+6*d;
         break;  }
-    case vmMX: {v->prSize.resize(v->prSize.size()+1); //v->mxC.resize(v->mxC.size()+1);
+    case vmMX: {v->prSize.resize(v->prSize.size()+1); 
         break;  }
-    case vmST: {if ( indexOfInputs==-1)v->prSize.resize(v->prSize.size()+1); if (ii>v->st )  printf("VM vmi error: st(%d) defined %d, max %d\n",component,ii, v->st),quit();
+    case vmST: {if ( indexOfInputs==-1)v->prSize.resize(v->prSize.size()+1); if (ii>v->st )  {kprintf("VM vmi error: st(%d) defined %d, max %d\n",component,ii, v->st);quit();}
         if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break;  }
-    case vmMM: {
-        v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
-        //v->mmC.resize(v->mmC.size()+1);
+    case vmMM: { v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break;  }
     default: quit("VM vmi error\n");
     }
@@ -289,20 +287,19 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     if (component==vmAPM1 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1) || component==vmMX)prindex=(v->prSize.size());
 
     switch (component) {
-    case vmSMC: v->smA[componentIndex].Init(f, d); //v->smC[componentIndex] = new StateMapContext(f, d, v->x);
+    case vmSMC: v->smA[componentIndex].Init(f, d);
         break;  
-    case vmAPM1: v->apm1A[componentIndex].Init(f,d,indexOfInputs); //v->apm1C[componentIndex] = new APM1(f,d,indexOfInputs,  v->x);
+    case vmAPM1: v->apm1A[componentIndex].Init(f,d,indexOfInputs);
         break;
     case vmDS: v->dsA[componentIndex].Init(f,d,indexOfInputs);
         break;
         case vmDHS: v->dhsA[componentIndex].Init(f,d,indexOfInputs);
         break;
-    case vmRCM: v->rcmA[componentIndex].Init(CMlimit(f<0?MEM()/(!f+1):MEM()*f));//v->rcmC[componentIndex] = new RunContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*f),  v->x);
+    case vmRCM: v->rcmA[componentIndex].Init(CMlimit(f<0?MEM()/(!f+1):MEM()*f));
         break;
-    case vmSCM: v->scmA[componentIndex].Init(f); //v->scmC[componentIndex] = new SmallStationaryContextMap(f ,v->x);
+    case vmSCM: v->scmA[componentIndex].Init(f); 
         break;
     case vmAVG:v->avA[componentIndex].Init(d,indexOfInputs);
-      //v->avC[componentIndex] = new AvgMap(d,indexOfInputs,  v->x); 
         break;
     case vmCM: v->cmC[componentIndex] = (ContextMap*)new ContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*(U64)f),d,v->x);
         break;
@@ -374,24 +371,23 @@ void setcomponent(VM* v,int c,int i, U32 f){
 }
 //  i    size
 /// pos     -2  - Seek to pos     
-//  0      -2  - Seek to end
+//  0       -2  - Seek to end
 //  0       -1  - Seek to start
 
-int readfile(VM* v,U8 *i,int size){ // 
-   assert(size>-3); 
+int readfile(VM* v,U8 *i,int size){
+    assert(size>-3); 
     assert(v->inFile!=NULL);
-	if (size>0)return (int)v->inFile->blockread(i,(U64)size);
-    if (size==-2)v->inFile->setend();
-    else if (size==-1) v->inFile->setpos(v->inpos); // set to block start pos not file start pos
+    if (size>0)return fread (i,1,size,v->inFile);
+    if (size==-2)fseek (v->inFile , 0 , SEEK_END); 
+    else if (size==-1) fseek(v->inFile, v->inpos, SEEK_SET); // set to block start pos not file start pos
     else       return -1;
 }
 int writefile(VM* v,U8 *i,int size){
-   assert(size>-3);
-   assert(v->outFile!=NULL);
-
-    if (size==-2)v->outFile->setend();
-    else if (size==-1) v->outFile->setpos(0);
-    else     return (int)v->outFile->blockwrite(i,(U64)size);
+    assert(size>-3);
+    assert(v->outFile!=NULL);
+    if (size==-2)fseek (v->outFile , 0 , SEEK_END);
+    else if (size==-1) fseek(v->outFile, 0, SEEK_SET); 
+    else     return fwrite (i , 1, size, v->outFile); 
     return -1;
 }
 //mix all input components  
@@ -644,12 +640,12 @@ void VM::expr(int lev){
     if (*e == LC || *e == LI || *e == LS) --e; else { kprintf("%d: bad address-of\n", line); exit(-1); }
     ty = ty + PTR;
   }
-  else if (tk == '!') { //next(); expr(Inc); *++e = PSH; *++e = IMM; *++e = 0; *++e = EQ; ty = iINT; 
+  else if (tk == '!') { 
   next(); *++e = IMM;
     if (tk == Num) {*++e = !ival;next(); }else { *++e = 0; *++e = PSH; expr(Inc); *++e = EQ; }
     ty = iINT;
   }
-  else if (tk == '~') { //next(); expr(Inc); *++e = PSH; *++e = IMM; *++e = -1; *++e = XOR; ty = iINT;
+  else if (tk == '~') {
   next(); *++e = IMM;
     if (tk == Num) {*++e = ~ival;next(); }else { *++e = -1; *++e = PSH; expr(Inc); *++e = XOR; }
     ty = iINT;
@@ -838,7 +834,6 @@ void VM::stmt() {
     }  
 }
  
-U32 h2(U32 a, U32 b){ return hash1(a,b);}
 int vmbound(int line){
     if (line!=0)printf("Bounds error line: %d\n",line);
     exit(-1);
@@ -898,7 +893,7 @@ int VM::dovm(int *ttt){
     else if (i == VMS) a=0, components(this,sp[10],sp[9],sp[8],sp[7],sp[6], sp[5], sp[4], sp[3],sp[2], sp[1],*sp);
     else if (i == VMI) a=0, initcomponent(this, sp[4], sp[3],sp[2], sp[1],*sp);
     else if (i == VMX) a=0, setcomponent(this, sp[2], sp[1],*sp);
-    else if (i == H2)  a = h2((U32)sp[1], (U32)*sp);
+    else if (i == H2)  a = hash1((U32)sp[1], (U32)*sp);
     else if (i == VTHIS)  *--sp;  //ignore
     else if (i == BOUND) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return vmbound(*sp); }
     else if (i == EXIT) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return *sp; }
@@ -1411,7 +1406,7 @@ int VM::initvm() {
   if (!(text = le = e = (int *)malloc(poolsz))) { kprintf("could not malloc(%d) text area\n", poolsz); return -1; }
   //if (!(data =data0= (char *)malloc(poolsz))) { kprintf("could not malloc(%d) data area\n", poolsz); return -1; }
   if (!(sp =sp0= (int *)malloc(poolsz))) { kprintf("could not malloc(%d) stack area\n", poolsz); return -1; }
-  if (!(ast = (int *)malloc(poolsz))) { printf("could not malloc(%d) abstract syntax tree area\n", poolsz); return -1; }
+  if (!(ast = (int *)malloc(poolsz))) { kprintf("could not malloc(%d) abstract syntax tree area\n", poolsz); return -1; }
   //ast = ((int)ast + poolsz); // abstract syntax tree is most efficiently built as a stack
  data0 =data;
   memset(sym,  0, poolsz);

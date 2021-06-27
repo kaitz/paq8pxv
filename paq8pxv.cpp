@@ -400,8 +400,9 @@ elements at a time.
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
-
 #define VMBOUNDS                    // uncomment to aad bounds chack at runtime
+//#define ERRMSG                    // uncomment to show error messages if programm quits
+//#define VMMSG                     // prints vm error messages and x86 asm to console
 
 #ifdef WINDOWS
 #ifdef MT
@@ -463,7 +464,7 @@ typedef signed char int8_t;
 inline int min(int a, int b) {return a<b?a:b;}
 inline int max(int a, int b) {return a<b?b:a;}
 #endif
-
+/*
 #if defined(WINDOWS) || defined(_MSC_VER)
     #define atoll(S) _atoi64(S)
 #endif
@@ -481,7 +482,7 @@ inline int max(int a, int b) {return a<b?b:a;}
 #endif
 #endif
 #endif
-
+*/
 #ifdef MT
 #ifdef PTHREAD
 #include "pthread.h"
@@ -491,7 +492,7 @@ inline int max(int a, int b) {return a<b?b:a;}
 
 // Error handler: print message if any, and exit
 void quit(const char* message=0) {
-    #ifdef  MT 
+    #ifdef  ERRMSG 
     printf("%s",message);
     #endif
     exit(1);
@@ -511,38 +512,6 @@ int equals(const char* a, const char* b) {
   }
   return *a==*b;
 }
-
-//////////////////////// Program Checker /////////////////////
-
-// Track time and memory used
-class ProgramChecker {
-    private:
-  U64 memused;  // bytes allocated by Array<T> now
-  U64 maxmem;   // most bytes allocated ever
-  clock_t start_time;  // in ticks
-public:
-   void alloc(U64 n) {  // report memory allocated
-    memused+=n;
-    if (memused>maxmem) maxmem=memused;
-  }
-  void free(U64 n) {  // free memory 
-  if (memused<n) memused=0;
-  else  memused-=n;
-  }
-  ProgramChecker(): memused(0), maxmem(0) {
-    start_time=clock();
-    assert(sizeof(U8)==1);
-    assert(sizeof(U16)==2);
-    assert(sizeof(U32)==4);
-    assert(sizeof(U64)==8);
-    assert(sizeof(short)==2);
-    assert(sizeof(int)==4);  
-  }
-  void print() const {  // print time and memory used
-    printf("Time %1.2f sec, used %d MB (%d bytes) of memory\n",
-      double(clock()-start_time)/CLOCKS_PER_SEC, (U32)((maxmem)/1024)/1024,(U32)(maxmem));
-  }
-} programChecker;
 
 //////////////////////////// Array ////////////////////////////
 
@@ -609,7 +578,7 @@ template<class T, const int Align> void Array<T,Align>::create(U64 requested_siz
   U64 bytes_to_allocate=allocated_bytes();
   ptr=(char*)calloc(bytes_to_allocate,1);
   if(!ptr){
-      printf("Requested size %d MB\n",(U32)((bytes_to_allocate)/1024)/1024);
+      printf("Requested size %d MB.\n",(U32)((bytes_to_allocate)/1000)/1000);
       #ifdef MT
       printf("Try using lower option ex. -s7 or reduce thread count.\n");
       #endif
@@ -619,7 +588,6 @@ template<class T, const int Align> void Array<T,Align>::create(U64 requested_siz
   data=(T*)(((uintptr_t)ptr+pad) & ~(uintptr_t)pad);
   assert(ptr<=(char*)data && (char*)data<=ptr+Align);
   assert(((uintptr_t)data & (Align-1))==0); //aligned as expected?
-  programChecker.alloc(bytes_to_allocate);
 }
 
 template<class T, const int Align> void Array<T,Align>::resize(U64 new_size) {
@@ -630,7 +598,6 @@ template<class T, const int Align> void Array<T,Align>::resize(U64 new_size) {
   char *old_ptr=ptr;
   T *old_data=data;
   U64 old_size=used_size;
-  programChecker.free(allocated_bytes());
   create(new_size);
   if(old_size>0) {
     assert(old_ptr && old_data);
@@ -650,7 +617,6 @@ template<class T, const int Align> void Array<T,Align>::push_back(const T& x) {
 }
 
 template<class T, const int Align> Array<T, Align>::~Array() {
-  programChecker.free(allocated_bytes());
   free(ptr);
   used_size=reserved_size=0;
   data=0;ptr=0;
@@ -679,48 +645,8 @@ public:
     (*this)+=s;
   }
 };
-
-/////////////////////////// IO classes //////////////////////////
-// These classes  take the responsibility for all the file/folder
-// operations.
-
-/////////////////////////// Folders /////////////////////////////
-bool makedir(const char* dir) {
-  struct stat status;
-  bool success = stat(dir, &status)==0;
-  if(success && (status.st_mode & S_IFDIR)!=0) return -1; //-1: directory already exists, no need to create
-#ifdef WINDOWS
-  return CreateDirectory(dir, 0)==TRUE;
-#else
-#ifdef UNIX
-  return mkdir(dir, 0777)==0;
-#else
-  return false;
-#endif
-#endif
-}
-
-void makedirectories(const char* filename) {
-  String path(filename);
-  int start = 0;
-  if(path[1]==':')start=2; //skip drive letter (c:)
-  if(path[start] == '/' || path[start] == '\\')start++; //skip leading slashes (root dir)
-  for (int i = start; path[i]; ++i) {
-    if (path[i] == '/' || path[i] == '\\') {
-      char savechar = path[i];
-      path[i] = 0;
-      const char* dirname = path.c_str();
-      int created = makedir(dirname);
-      if (created==0) {
-        printf("Unable to create directory %s\n", dirname);
-        quit();
-      }
-      if(created==1)
-       // printf("Created directory %s\n", dirname);
-      path[i] = savechar;
-    }
-  }
-}
+ 
+ 
 /////////////////////////// File /////////////////////////////
 // The main purpose of these classes is to keep temporary files in 
 // RAM as mush as possible. The default behaviour is to simply pass 
@@ -760,188 +686,6 @@ FILE* tmpfile2(void){
 #endif
 }
 
-//This is the base class.
-//This is an abstract class for all the required file operations.
-class File {
-public:
-  virtual ~File(){};// = default;
-  virtual bool open(const char* filename, bool must_succeed) = 0;
-  virtual void create(const char* filename) = 0;
-  virtual void close() = 0;
-  virtual int getc() = 0;
-  virtual void putc(U8 c) = 0;
-  void append(const char* s) { for (int i = 0; s[i]; i++)putc(s[i]); }
-  virtual U64 blockread(U8 *ptr, U64 count) = 0;
-  virtual U64 blockwrite(U8 *ptr, U64 count) = 0;
-  U32 get32() { return (getc() << 24) | (getc() << 16) | (getc() << 8) | (getc()); }
-  void put32(U32 x){putc((x >> 24) & 255); putc((x >> 16) & 255); putc((x >> 8) & 255); putc(x & 255);}
-  U64 get64() { return ((U64)getc() << 56) | ((U64)getc() << 48) | ((U64)getc() << 40) | ((U64)getc() << 32) | (getc() << 24) | (getc() << 16) | (getc() << 8) | (getc()); }
-  void put64(U64 x){putc((x >> 56) & 255);putc((x >> 48) & 255);putc((x >> 40) & 255);putc((x >> 32) & 255);putc((x >> 24) & 255); putc((x >> 16) & 255); putc((x >> 8) & 255); putc(x & 255);}
-  virtual void setpos(U64 newpos) = 0;
-  virtual void setend() = 0;
-  virtual U64 curpos() = 0;
-  virtual bool eof() = 0;
-};
-
-// This class is responsible for files on disk
-// It simply passes function calls to the operating system
-class FileDisk :public File {
-protected:
-  FILE *file;
-public:
-  FileDisk() {file=0;}
-   ~FileDisk() {close();}
-  bool open(const char *filename, bool must_succeed) {
-    assert(file==0); 
-    file = fopen(filename, "rb"); 
-    bool success=(file!=0);
-    if(!success && must_succeed)printf("FileDisk: unable to open file (%s)\n", strerror(errno));
-    return success; 
-  }
-  void create(const char *filename) { 
-    assert(file==0); 
-    makedirectories(filename); 
-    file=fopen(filename, "wb+");
-    if (!file) quit("FileDisk: unable to create file"); 
-  }
-  void createtmp() { 
-    assert(file==0); 
-    file = tmpfile2(); 
-    if (!file) quit("FileDisk: unable to create temporary file"); 
-  }
-  void close() { if(file) fclose(file); file=0;}
-  int getc() { return fgetc(file); }
-  void putc(U8 c) { fputc(c, file); }
-  U64 blockread(U8 *ptr, U64 count) {return fread(ptr,1,count,file);}
-  U64 blockwrite(U8 *ptr, U64 count) {return fwrite(ptr,1,count,file);}
-  void setpos(U64 newpos) { fseeko(file, newpos, SEEK_SET); }
-  void setend() { fseeko(file, 0, SEEK_END); }
-  U64 curpos() { return ftello(file); }
-  bool eof() { return feof(file)!=0; }
-};
-
-// This class is responsible for temporary files in RAM or on disk
-// Initially it uses RAM for temporary file content.
-// In case of the content size in RAM grows too large, it is written to disk, 
-// the RAM is freed and all subsequent file operations will use the file on disk.
-class FileTmp :public File {
-private:
-  //file content in ram
-  Array<U8> *content_in_ram; //content of file
-  U64 filepos;
-  U64 filesize;
-  void forget_content_in_ram()
-  {
-    if (content_in_ram) {
-      delete content_in_ram;
-      content_in_ram = 0;
-      filepos = 0;
-      filesize = 0;
-    }
-  }
-  //file on disk
-  FileDisk *file_on_disk;
-  void forget_file_on_disk()
-  {
-    if (file_on_disk) {
-      (*file_on_disk).close(); 
-      delete file_on_disk;
-      file_on_disk = 0;
-    }
-  }
-  //switch: ram->disk
-  const U32 MAX_RAM_FOR_TMP_CONTENT ; //64 MB (per file)
-  void ram_to_disk()
-  {
-    assert(file_on_disk==0);
-    file_on_disk = new FileDisk();
-    (*file_on_disk).createtmp();
-    if(filesize>0)
-      (*file_on_disk).blockwrite(&((*content_in_ram)[0]), filesize);
-    (*file_on_disk).setpos(filepos);
-    forget_content_in_ram();
-  }
-public:
-  FileTmp(): MAX_RAM_FOR_TMP_CONTENT( 16 * 1024 * 1024){content_in_ram=new Array<U8>(0); filepos=0; filesize=0; file_on_disk = 0;}
-  ~FileTmp() {close();}
-  bool open(const char *filename, bool must_succeed) { assert(false); return false; } //this method is forbidden for temporary files
-  void create(const char *filename) { assert(false); } //this method is forbidden for temporary files
-  void close() {
-    forget_content_in_ram();
-    forget_file_on_disk();
-  }
-  int getc() {
-    if(content_in_ram)
-    {
-      if (filepos >= filesize)
-        return EOF; 
-      else {
-        U8 c = (*content_in_ram)[(U32)filepos];
-        filepos++; 
-        return c; 
-      }
-    }
-    else return (*file_on_disk).getc();
-  }
-  void putc(U8 c) {
-    if(content_in_ram) {
-      if (filepos < MAX_RAM_FOR_TMP_CONTENT) {
-        if (filepos == filesize) { (*content_in_ram).push_back(c); filesize++; }
-        else 
-        (*content_in_ram)[(U32)filepos] = c;
-        filepos++;
-        //filesize++;
-        return;
-      }
-      else ram_to_disk();
-    }
-    (*file_on_disk).putc(c);
-  }
-  U64 blockread(U8 *ptr, U64 count) {
-    if(content_in_ram)
-    {
-      U64 available = filesize - filepos;
-      if (available<count)count = available;
-      if(count>0) memcpy(ptr, &((*content_in_ram)[(U32)filepos]), count);
-      filepos += count;
-      return count;
-    }
-    else return (*file_on_disk).blockread(ptr,count);
-  }
-  U64 blockwrite(U8 *ptr, U64 count) {
-    if(content_in_ram) {
-      if (filepos+count <= MAX_RAM_FOR_TMP_CONTENT) 
-      { 
-        (*content_in_ram).resize((U32)(filepos + count));
-        if(count>0)memcpy(&((*content_in_ram)[(U32)filepos]), ptr, count);
-        filesize += count;
-        filepos += count;
-        return count;
-      }
-      else ram_to_disk();
-    }
-    return (*file_on_disk).blockwrite(ptr,count);
-  }
-  void setpos(U64 newpos) { 
-    if(content_in_ram) {
-      if(newpos>filesize)ram_to_disk(); //panic: we don't support seeking past end of file - let's switch to disk
-      else {filepos = newpos; return;}
-    }  
-     (*file_on_disk).setpos(newpos);
-  }
-  void setend() { 
-    if(content_in_ram) filepos = filesize;
-    else (*file_on_disk).setend();
-  }
-  U64 curpos() { 
-    if(content_in_ram) return filepos;
-    else return (*file_on_disk).curpos();
-  }
-  bool eof() { 
-    if(content_in_ram)return filepos >= filesize;
-    else return (*file_on_disk).eof();
-  }
-};
 
 //////////////////////////// rnd ///////////////////////////////
 
@@ -970,7 +714,7 @@ public:
     U32 pos;  //size of buffer
     U64 hpos; //header pos points to segment info at archive end
     //int count; //count of segments
-  Segment(int i=0): b(i),pos(0),hpos(0)/*,count(0)*/ {}
+  Segment(int i=0): b(i),pos(0),hpos(0) {}
   void setsize(int i) {
     if (!i) return;
     assert(i>0);
@@ -1023,7 +767,7 @@ U64 MEM(){
 int defaultType;
 Segment segment; //for file segments type size info(if not -1)
  int streamCount;
-File **filestreams;
+FILE **filestreams;
 const int datatypecount=39+1+1+1;
 
 // Contain all global data usable between models
@@ -1069,41 +813,6 @@ Ilog::Ilog(): t(65536) {
   }
 }
 
-inline U32 BitCount(U32 v) {
-  v -= ((v >> 1) & 0x55555555);
-  v = ((v >> 2) & 0x33333333) + (v & 0x33333333);
-  v = ((v >> 4) + v) & 0x0f0f0f0f;
-  v = ((v >> 8) + v) & 0x00ff00ff;
-  v = ((v >> 16) + v) & 0x0000ffff;
-  return v;
-}
-
-// ilog2
-// returns floor(log2(x)), e.g. 30->4  31->4  32->5,  33->5
-#ifdef _MSC_VER
-#include <intrin.h>
-inline U32 ilog2(U32 x) {
-  DWORD tmp=0;
-  if(x!=0)_BitScanReverse(&tmp,x);
-  return tmp;
-}
-#elif __GNUC__
-inline U32 ilog2(U32 x) {
-  if(x!=0)x=31-__builtin_clz(x);
-  return x;
-}
-#else
-inline U32 ilog2(U32 x) {
-  //copy the leading "1" bit to its left (0x03000000 -> 0x03ffffff)
-  x |= (x >> 1);
-  x |= (x >> 2);
-  x |= (x >> 4);
-  x |= (x >> 8);
-  x |= (x >>16);
-  //how many trailing bits do we have (except the first)? 
-  return BitCount(x >> 1);
-}
-#endif
 ///////////////////////// state table ////////////////////////
 
 // State table:
@@ -1673,6 +1382,7 @@ void train(short *t, short *w, int n, int err) {
 //     prediction.  Larger values are better for stationary sources.
 
 static int dt[1024];  // i -> 16K/(i+i+3)
+static int n0n1[256];
 
 class StateMap {
 protected:
@@ -1752,11 +1462,11 @@ struct StateMapContext {
 //////////////////////////// hash //////////////////////////////
 
 // Hash 2-5 ints.
-inline U32 hash0(U32 a, U32 b, U32 c=0xffffffff, U32 d=0xffffffff,
+/*inline U32 hash0(U32 a, U32 b, U32 c=0xffffffff, U32 d=0xffffffff,
     U32 e=0xffffffff) {
   U32 h=a*200002981u+b*30005491u+c*50004239u+d*70004807u+e*110002499u;
   return h^h>>9^a>>2^b>>3^c>>4^d>>5^e>>6;
-}
+}*/
 inline U32 hash1(U32 a, U32 b) {
   return (a  + 512) * 773+ b;
 }
@@ -2013,11 +1723,11 @@ struct StaticMap {
 };
 
 struct AvgMap {
-int pr;
-int p1,p2; // index to prediction array
+  int pr;
+  int p1,p2; // index to prediction array
   
-Init(int a,int b){
-     pr=(0),p1=(a),p2=(b);
+  Init(int a,int b){
+    pr=(0),p1=(a),p2=(b);
   }
   inline int average(int a,int b){
       return pr=(a+b+1)>>1;
@@ -2239,7 +1949,7 @@ public:
 #else
 #define MALIGN 16
 #endif
-int n0n1[256];
+
 inline U64 CMlimit(U64 size){
     //if (size>(0x100000000UL)) return (0x100000000UL); //limit to 4GB, using this will consume lots of memory above level 11
     if (size>(0x80000000UL)) return (0x80000000UL); //limit to 2GB
@@ -2493,15 +2203,16 @@ public:
 // setFile(f) sets alternate source to FILE* f for decompress() in COMPRESS
 //   mode (for testing transforms).
 // If level (global) is 0, then data is stored without arithmetic coding.
+void put32(U32 x,FILE *f){fputc((x >> 24) & 255, f); fputc((x >> 16) & 255, f); fputc((x >> 8) & 255, f); fputc(x & 255, f);}
 
 typedef enum {COMPRESS, DECOMPRESS} Mode;
 class Encoder {
 private:
   const Mode mode;       // Compress or decompress?
-  File* archive;         // Compressed data file
+  FILE* archive;         // Compressed data file
   U32 x1, x2;            // Range, initially [0, 1), scaled by 2^32
   U32 x;                 // Decompress mode: last 4 input bytes of archive
-  File*alt;             // decompress() source in COMPRESS mode
+  FILE*alt;             // decompress() source in COMPRESS mode
 
   // Compress bit y or return decompressed bit
   void code(int i=0) {
@@ -2514,7 +2225,7 @@ private:
     i ? (x2=xmid) : (x1=xmid+1);
     predictor->update();
     while (((x1^x2)&0xff000000)==0) {  // pass equal leading bytes of range
-      archive->putc(x2>>24);
+       fputc ( x2>>24 , archive );//archive->putc(x2>>24);
       x1<<=8;
       x2=(x2<<8)+255;
     }
@@ -2530,24 +2241,24 @@ private:
     while (((x1^x2)&0xff000000)==0) {  // pass equal leading bytes of range
       x1<<=8;
       x2=(x2<<8)+255;
-      x=(x<<8)+(archive->getc()&255);  // EOF is OK
+      x=(x<<8)+(fgetc (archive)&255);  // EOF is OK archive->getc()
     }
     return predictor->x.y;
   }
 
 public:
   Predictor *predictor;
-  Encoder(Mode m, File* f,char *model);
+  Encoder(Mode m, FILE* f,char *model);
   Mode getMode() const {return mode;}
-  U64 size() const {return  archive->curpos();}  // length of archive so far
+  U64 size() const {return  ftell (archive);}  // length of archive so far archive->curpos()
   void flush();  // call this when compression is finished
-  void setFile(File* f) {alt=f;}
+  void setFile(FILE* f) {alt=f;}
 
   // Compress one byte
   void compress(int c) {
     assert(mode==COMPRESS);
     if (level==0)
-      archive->putc(c);
+       fputc ( c , archive );//archive->putc(c);
     else {
       for (int i=7; i>=0; --i)
         code((c>>i)&1);
@@ -2558,11 +2269,11 @@ public:
   int decompress() {
     if (mode==COMPRESS) {
       assert(alt);
-      return alt->getc();
+      return fgetc (alt);//alt->getc();
     }
     else if (level==0){
      int a;
-     a=archive->getc();
+     a=fgetc (archive);//archive->getc();
       return a ;}
     else {
       int c=0;
@@ -2572,27 +2283,26 @@ public:
       return c;
     }
   }
+  
   ~Encoder(){
   if (predictor) delete predictor;
    }
 };
 
-Encoder::Encoder(Mode m, File* f,char *model):
+Encoder::Encoder(Mode m, FILE* f,char *model):
     mode(m), archive(f), x1(0), x2(0xffffffff), x(0), alt(0) {        
     if (model!=0)         predictor=new Predictor(model);
     else predictor=0;
     // x = first 4 bytes of archive
     if (level>0 && mode==DECOMPRESS) {
       for (int i=0; i<4; ++i)
-        x=(x<<8)+(archive->getc()&255);
+        x=(x<<8)+(fgetc (archive)&255);
     }
-    for (int i=0; i<1024; ++i)
-      dt[i]=16384/(i+i+3);
 }
 
 void Encoder::flush() {
   if (mode==COMPRESS && level>0)
-    archive->put32(x1);  // Flush first unequal byte of range
+     put32(x1,archive);  // Flush first unequal byte of range
 }
  
 /////////////////////////// Filters /////////////////////////////////
@@ -2635,16 +2345,16 @@ enum {NONE=0,START,INFO,END,DISABLE=0xfffffffd,RESET=0xfffffffe,REQUEST=0xffffff
 // and report it only if it fits to min size of that type.
 // If two conflicting detections are found disable first type that reported end state
 
-int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) {
+int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) {
     U32 buf0=0;  // last 8 bytes
-    U64 start= in->curpos();
+    U64 start= ftell (in);
     info=-1;
     static int foundblock=-1;
     //int dstate=0;
     if (foundblock >-1) {
        // report type and set to default type
        info=vTypes[foundblock].info;
-       in->setpos(start+vTypes[foundblock].end);
+       fseek (in, start+vTypes[foundblock].end, SEEK_SET );
        foundblock=-1;
        return defaultType;
     }
@@ -2656,7 +2366,7 @@ int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
         }
     }
     for (U64 i=0; i<n; ++i) {
-        int c=in->getc();
+        int c=fgetc(in);
         if (c==EOF) return (-1);
         buf0=buf0<<8|c;
         
@@ -2708,7 +2418,7 @@ int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
                     // if have we real block with good size
                     // reset pos and set non-default type, restart 
                     foundblock=-1;
-                    return  in->setpos(start+vTypes[j].start), j;
+                    return  fseek ( in , start+vTypes[j].start , SEEK_SET ) , j;
                   }
                  }
                  vTypes[j].state=DISABLE;
@@ -2726,7 +2436,7 @@ int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
              if (foundblock ==-1) continue;
              // if single full block then report back
              // printf("s=%d e=%d \n",vTypes[foundblock].start, vTypes[foundblock].end);
-             return  in->setpos(start+vTypes[foundblock].start), foundblock;
+             return  fseek ( in , start+vTypes[foundblock].start , SEEK_SET )  , foundblock;
         }
     }
     for (int j=0;j<vTypes.size();j++){
@@ -2735,7 +2445,7 @@ int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
             vTypes[j].end=n-vTypes[j].start;
             vTypes[j].state=END;            
             //printf("s=%d e=%d \n",vTypes[j].start, vTypes[j].end);
-            return  in->setpos(start+vTypes[j].start), j;
+            return  fseek ( in , start+vTypes[j].start , SEEK_SET ) , j;
         }
     }
      
@@ -2744,38 +2454,38 @@ int detect(File* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
 
 typedef enum {FDECOMPRESS, FCOMPARE, FDISCARD} FMode;
 
-void encode_file(File* in, File* out, int len, int info,int type) {
+void encode_file(FILE* in, FILE* out, int len, int info,int type) {
     //set in and out file for vm read/write
     assert(vTypes[type].ensize!=-1);
-    vmEncode[type]->inpos=in->curpos();
+    vmEncode[type]->inpos=ftell(in);//->curpos();
     vmEncode[type]->inFile=in;
     vmEncode[type]->outFile=out;
     //encode file
     vmEncode[type]->encode(info,len);
 }
 
-uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint64_t &diffFound, int type) {
+uint64_t decode_file(Encoder& en, int size, FILE *out,int info, FMode mode, uint64_t &diffFound, int type) {
     assert(vTypes[type].ensize!=-1);
-    File *e; // for compare
-    File *d; // for decompression
+    FILE *e; // for compare
+    FILE *d; // for decompression
     if (mode==FCOMPARE ){
-       e=new FileTmp();
+       e=tmpfile2();
        vmDecode[type]->outFile=e;
     } else {
         vmDecode[type]->outFile=out;
     }    
-    d=new FileTmp();
-    for (int i=0; i<size; i++) d->putc(en.decompress());
-    d->setpos(0);
+    d=tmpfile2();
+    for (int i=0; i<size; i++) fputc(en.decompress(),d);
+    fseek (d, 0, SEEK_SET);
     vmDecode[type]->inFile=d;
     int jst=vmDecode[type]->decode(info,size);
     if (mode==FCOMPARE ){
-       int outsize=(U32)e->curpos();
-       e->setpos(0);
+       int outsize=ftell(e);
+       fseek (e ,0 , SEEK_SET);
        for (int i=0; i<jst; i++) {
-           if (e->getc()!=out->getc() && !diffFound) diffFound=i;   
+           if (fgetc(e)!=fgetc(out) && !diffFound) diffFound=i;   
        }
-       return (U32)e->curpos();
+       return ftell(e);
     }
     if (mode==FDECOMPRESS) {
         return jst;
@@ -2783,25 +2493,25 @@ uint64_t decode_file(Encoder& en, int size, File *out,int info, FMode mode, uint
     return size;
 }
 
-uint64_t decode_file(File *in, int size, File *out,int info, FMode mode, uint64_t &diffFound, int type) {
+uint64_t decode_file(FILE *in, int size, FILE *out,int info, FMode mode, uint64_t &diffFound, int type) {
     assert(vTypes[type].ensize!=-1);
-    File *e; // for compare
+    FILE *e; // for compare
     if (mode==FCOMPARE ){
-       e=new FileTmp();
+       e=tmpfile2();
        vmDecode[type]->outFile=e;
     } else {
         vmDecode[type]->outFile=out;
     }
-    in->setpos(0);
+    fseek (in ,0 ,SEEK_SET ) ;
     vmDecode[type]->inFile=in;
     int jst=vmDecode[type]->decode(info,size);
     if (mode==FCOMPARE ){
-       int outsize=(U32)e->curpos();
-       e->setpos(0);
+       int outsize=ftell(e);
+       fseek (e ,0 ,SEEK_SET);
        for (int i=0; i<jst; i++) {
-           if (e->getc()!=out->getc() && !diffFound) diffFound=i;   
+           if ( fgetc(e)!=getc(out) && !diffFound) diffFound=i;   
        }
-       return (U32)e->curpos();
+       return ftell(e);
     }
     if (mode==FDECOMPRESS) {
         return jst;
@@ -2832,46 +2542,46 @@ bool isstreamtype(int type,int streamid){
     return false;
 }
 
-void direct_encode_blockstream(int type, File*in, U64 len, Encoder &en, U64 s1, U64 s2, int info=0) {
+void direct_encode_blockstream(int type, FILE*in, U64 len, Encoder &en, U64 s1, U64 s2, int info=0) {
   assert(s1<(s1+len));
   segment[segment.pos++]=type&0xff;
   segment.put8(len);
   segment.put4(info);
   int srid=getstreamid(type);
-  for (U64 j=s1; j<s1+len; ++j) filestreams[srid]->putc(in->getc());
+  for (U64 j=s1; j<s1+len; ++j) fputc(fgetc(in),filestreams[srid]);
 }
 
-void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it, U64 s1, U64 s2);
+void DetectRecursive(FILE*in, U64 n, Encoder &en, char *blstr, int it, U64 s1, U64 s2);
 
-void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, int info2, char *blstr, int it, U64 s1, U64 s2, U64 begin) {
+void transform_encode_block(int type, FILE*in, U64 len, Encoder &en, int info, int info2, char *blstr, int it, U64 s1, U64 s2, U64 begin) {
     //encode data if type has encode defined
     if (vTypes[type].type!=defaultType && vTypes[type].ensize!=-1 ) { // skip if encode data is missing
         U64 diffFound=0;
-        FileTmp* tmp;
-        tmp=new FileTmp;
+        FILE* tmp;
+        tmp=tmpfile2();
         encode_file(in, tmp, int(len), info==-1?(U32)begin:info,type);
-        const U64 tmpsize= tmp->curpos();
+        const U64 tmpsize=  ftell(tmp);
         int tfail=0;
-        tmp->setpos(0);
+        fseek ( tmp , 0 , SEEK_SET );
         en.setFile(tmp);
         int ts=0;
         if ( vTypes[type].type>=defaultType){
-            in->setpos(begin);
+            fseek (in , begin, SEEK_SET);
             decode_file(en, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
         }else{
-            in->setpos(begin);
+            fseek (in, begin, SEEK_SET);
             decode_file(tmp, int(tmpsize), in, info==-1?(U32)begin:info, FCOMPARE, diffFound,type);
         }
-      tfail=(diffFound || tmp->getc()!=EOF || ts ); 
+      tfail=(diffFound || fgetc(tmp)!=EOF || ts ); 
         // Test fails, compress without transform
         if (tfail) {
             printf(" Transform fails at %0lu, skipping...\n", diffFound-1);
-             in->setpos(begin);
+            fseek (in ,begin ,SEEK_SET);
             direct_encode_blockstream(defaultType, in, len, en, s1, s2);
             typenamess[type][it]-=len,  typenamesc[type][it]--;       // if type fails set
             typenamess[defaultType][it]+=len,  typenamesc[defaultType][it]++; // default info
         } else {
-            tmp->setpos(0);
+            fseek (tmp ,0 ,SEEK_SET);
             vTypes[type].used=1;
             if (vTypes[type].type>=defaultType ){
             
@@ -2883,8 +2593,8 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
 				if (info>0){ 
 					// not really, split header and data
 					// add header to defaultType and direct encode data
-					int hdrsize=( tmp->getc()<<8)+(tmp->getc()); // must be present in encoded file
-					tmp->setpos(0);
+					int hdrsize=( fgetc(tmp)<<8)+(fgetc(tmp)); // must be present in encoded file
+					fseek ( tmp , 0 , SEEK_SET ) ;//tmp->setpos(0);
 					typenamess[defaultType][it]+=hdrsize,  typenamesc[defaultType][it]++; 
 					direct_encode_blockstream(defaultType, tmp, hdrsize, en,0, s2);
 					// process data
@@ -2894,11 +2604,11 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
 					// do recursion
 					DetectRecursive( tmp, tmpsize, en, blstr,it+1, 0, tmpsize);//it+1
 				}
-                tmp->close();
+                fclose(tmp);
                 return;
             }         
         }
-        tmp->close();
+        fclose(tmp);
     } else {         
             const int i1=info;
             direct_encode_blockstream(type, in, len, en, s1, s2, i1);
@@ -2906,11 +2616,10 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
     }    
 }
 
-void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=0, U64 s2=0) {
-  //static const char* audiotypes[6]={"8b mono","8b stereo","16b mono","16b stereo","32b mono","32b stereo"};
+void DetectRecursive(FILE*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=0, U64 s2=0) {
   int type=defaultType;
   int blnum=0, info=-1,info2;  // image width or audio type
-  U64 begin= in->curpos(), end0=begin+n;
+  U64 begin=   ftell(in), end0=begin+n;
   char b2[32];
   strcpy(b2, blstr);
   if (b2[0]) strcat(b2, "-");
@@ -2923,8 +2632,8 @@ void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=
   // Transform and test in blocks
   while (n>0) {
     int nextType=detect(in, n, type, info,info2,it,s1);
-    U64 end= in->curpos();
-     in->setpos( begin);
+    U64 end= ftell(in);
+    fseek (in ,begin ,SEEK_SET);
     if (end>end0) {  // if some detection reports longer then actual size file is
       end=begin+1;
       type=defaultType;
@@ -2959,20 +2668,20 @@ void DetectRecursive(File*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=
 // <type> <size> and call encode_X to convert to type X.
 // Test transform and compress.
 void DetectStreams(const char* filename, U64 filesize) {
-  FileTmp tmp;
-  Encoder en(COMPRESS, &tmp,0);
+  FILE *tmp;
+  tmp=tmpfile2();
+  Encoder en(COMPRESS, tmp,0);
   assert(en.getMode()==COMPRESS);
   assert(filename && filename[0]);
-  FileDisk in;
-  in.open(filename,true);
+  FILE *in = fopen (filename,"rb+");
   printf("Block segmentation:\n");
   char blstr[32]="";
-  DetectRecursive(&in, filesize, en, blstr);
-  in.close();
-  tmp.close();
+  DetectRecursive(in, filesize, en, blstr);
+  fclose(in);
+  fclose(tmp);
 }
 
-U64 decompressStreamRecursive(File*out, U64 size, Encoder& en, FMode mode, int it=0, U64 s1=0, U64 s2=0) {
+U64 decompressStreamRecursive(FILE*out, U64 size, Encoder& en, FMode mode, int it=0, U64 s1=0, U64 s2=0) {
     int type;
     U64 len=0L, i=0L;
     U64 diffFound=0L;
@@ -2988,19 +2697,19 @@ U64 decompressStreamRecursive(File*out, U64 size, Encoder& en, FMode mode, int i
         if (vTypes[type].type>=defaultType && vTypes[type].desize!=-1) {
             len=decode_file(en, int(len), out, info, mode, diffFound,type);
         } else if (vTypes[type].type<defaultType) {
-            File  *tmp;
-            tmp = new FileTmp();
+            FILE  *tmp;
+            tmp = tmpfile2();
             decompressStreamRecursive(tmp, len, en, FDECOMPRESS, it+1, s1+i, s2-len);
-            tmp->setpos(0);
+            fseek (tmp ,0 ,SEEK_SET);
             len=decode_file(tmp, int(len), out, info, mode, diffFound,type);
-            tmp->close();
+            fclose(tmp);
         }
         else {
             for (U64 j=i+s1; j<i+s1+len; ++j) {
                 if (!(j&0x1fff)) printStatus(j, s2);
-                if (mode==FDECOMPRESS) out->putc(en.decompress());
+                if (mode==FDECOMPRESS) fputc(en.decompress(),out);
                 else if (mode==FCOMPARE) {
-                    int a=out->getc();
+                    int a=fgetc(out);
                     int b=en.decompress();
                     if (a!=b && !diffFound) {
                         mode=FDISCARD;
@@ -3020,27 +2729,27 @@ U64 decompressStreamRecursive(File*out, U64 size, Encoder& en, FMode mode, int i
 void DecodeStreams(const char* filename, U64 filesize) {
   FMode mode=FDECOMPRESS;
   assert(filename && filename[0]);
-  FileTmp  tmp;
-  Encoder en(COMPRESS, &tmp,0);
+  FILE  *tmp;
+  tmp = tmpfile2();
+  Encoder en(COMPRESS, tmp,0);
   // Test if output file exists.  If so, then compare.
-  FileDisk f;
-  bool success=f.open(filename,true);
-  if (success) mode=FCOMPARE,printf("Comparing");
+  FILE *f = fopen (filename,"rb+");
+  if (f) mode=FCOMPARE,printf("Comparing");
   else {
     // Create file
-    f.create(filename);
+    f = fopen(filename,"wb+");
     mode=FDECOMPRESS, printf("Extracting");
   }
   printf(" %s %0lu -> \n", filename, filesize);
 
   // Decompress/Compare
-  U64 r=decompressStreamRecursive(&f, filesize, en, mode);
-  if (mode==FCOMPARE && !r && f.getc()!=EOF) printf("file is longer\n");
+  U64 r=decompressStreamRecursive(f, filesize, en, mode);
+  if (mode==FCOMPARE && !r && fgetc(f)!=EOF) printf("file is longer\n");
   else if (mode==FCOMPARE && r) printf("differ at %0lu\n",r-1);
   else if (mode==FCOMPARE) printf("identical\n");
   else printf("done   \n");
-  f.close();
-  tmp.close();
+  fclose(f);
+  fclose(tmp);
 }
 
 //////////////////////////// User Interface ////////////////////////////
@@ -3059,11 +2768,11 @@ void DecodeStreams(const char* filename, U64 filesize) {
 // Same as expand() except fname is an ordinary file
 int putsize(String& archive, String& s, const char* fname, int base) {
   int result=0;
-  FileDisk f;
-  bool success=f.open(fname,true);
-  if (success) {
-    f.setend();
-    U64 len=f.curpos();
+  FILE *f;
+    f=fopen(fname,"rb+");
+  if (f) {
+    fseek ( f , 0 , SEEK_END );
+    U64 len=ftell(f);
     if (len>=0) {
       static char blk[24];
       sprintf(blk, "%0.0f\t", len+0.0);
@@ -3074,7 +2783,7 @@ int putsize(String& archive, String& s, const char* fname, int base) {
       s+="\n";
       ++result;
     }
-    f.close();
+    fclose(f);
   }
   return result;
 }
@@ -3160,7 +2869,7 @@ static char   pp[] ="int t[5]={};"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
 " vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
 
-void compressStream(int streamid,U64 size, File* in, File* out) {
+void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
     int i; //stream
     i=streamid;
     Encoder* threadencode;
@@ -3168,11 +2877,10 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
     U64 datasegmentlen=0;
     int datasegmentpos=0;
     int datasegmentinfo=0;
-    //U64 scompsize=0;
     U32 currentpos;
     int modelSize=0;
     int modelSizeCompressed=0;
-    currentpos=(U32)out->curpos();
+    currentpos= ftell(out);
     U8 *p;
     datasegmentsize=size;
     // datastreams
@@ -3182,14 +2890,14 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
     if (level>0){
         moin=fopen(vStreams[i].model, "rb");
         if(moin){
-            File *modelo;//open tmp file for compressed config file
-            modelo= new FileTmp();
+            FILE *modelo;//open tmp file for compressed config file
+            modelo=tmpfile2();
             Encoder* enm;
             enm=new Encoder(COMPRESS, modelo,pp);
             enm->predictor->set();
             
             fseek ( moin , 0 , SEEK_END );
-            int fsz=ftello(moin); 
+            int fsz=ftell(moin); 
             modelSize=fsz;
             assert(fsz>0);
             fseek ( moin , 0 , SEEK_SET );
@@ -3199,17 +2907,17 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
             enm->flush();
             delete enm;
 
-            fsz=modelo->curpos();
+            fsz= ftell(modelo);
             modelSizeCompressed=fsz;
-            modelo->setpos(0);
+            fseek (modelo ,0 ,SEEK_SET);
             p = (U8 *)calloc(fsz+1,1); 
-            modelo->blockread(p,fsz);
+            fread (p,1,fsz,modelo);
             p[fsz] = 0;
-            out->blockwrite(&p[0],fsz);
+            fwrite (&p[0] , sizeof(U8), fsz, out);
             //read again model file
-            fseek ( moin , 0 , SEEK_END );
-            fsz=ftello(moin); 
-            fseek ( moin , 0 , SEEK_SET );
+            fseek (moin, 0 ,SEEK_END);
+            fsz=ftell(moin); 
+            fseek (moin, 0 ,SEEK_SET);
             free(p);
             //read config file for compression
             p = (U8 *)calloc(fsz+1,1); 
@@ -3217,7 +2925,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
             p[fsz] = 0;
             //close compressed and uncomressed model files
             fclose(moin); 
-            modelo->close();
+            fclose(modelo);
         }
         else quit("Config file not found.");        
     }
@@ -3245,7 +2953,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
         }
         for (U64 k=0; k<datasegmentlen; ++k) {
             if (!(datasegmentsize&0x1fff)) printStatus(size-datasegmentsize, size,i);
-            threadencode->compress(in->getc());
+            threadencode->compress(fgetc(in));
             datasegmentsize--;
         }
         datasegmentlen=0;
@@ -3253,7 +2961,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
     threadencode->flush();
     
     delete threadencode;
-    printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, ((U32)out->curpos()-(U32)currentpos)-modelSizeCompressed);
+    printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, (ftell(out)-(U32)currentpos)-modelSizeCompressed);
     printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
 }
 
@@ -3278,8 +2986,8 @@ struct Job {
   int streamid;
   U64 datasegmentsize;
   int command;
-  File*in;
-  File*out;
+  FILE*in;
+  FILE*out;
   pthread_tx tid;      // thread ID (for scheduler)
   Job();
   void print(int i) const;
@@ -3295,7 +3003,7 @@ void Job::print(int i=0) const {
   fprintf(stderr,
       "Job %d: state=%d stream=%d\n", i, state,streamid);
 }
-bool append(File* out, File* in) {
+bool append(FILE* out, FILE* in) {
   if (!in) {
     quit("append in error\n");
     return false;
@@ -3307,8 +3015,8 @@ bool append(File* out, File* in) {
   const int BUFSIZE=4096*64;
   U8 buf[BUFSIZE];
   int n;
-  while ((n=in->blockread(buf, BUFSIZE ))>0)
-    out->blockwrite(buf,   n  );
+  while ((n=fread(buf,sizeof(U8), BUFSIZE,in ))>0)
+    fwrite(buf,sizeof(U8),   n ,out );
   return true;
 }
 
@@ -3490,14 +3198,13 @@ void readConfigFile(FILE *fp){
     //create temporary files for streams
     streamCount=(int)vStreams.size();
     if (streamCount>16) quit("Max 16 streams allowed.");
-    filestreams = new File*[streamCount];
-    for (int i=0;i<streamCount;i++) filestreams[i]= new FileTmp();
+    filestreams = new FILE*[streamCount];
+    for (int i=0;i<streamCount;i++) filestreams[i]= tmpfile2();
     filestreamsize.resize(streamCount);
     //quit("end config");
 }   
 
 void createDetectVM(){
-   // FILE *f;
     char *detectModel;
     vmDetect = new VM*[vTypes.size()];
     for (int i=0;i<vTypes.size();i++){
@@ -3506,10 +3213,10 @@ void createDetectVM(){
             //printf("File %s\n",vTypes[i].detect);
             FILE *f=fopen(vTypes[i].detect,"rb");
             if(f==NULL) quit("Error opening detect file\n");
-            fseeko(f, 0, SEEK_END);
-            U32 size=(U32)ftello(f);
+            fseek(f, 0, SEEK_END);
+            U32 size=(U32)ftell(f);
             if (size<97) quit("Input model to small\n");
-            fseeko(f, 0, SEEK_SET);        
+            fseek(f, 0, SEEK_SET);        
             detectModel = (char *)calloc(size+1,1);
             fread( detectModel, 1,size,f);  
             fclose(f);
@@ -3520,7 +3227,6 @@ void createDetectVM(){
     }
 }
 void createEncodeVM(){
-    //FILE *f;
     char *encodeModel;
     vmEncode = new VM*[vTypes.size()];
     for (int i=0;i<vTypes.size();i++){
@@ -3529,10 +3235,10 @@ void createEncodeVM(){
             //printf("File %s\n",vTypes[i].encode);
             FILE *f=fopen(vTypes[i].encode,"rb");
             if(f==NULL) quit("Error opening encode file\n");
-            fseeko(f, 0, SEEK_END);
-            U32 size=(U32)ftello(f);
+            fseek(f, 0, SEEK_END);
+            U32 size=(U32)ftell(f);
             if (size<97) quit("Input model to small\n");
-            fseeko(f, 0, SEEK_SET);        
+            fseek(f, 0, SEEK_SET);        
             encodeModel = (char *)calloc(size+1,1);
             fread( encodeModel, 1,size,f);  
             fclose(f);
@@ -3544,7 +3250,6 @@ void createEncodeVM(){
 }
 
 void createDecodeVM(){
-    //FILE *f;
     char *decodeModel;
     vmDecode = new VM*[vTypes.size()];
     for (int i=0;i<vTypes.size();i++){
@@ -3553,10 +3258,10 @@ void createDecodeVM(){
             //open type decode file and load into memory
             FILE *f=fopen(vTypes[i].decode,"rb");
             if(f==NULL) quit("Error opening decode file\n");
-            fseeko(f, 0, SEEK_END);
-            U32 size=(U32)ftello(f);
+            fseek(f, 0, SEEK_END);
+            U32 size=(U32)ftell(f);
             if (size<97) quit("Input model to small\n");
-            fseeko(f, 0, SEEK_SET);        
+            fseek(f, 0, SEEK_SET);        
             decodeModel = (char *)calloc(size+1,1);
             fread( decodeModel, 1,size,f);  
             fclose(f);
@@ -3566,11 +3271,10 @@ void createDecodeVM(){
         }
     }
 }
-
+// create array for Stream VM's
+// actual VM is created when compressing or decompressing
 void createStreamVM(){
-    // create array for Stream VM's
     vmStream = new VM*[vStreams.size()];
-    // actual VM is created when compressing or decompressing
 }
 
 int getUnknownType(){    
@@ -3582,20 +3286,20 @@ int getUnknownType(){
 }
 
 // compress all decode models into archive including main config fail
-void CompressType(File *out){
-    File *modelo;//open tmp file for compressed config file
+void CompressType(FILE *out){
+    FILE *modelo;//open tmp file for compressed config file
     Encoder* enm;
-    modelo=new FileTmp();
+    modelo=tmpfile2();
     enm=new Encoder(COMPRESS, modelo,pp);
     enm->predictor->set();
     FILE *in;
     U8 *p;
     int fsz;
-    int insize=out->curpos();
+    int insize=ftell(out);
     // compress main config file
     in=fopen("conf.pxv", "rb");
     fseek(in,0,SEEK_END);
-    fsz=ftello(in); 
+    fsz=ftell(in); 
     fseek(in,0,SEEK_SET);
     enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
     for (int k=0;k<fsz;++k) enm->compress(getc(in));
@@ -3606,7 +3310,7 @@ void CompressType(File *out){
         if (vTypes[i].used==1 && vTypes[i].desize!=-1){
             in=fopen(vTypes[i].decode, "rb");
             fseek(in,0,SEEK_END);
-            fsz=ftello(in); 
+            fsz=ftell(in); 
             fseek(in,0,SEEK_SET);
             //compress model file
             enm->compress(fsz>>24); enm->compress(fsz>>16); enm->compress(fsz>>8); enm->compress(fsz); // config file length
@@ -3617,19 +3321,20 @@ void CompressType(File *out){
         }     
     }
     enm->flush();
-    fsz=modelo->curpos();
-    modelo->setpos(0);
+    fsz=ftell(modelo);
+    fseek(modelo,0,SEEK_SET);
     p = (U8 *)calloc(fsz+1,1); 
-    modelo->blockread(p,fsz);
-    out->blockwrite(&p[0],fsz);
+    fread(p, 1,fsz,modelo);
+    fwrite(&p[0],1,fsz,out);
     //read again model file
     free(p);
     delete enm;
-    modelo->close();
-    printf("Decode compressed to : %d\n", (int)out->curpos()-insize);
+    fclose(modelo);
+    printf("Decode compressed to : %d\n", ftell(out)-insize);
 }
+
 // Decompress any decode function used by type and create decodeVM for it
-void DecompressType(File *out){
+void DecompressType(FILE *out){
     char *decodeModel;
     Encoder* enm;
     enm=new Encoder(DECOMPRESS, out,dmodel);
@@ -3652,7 +3357,6 @@ void DecompressType(File *out){
         len+=enm->decompress()<<8;
         len+=enm->decompress();
         if (len>0){
-            //int a=0;
             decodeModel = (char *)calloc(len+1,1);
             for (int k=0;k<len;++k) decodeModel[k]=enm->decompress(); 
             //cread VM for type
@@ -3664,6 +3368,20 @@ void DecompressType(File *out){
     }
     delete enm;
 }
+
+#include <psapi.h>
+size_t getPeakMemory(){
+#if defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS info;
+    GetProcessMemoryInfo( GetCurrentProcess( ), &info, sizeof(info) );
+    return (size_t)info.PeakPagefileUsage; // recuested peak memory /PeakWorkingSetSize used memory
+#elif defined(UNIX) 
+    return (size_t)0L; //not tested
+#else
+    return (size_t)0L;
+#endif
+}
+
 // To compress to file1.paq8pxv: paq8pxv [-n] file1 [file2...]
 // To decompress: paq8pxv file1.paq8pxv [output_dir]
 int main(int argc, char** argv) {
@@ -3706,13 +3424,13 @@ int main(int argc, char** argv) {
             printf(PROGNAME " archiver (C) 2021, Matt Mahoney et al.\n"
             "Free under GPL, http://www.gnu.org/licenses/gpl.txt\n");
 #ifdef __GNUC__     
-            printf("Compiled %s, compiler gcc version %d.%d.%d\n\n",__DATE__, __GNUC__, __GNUC_MINOR__,__GNUC_PATCHLEVEL__);
+            printf("Compiled %s, compiler gcc version %d.%d.%d. ",__DATE__, __GNUC__, __GNUC_MINOR__,__GNUC_PATCHLEVEL__);
 #endif
 #ifdef __clang_major__
-            printf("Compiled %s, compiler clang version %d.%d\n\n",__DATE__, __clang_major__, __clang_minor__);
+            printf("Compiled %s, compiler clang version %d.%d. ",__DATE__, __clang_major__, __clang_minor__);
 #endif
 #ifdef            _MSC_VER 
-            printf("Compiled %s, compiler Visual Studio version %d\n\n",__DATE__, _MSC_VER);
+            printf("Compiled %s, compiler Visual Studio version %d. ",__DATE__, _MSC_VER);
 #endif
 #ifdef VMJIT
             printf("Compiled with VM x86 JIT.\n"); 
@@ -3749,17 +3467,15 @@ printf("\n");
             "To compress or extract, drop a file or folder on the "
             PROGNAME " icon.\n"
             "The output will be put in the same folder as the input.\n"
-            "\n"
             "Or from a command window: "
 #endif
             "To compress:\n"
             "  " PROGNAME " -slevel file               (compresses to file." PROGNAME ")\n"
             "  " PROGNAME " -slevel archive files...   (creates archive." PROGNAME ")\n"
             "  " PROGNAME " file                       (level -%d pause when done)\n"
-            "level: -s0          store\n"
-            "  -s1...-s3         (uses 393, 398, 409 MB)\n"
-            "  -s4...-s9         (uses 1.2  1.3  1.5  1.9 2.7 4.9 GB)\n"
-            "  -s10...-s15       (uses 7.0  9.0 11.1 27.0   x.x x.x GB)\n"
+            "level: -s0     store\n"
+            "  -s1...-s8    (uses 393, 398, 409 MB 1.2  1.3  1.5  1.9 2.7 GB)\n"
+
 #ifdef MT 
             "  to use multithreading -level:threads (1-9, compression only)\n"
             "  " PROGNAME " -s4:2 file (use level 4 threads 2)\n\n"
@@ -3776,8 +3492,12 @@ printf("\n");
             "To view contents: " PROGNAME " -l archive." PROGNAME "\n"
             "\n",
             DEFAULT_OPTION);
+            getchar();
             quit();
         }
+        // precalculate tabeles
+        for (int i=0; i<1024; ++i)
+            dt[i]=16384/(i+i+3);
 
         for (int i=0;i<256;i++) {
             int n0=-!nex(i,2);
@@ -3788,7 +3508,8 @@ printf("\n");
             n0n1[i]=r;
         }
 
-        File* archive=0;               // compressed file
+
+        FILE* archive=0;               // compressed file
         int files=0;                   // number of files to compress/decompress
         Array<const char*> fname(1);   // file names (resized to files)
         Array<U64> fsize(1);           // file lengths (resized to files)
@@ -3849,20 +3570,19 @@ printf("\n");
             // If there is at least one file to compress
             // then create the archive header.
             if (files<1) quit("Nothing to compress\n");
-            archive=new FileDisk();
-            archive->create(archiveName.c_str());
-            archive->append(PROGNAME);
-            archive->putc(0);
-            archive->putc(level);
-            archive->putc(streamCount);
+            archive=fopen(archiveName.c_str(),"wb+");
+            fprintf(archive,"%s",PROGNAME);
+            fputc(0,archive);
+            fputc(level,archive);
+            fputc(streamCount,archive);
             // store small model uncompressed to archive, used when decompressing
             int modsize=strlen(pp);
-            archive->put32(modsize);
+            put32(modsize, archive);
             //printf("Small model: %d bytes.\n",modsize);
-            for (int k=0;k<modsize;++k) archive->putc(pp[k]);
-            segment.hpos= archive->curpos();
+            for (int k=0;k<modsize;++k) fputc(pp[k],archive);
+            segment.hpos= ftell (archive);
             
-            for (int i=0; i<12+4+2; i++) archive->putc(0); //space for segment size in header +streams info
+            for (int i=0; i<12+4+2; i++) fputc(0,archive); //space for segment size in header +streams info
             
             printf("Creating archive %s with %d file(s)...\n",
             archiveName.c_str(), files);
@@ -3870,64 +3590,64 @@ printf("\n");
 
         // Decompress: open archive for reading and store file names and sizes
         if (mode==DECOMPRESS) {
-            archive= new FileDisk();
-            archive->open(archiveName.c_str(),true);
+            archive=fopen(archiveName.c_str(),"rb+");
             // Check for proper format and get option
             String header;
             int len=strlen(PROGNAME)+1, c, i=0;
             header.resize(len+1);
-            while (i<len && (c=archive->getc())!=EOF) {
+            while (i<len && (c=fgetc(archive))!=EOF) {
                 header[i]=c;
                 i++;
             }
             header[i]=0;
             if (strncmp(header.c_str(), PROGNAME "\0", strlen(PROGNAME)+1))
             printf("%s: not a %s file\n", archiveName.c_str(), PROGNAME), quit();
-            level=archive->getc();
+            level=fgetc(archive);
             
             level=level&0xf;
-            streamCount=archive->getc();
+            streamCount=fgetc(archive);
             //read small model.
-            int modsize=archive->get32();
+            int modsize=(fgetc(archive) << 24) | (fgetc(archive) << 16) | (fgetc(archive) << 8) | (fgetc(archive)) ;
             dmodel = (char *)calloc(modsize+1,1);
-            for (int k=0;k<modsize;++k) dmodel[k]=archive->getc(); 
+            for (int k=0;k<modsize;++k) dmodel[k]=fgetc(archive); 
             
-            filestreams = new File*[streamCount];
-            for (int i=0;i<streamCount;i++) filestreams[i]= new FileTmp();
+            filestreams = new FILE*[streamCount];
+            for (int i=0;i<streamCount;i++) filestreams[i]= tmpfile2();
             filestreamsize.resize(streamCount);
             // Read segment data from archive end
             U64 currentpos,datapos=0L;
-            for (int i=0; i<8; i++) datapos=datapos<<8,datapos+=archive->getc();
+            for (int i=0; i<8; i++) datapos=datapos<<8,datapos+=fgetc(archive);
             segment.hpos=datapos;
-            U32 segpos=archive->get32();  //read segment data size
-            segment.pos=archive->get32(); //read segment data size
-            streambit=archive->getc()<<8; //get bitinfo of streams present
-            streambit+=archive->getc();
+            U32 segpos=(fgetc(archive) << 24) | (fgetc(archive) << 16) | (fgetc(archive) << 8) | (fgetc(archive)) ;  //read segment data size
+            segment.pos=(fgetc(archive) << 24) | (fgetc(archive) << 16) | (fgetc(archive) << 8) | (fgetc(archive)) ; //read segment data size
+            streambit= fgetc(archive)<<8; //get bitinfo of streams present
+            streambit+=fgetc(archive);
             
             if (segment.hpos==0 || segment.pos==0) quit("Segment data not found.");
             segment.setsize(segment.pos);
-            currentpos= archive->curpos();
-             archive->setpos( segment.hpos); 
-            if (archive->blockread( &segment[0],   segment.pos  )<segment.pos) quit("Segment data corrupted.");
+            currentpos= ftell(archive);
+            fseek(archive,segment.hpos,SEEK_SET); //->setpos( segment.hpos); 
+            if (fread( &segment[0], 1,  segment.pos, archive )<segment.pos) quit("Segment data corrupted.");
             // Decompress segment data 
             Encoder* segencode;
-            FileTmp  tmp;
-            tmp.blockwrite(&segment[0],   segment.pos  ); 
-            tmp.setpos(0); 
-            segencode=new Encoder (DECOMPRESS, &tmp ,dmodel); 
+            FILE  *tmp;
+            tmp=tmpfile2();
+            fwrite(&segment[0],  1, segment.pos ,tmp ); 
+            fseek(tmp,0,SEEK_SET);
+            segencode=new Encoder (DECOMPRESS,  tmp ,dmodel); 
             segment.pos=0;
             for (U32 k=0; k<segpos; ++k) {
                  segment.put1( segencode->decompress());
             }
             delete segencode;
-            tmp.close();
+            fclose(tmp);
             //read stream sizes if stream bit is set
             for (int i=0;i<streamCount;i++){
                 if ((streambit>>(streamCount-i))&1){
-                   for (int j=0; j<8; j++) filestreamsize[i]<<=8,filestreamsize[i]+=archive->getc();
+                   for (int j=0; j<8; j++) filestreamsize[i]<<=8,filestreamsize[i]+=fgetc(archive);
                 }
             }
-            archive->setpos(currentpos); 
+            fseek(archive,currentpos,SEEK_SET);
             segment.pos=0; //reset to offset 0
         }
         Encoder* en;
@@ -4014,23 +3734,23 @@ printf("\n");
             CompressType(archive);
             
 #ifdef MT
-            File **filesmt;
-            filesmt = new File*[streamCount];
-            for (int i=0;i<streamCount;i++) filesmt[i]= new FileTmp();
+            FILE **filesmt;
+            filesmt = new FILE*[streamCount];
+            for (int i=0;i<streamCount;i++) filesmt[i]= tmpfile2();
             std::vector<Job> jobs;
 #endif
             for (int i=0; i<streamCount; ++i) {
                 U64 datasegmentsize;
-                datasegmentsize= filestreams[i]->curpos();    //get segment data offset
+                datasegmentsize= ftell(filestreams[i]);    //get segment data offset
                 filestreamsize[i]=datasegmentsize;
-                 filestreams[i]->setpos( 0);
+                fseek(filestreams[i],0,SEEK_SET);
                 streambit=(streambit+(datasegmentsize>0))<<1; //set stream bit if streamsize >0
                 if (datasegmentsize>0){                       //if segment contains data
                 printf("%s   stream(%d).  Total %d\n",vStreams[i].model,i,(U32)datasegmentsize);  
 
 #ifdef MT
                                                               // add streams to job list
-                    filesmt[i]=new FileTmp();                 //open tmp file for stream output
+                    filesmt[i]=tmpfile2();                 //open tmp file for stream output
                     Job job;
                     job.out=filesmt[i];
                     job.in=filestreams[i];
@@ -4141,61 +3861,67 @@ printf("\n");
     // Append temporary files to archive if OK.
     for (U32 i=0; i<jobs.size(); ++i) {
         if (jobs[i].state==OK) {
-            filesmt[jobs[i].streamid]->setpos( 0);
+            fseek(filesmt[jobs[i].streamid],0,SEEK_SET);
             //append streams to archive
             const int BLOCK=4096;
             U8 blk[BLOCK];
             bool readdone=false; 
             for (;;) { 
                 if (readdone) break;
-                int bytesread=filesmt[jobs[i].streamid]->blockread(&blk[0], BLOCK);
+                int bytesread=fread(&blk[0],1, BLOCK,filesmt[jobs[i].streamid]);
                 if (bytesread!=BLOCK) {
                     readdone=true;                   
-                    archive->blockwrite(&blk[0],  bytesread  );
+                    fwrite(&blk[0], 1, bytesread,archive  );
                 } else      
-                    archive->blockwrite(&blk[0],  BLOCK  );
+                    fwrite(&blk[0],1,  BLOCK,archive  );
             }
-            filesmt[jobs[i].streamid]->close();
+            fclose(filesmt[jobs[i].streamid]);
         }
     }
 
              #endif
             for (int i=0; i<streamCount; ++i) {
-                filestreams[i]->close();
+                fclose(filestreams[i]);
             }
             
             // Write out segment data
             U64 segmentpos;
-            segmentpos= archive->curpos();  //get segment data offset
-            archive->setpos( segment.hpos);
-            archive->put64(segmentpos);     //write segment data offset
+            segmentpos= ftell(archive);  //get segment data offset
+            fseek(archive,segment.hpos,SEEK_SET); //write segment data offset
+            put32(segmentpos>>32,archive);
+            put32(U32(segmentpos),archive);
             //compress segment data
             Encoder* segencode;
-            FileTmp tmp;                    // temporary encoded file
-            segencode=new Encoder (COMPRESS, &tmp ,pp); 
+            FILE *tmp;                    // temporary encoded file
+            tmp=tmpfile2();
+            segencode=new Encoder (COMPRESS,  tmp ,pp); 
             for (U64 k=0; k<segment.pos; ++k) {
                 segencode->compress(segment[k]);
             }
             segencode->flush();
             delete segencode;
-            archive->put32(segment.pos);     // write segment data size
+            put32(segment.pos,archive);    // write segment data size
+            
             printf(" Segment data compressed from %d",segment.pos);
-            segment.pos=tmp.curpos();
+            segment.pos=ftell(tmp);
             segment.setsize(segment.pos);
             printf(" to %d bytes\n ",segment.pos);
-            tmp.setpos( 0); 
-            if (tmp.blockread(&segment[0], segment.pos)<segment.pos) quit("Segment data corrupted.");
-            tmp.close();
-            archive->put32(segment.pos);      // write  compressed segment data size
-            archive->putc(streambit>>8&0xff); // write stream bit info
-            archive->putc(streambit&0xff); 
-            archive->setpos(segmentpos); 
-            archive->blockwrite(&segment[0], segment.pos); //write out segment data
+            fseek(tmp,0,SEEK_SET);   
+            if (fread(&segment[0],1, segment.pos,tmp)<segment.pos) quit("Segment data corrupted.");
+            fclose(tmp);
+            put32(segment.pos,archive);      // write  compressed segment data size
+            fputc(streambit>>8&0xff,archive); // write stream bit info
+            fputc(streambit&0xff,archive); 
+            fseek(archive,segmentpos,SEEK_SET);   
+            fwrite(&segment[0],1 ,segment.pos,archive); //write out segment data
             //write stream size if present
             for (int i=0;i<streamCount;i++){
-                if (filestreamsize[i]>0) archive->put64(filestreamsize[i]);
+                if (filestreamsize[i]>0) {
+                   put32(filestreamsize[i]>>32,archive);
+                   put32(U32(filestreamsize[i]),archive);
+                }
             }
-            printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  (U32)archive->curpos()); 
+            printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  ftell(archive)); 
             
         }
         // Decompress files to dir2: paq8pxv -d dir1/archive.paq8pxv dir2
@@ -4236,7 +3962,7 @@ printf("\n");
             for (int i=0; i<streamCount; ++i) {
                 datasegmentsize=(filestreamsize[i]); // get segment data offset
                 if (datasegmentsize>0){              // if segment contains data
-                    filestreams[i]->setpos( 0);
+                    fseek(filestreams[i],0,SEEK_SET);   
                     U64 total=datasegmentsize;
                     datasegmentpos=0;
                     datasegmentinfo=0;
@@ -4285,7 +4011,7 @@ printf("\n");
                         }
                         for (U64 k=0; k<datasegmentlen; ++k) {
                             if (!(datasegmentsize&0x1fff)) printStatus(total-datasegmentsize, total,i);
-                            filestreams[i]->putc(defaultencoder->decompress());
+                            fputc(defaultencoder->decompress(),filestreams[i]);
                             datasegmentsize--;
                         }
                         datasegmentlen=0;
@@ -4294,7 +4020,7 @@ printf("\n");
             } 
             // set datastream file pointers to beginning
             for (int i=0; i<streamCount; ++i)         
-            filestreams[i]->setpos( 0);
+            fseek(filestreams[i],0,SEEK_SET);    
             /////
             segment.pos=0;
             for (int i=0; i<files; ++i) {
@@ -4305,11 +4031,11 @@ printf("\n");
             int d=segment(segment.pos++);
             if (d!=0xff) printf("Segmend end marker not found\n");
             for (int i=0; i<streamCount; ++i) {
-                filestreams[i]->close();
+                fclose(filestreams[i]);
             }
         }
-        archive->close();
-        if (!doList) programChecker.print();
+        fclose(archive);
+        if (!doList) printf("Models peak memory usage %d MB.\n",(getPeakMemory()/1000)/1000);
     
     if (pause) {
         printf("\nClose this window or press ENTER to continue...\n");
