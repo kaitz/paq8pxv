@@ -1,6 +1,6 @@
     /* paq8pxv file compressor/archiver.  Release by Kaido Orav
 
-    Copyright (C) 2008-2019 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
+    Copyright (C) 2008-2021 Matt Mahoney, Serge Osnach, Alexander Ratushnyak,
     Bill Pettis, Przemyslaw Skibinski, Matthew Fite, wowtiger, Andrew Paterson,
     Jan Ondrus, Andreas Morphis, Pavel L. Holoborodko, Kaido Orav, Simon Berger,
     Neill Corlett
@@ -396,12 +396,10 @@ elements at a time.
 
 */
 
-#define VERSION "16"
+#define VERSION "17"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
-#define SIMD_GET_SSE                // uncomment to use SSE2 in ContexMap
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
-//#define SIMD_CM_R                   // uncomment to SIMD ContextMap byterun
 
 #define VMBOUNDS                    // uncomment to aad bounds chack at runtime
 
@@ -1437,20 +1435,11 @@ Stretch::Stretch(): t(4096) {
  * n is rounded up to a multiple of 8.
  */
 //static void train (const short* const t, short* const w, int n, const int e);
-struct ErrorInfo {
-  U32 Data[2], Sum, Mask, Collected;
-};
 
-inline U32 SQR(U32 x) {
-  return x*x;
-}
 #if defined(__MMX__)
 typedef __m128i XMM;
 #endif
-#if defined(__AVX2__)
-typedef __m256i YMM;
-#endif
-#define DEFAULT_LEARNING_RATE 7
+
 //////////////////////////// APM1 //////////////////////////////
 
 // APM1 maps a probability and a context into a new probability
@@ -1462,25 +1451,29 @@ typedef __m256i YMM;
 //   N-1).  rate determines the learning rate (smaller = faster, default 7).
 //   Probabilities are scaled 12 bits (0-4095).
 
-class APM1 {
+struct APM1 {
   int index;     // last p, context
-  const int N;   // number of contexts
-  Array<U16> t;  // [N][33]:  p, context -> p
-  BlockData& x;
+  U16* t;  // [N][33]:  p, context -> p
   int mask;
   int rate,cxt;
-  int p1;
-public:
-  APM1(int n,int r,int d,BlockData& x);
-  void set(int c){cxt=c;
+  int p1; // pr select index
+  Init(int n,int r,int d){ 
+    index=0,  mask=(n-1),rate=(r),cxt=(0),p1=(d);
+    assert(ispowerof2(n));
+    t = (U16*)calloc((n*33)*sizeof(U16), 1);
+    for (int i=0; i<n; ++i)
+      for (int j=0; j<33; ++j)
+        t[i*33+j] = i==0 ? squash((j-16)*128)*16 : t[j];
   }
-  inline int i1() {return p1;
+  Free(){
+    free(t);
   }
-  int p(int pr=2048) {
+ 
+  int p(int pr,int y) {
     assert(pr>=0 && pr<4096 && rate>0 && rate<32);
     
     pr=stretch(pr);
-    int g=(x.y<<16)+(x.y<<rate)-x.y-x.y;
+    int g=(y<<16)+(y<<rate)-y-y;
     t[index] += (g-t[index]) >> rate;
     t[index+1] += (g-t[index+1]) >> rate;
     const int w=pr&127;  // interpolation weight (33 points)
@@ -1489,32 +1482,16 @@ public:
   }
 };
 
-// maps p, cxt -> p initially
-APM1::APM1(int n,int r,int d,BlockData& bd): index(0), N(n), t(n*33),x(bd),mask(n-1),rate(r),cxt(0),p1(d) {
-    assert(ispowerof2(n));
-  for (int i=0; i<N; ++i)
-    for (int j=0; j<33; ++j)
-      t[i*33+j] = i==0 ? squash((j-16)*128)*16 : t[j];
-}
 
-class Mixer {
-private: 
-   int N, M;   // max inputs, max contexts, max context sets
-   short*tx; // N inputs from add()  
-  Array<short, 32> wx; // N*M weights
+struct Mixer1 { 
+  int N, M;   // max inputs, max contexts, max context sets
+  short*tx; // N inputs from add()  
+  short* wx ; // N*M weights
+  char *ptr;
   int cxt;  // S contexts
-  //int ncxt;        // number of contexts (0 to S)
-  //int base;        // offset of next context
-  //int nx;          // Number of inputs in tx, 0 to N  
   int pr;   // last result (scaled 12 bits)
- // ErrorInfo info; 
- // int rates; // learning rates
- 
   int shift1; 
-public:    
-  BlockData& x;
-  Mixer(int m,BlockData& bd,int s);
-  
+ 
 #if defined(__AVX2__)
  int dot_product (const short* const t, const short* const w, int n) {
   assert(n == ((n + 15) & -16));
@@ -1655,86 +1632,35 @@ void train(short *t, short *w, int n, int err) {
 #endif 
 
   // Adjust weights to minimize coding cost of last prediction
-  void update(int m) {
-      int err=((x.y<<12)-pr)*7;
+  void update(int y) {
+      int err=((y<<12)-pr)*7;
       assert(err>=-32768 && err<32768);
       train(&tx[0], &wx[cxt*N], N, err);
   }
- /*  void update1(int m) {
-    int target=x.y<<12;
-    if(nx>0)
-    for (int i=0; i<ncxt; ++i) {
-      int err=target-pr[i];
-      train(&tx[0], &wx[cxt[i]*N], nx, err*rates[i]);
-
-        U32 logErr=min(0xF,ilog2(abs(err)));
-        info[i].Sum-=SQR(info[i].Data[1]>>28);
-        info[i].Data[1]<<=4; info[i].Data[1]|=info[i].Data[0]>>28;
-        info[i].Data[0]<<=4; info[i].Data[0]|=logErr;
-        info[i].Sum+=SQR(logErr);
-        info[i].Collected+=info[i].Collected<4096;
-        info[i].Mask<<=1; info[i].Mask|=(logErr<=((info[i].Data[0]>>4)&0xF));
-        U32 count=BitCount(info[i].Mask);
-        if (info[i].Collected>=64 && (info[i].Sum>1500+U32(rates[i])*64 || count<9 || (info[i].Mask&0xFF)==0)){
-          rates[i]=DEFAULT_LEARNING_RATE;
-          memset(&info[i], 0, sizeof(ErrorInfo));
-        }
-        else if (info[i].Collected==4096 && info[i].Sum>=56 && info[i].Sum<=144 && count>28-U32(rates[i]) && ((info[i].Mask&0xFF)==0xFF)){
-          rates[i]-=rates[i]>2;
-          memset(&info[i], 0, sizeof(ErrorInfo));
-        }
-    }
-  }*/
  
-  /*
-    #if defined(__MMX__)
-  void addXMM(XMM a){
-    assert(nx+8<N);
-    _mm_storeu_si128 ((XMM *) &tx[nx],a);
-    nx=nx+8;
-  }
-  #endif
-  #if defined(__AVX2__)
-   void addYMM(YMM a){
-    assert(nx+16<N);
-    _mm256_storeu_si256 ((YMM *) &tx[nx],a);
-    nx=nx+16;
-  }
-  #endif*/
-  // Set a context (call S times, sum of ranges <= M)
-  void set(int cx) {
-    assert(cx>=0);
-    assert(cx<M);
-    cxt=cx;
-  }
   // predict next bit
-  int p( int m) {
-        assert(cxt<M);
+  int p( ) {
+    assert(cxt<M);
     return pr=squash(dot_product(&tx[0], &wx[cxt*N], N)>>( shift1));
   }
   void setTxWx(int n,short* mn){
-      N=(n+15)&-16;
-      wx.resize(N*M);
-      tx=mn; 
-      for (int i=0; i<N*M; ++i)
-       wx[i]=0;
+    N=(n+15)&-16;
+    const int sz=32+(N*M)*sizeof(wx);
+    ptr = (char*)calloc(sz, 1);
+    if (!ptr) quit("Out of memory");
+    //align
+    wx = (short*)(ptr+32-(((long)ptr)&(32-1)));
+    tx=mn; 
   }
-  ~Mixer();
-};
-
-Mixer::~Mixer() {
-
-}
-
-Mixer::Mixer(int m, BlockData& bd, int s):
-     M(m), wx(0) , cxt(0), shift1(s),x(bd){
-  assert( M>0);
-
+  
+  Init(int m,  int s){
+    M=m,  cxt=0, shift1=s;
     pr=2048; //initial p=0.5
-  //  rates = DEFAULT_LEARNING_RATE;
-  //  memset(&info, 0, sizeof(ErrorInfo));
- 
-}
+  }
+  Free(){
+    free(ptr);
+  }
+};
 
 //////////////////////////// StateMap, APM //////////////////////////
 
@@ -1787,52 +1713,41 @@ StateMap::StateMap(int n): N(n), cxt(0), t(n) {
 }
 
  
-class StateMapContext {
-protected:
-  const int N;  // Number of contexts
+struct StateMapContext {
+  int N;  // Number of contexts
   int cxt;      // Context of last prediction
-  Array<U32> t;       // cxt -> prediction in high 22 bits, count in low 10 bits
+  U32 *t;       // cxt -> prediction in high 22 bits, count in low 10 bits
   int pr;
   int mask;
-  int limit;
-  BlockData& x;
-  int cx;
-  inline void update() {
-    assert(cxt>=0 && cxt<N);
-    assert(x.y==0 || x.y==1);
+  int limit; 
+  Init(int n, int lim){ 
+    N=(n), cxt=(0), pr=(2048), mask=(n-1),limit=(lim);
+    assert(ispowerof2(n));
+    t=(U32*)calloc((n)*sizeof(U32*), 1);
+    assert(limit>0 && limit<1024);
+    for (int i=0; i<N; ++i)
+      t[i]=1<<31; 
+  }
+  Free(){
+    free(t);
+  }
+  inline void update(int y) {    
+    assert(y==0 || y==1);
     U32 *p=&t[cxt], p0=p[0];
     int n=p0&1023, pr1=p0>>10;  // count, prediction
     //if (n<limit) ++p0;
     //else p0=(p0&0xfffffc00)|limit;
     p0+=(n<limit);
-    p0+=(((x.y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
+    p0+=(((y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
     p[0]=p0;
-}
-public:
-  StateMapContext(int n, int lim, BlockData& x);//
-   void set(int c) {   
-    cx=c;
-    update();
-    pr=t[cxt=(cx&mask)]>>20;
   }
   // update bit y (0..1), predict next bit in context cx
-  inline int p() {
-    
-    //update();
-    return pr;
-  }
-  void mix(int m) {   
-    x.mxInputs[m].add(stretch(p()));
-   // m.add();
-  }
-};
-
-StateMapContext::StateMapContext(int n,int lim, BlockData& bd): N(n), cxt(0), t(n),pr(2048), mask(n-1),limit(lim), x(bd),cx(0) {
-    assert(ispowerof2(n));
-    assert(limit>0 && limit<1024);
-  for (int i=0; i<N; ++i)
-    t[i]=1<<31; 
-} 
+  void set(int c,int y) {  
+    assert(cxt>=0 && cxt<N);
+    update(y);
+    pr=t[cxt=(c&mask)]>>20;
+  } 
+}; 
 
 //////////////////////////// hash //////////////////////////////
 
@@ -1874,10 +1789,13 @@ template <U32 B> class BH {
   U8 tmp[B];
   U32 n; // size-1
 public:
-  BH(U32 i): t(i*B), n(i-1) {
+  BH():t(0) {
     //printf("BH %0.0f, i %d B %d power %d\n",(i*B)+0.0,i,B,(i&(i-1))==0);
-    assert(B>=2 && i>0 && (i&(i-1))==0); // size a power of 2?
-    
+  //  assert(B>=2 && i>0 && (i&(i-1))==0); // size a power of 2?    
+  }
+  resize(U32 i){
+      t.resize(i*4);
+      n=(i-1) ;
   }
   U8* operator[](U32 i);
 };
@@ -1941,25 +1859,26 @@ inline  U8* BH<B>::operator[](U32 i) {
 
 // A RunContextMap maps a context into the next byte and a repeat
 // count up to M.  Size should be a power of 2.  Memory usage is 3M/4.
-class RunContextMap {
+struct RunContextMap {
   BH<4> t;
   U8* cp;
-  BlockData& x;
-public:
-  RunContextMap(int m,BlockData& bd): t(m/4),x(bd) {cp=t[0]+1;}
-  void set(U32 cx) {  // update count
-    if (cp[0]==0 || cp[1]!=(U8)x.c4) cp[0]=1, cp[1]=(U8)x.c4;
+  Init(int m){ 
+    t.resize(m/4);
+    cp=t[0]+1;
+  }
+  void set(U32 cx,int c4) {  // update count
+    if (cp[0]==0 || cp[1]!=(U8)c4) cp[0]=1, cp[1]=(U8)c4;
     else if (cp[0]<255) ++cp[0];
     cp=t[cx]+1;
   }
-  int p() {  // predict next bit
+  int p(BlockData& x) {  // predict next bit
     if ((cp[1]+256)>>(8-x.bpos)==x.c0)
       return ((cp[1]>>(7-x.bpos)&1)*2-1)*ilog(cp[0]+1)*8;
     else
       return 0;
   }
-  int mix(int m) {  // return run length
-    x.mxInputs[m].add(p());
+  int mix(BlockData& x,int m) {  // return run length
+    x.mxInputs[m].add(p(x));
     return cp[0]!=0;
   }
 };
@@ -1976,31 +1895,31 @@ New contexts must be set at those intervals.
 Uses (2^(BitsOfContext+1))*((2^InputBits)-1) bytes of memory.
 */
 
-class SmallStationaryContextMap {
-  Array<U16> Data;
-  int Context, Mask, Stride, bCount, bTotal, B;
+struct SmallStationaryContextMap {
+  U16 *Data;
+  int Context, Mask, Stride, bCount, bTotal, B,N;
   U16 *cp;
-  BlockData& x;
-public:
-  SmallStationaryContextMap(int BitsOfContext, BlockData& bd, int InputBits = 8) : 
-  Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), 
-  Context(0), Mask((1<<BitsOfContext)-1), 
-  Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0)  ,x(bd)
-  {
+
+  Init(int BitsOfContext,  int InputBits = 8)     {
    // assert(BitsOfContext<=16);
     assert(InputBits>0 && InputBits<=8);
-    Reset();
+    Context=0, Mask=((1<<BitsOfContext)-1), 
+    Stride=((1<<InputBits)-1), bCount=(0), bTotal=(InputBits), B=(0)  ;
+    N=(1ull<<BitsOfContext)*((1ull<<InputBits)-1);
+    Data = (U16*)calloc(N*sizeof(U16), 1);
+    for (U32 i=0; i<N; ++i)
+      Data[i]=0x7FFF;
     cp=&Data[0];
+  }
+  Free(){
+    free(Data);
   }
   void set(U32 ctx) {
     Context = (ctx&Mask)*Stride;
     bCount=B=0;
   }
-  void Reset() {
-    for (U32 i=0; i<Data.size(); ++i)
-      Data[i]=0x7FFF;
-  }
-  void mix(int m, const int rate = 7, const int Multiplier = 1, const int Divisor = 4) {
+  void mix(BlockData& x,int m ) {
+  const int rate = 7; const int Multiplier = 1;const int Divisor = 4;
     *cp+=((x.y<<16)-(*cp)+(1<<(rate-1)))>>rate;
     B+=(x.y && B>0);
     cp = &Data[Context+B];
@@ -2068,91 +1987,82 @@ public:
       bCount=B=0;
   }
 };
-class MixMap {
-int pr,p1,c1;
-  BlockData& x;
-public:
-  MixMap(int m,int c,BlockData& bd): pr(2048),p1(m),c1(c),x(bd) {   
+ 
+struct MixMap1 {
+  int p,i1,c1; 
+
+  void Init( int m,int c ) {
+    p=2048,i1=(m),c1=(c);
   }
-  inline int i1(){ return p1;  } //index 1
-  void set(U32 cx) { pr=cx;       }
-  inline int p() {   return pr;  }
-  int mix(int m) {
-    if (c1==1)x.mxInputs[m].add(stretch(pr)>>1);
-    else if (c1>1)x.mxInputs[m].add((pr-2048)>>c1);
-    else x.mxInputs[m].add(stretch(pr));
+  int pr() {
+    if (c1==1)return(stretch(p)>>1);
+    else if (c1>1)return ((p-2048)>>c1);
+    else return  (stretch(p));
     return 0;
   }
 };
 
-class StaticMap {
-int pr;
-int pr1;
-  BlockData& x;
-public:
-  StaticMap(int m,BlockData& bd): pr((m-128)*16),pr1(m*16),x(bd) {
-  if (m>255 || m<0) printf("StaticMap must be 0..255\n"),quit();
-  }
-  void set(U32 cx) {
-   //   if (cx>4096) cx=4096;
-  //pr1=cx;  
-  //pr=stretch(cx);    
-  }
-  inline int p() {
-      return pr1;
-  }
-  int mix(int m) {
-    x.mxInputs[m].add(pr);
-    return 0;
+struct StaticMap {
+  int pr;
+  int pr1;
+
+  Init(int m){
+    if (m>255 || m<0) printf("StaticMap must be 0..255\n"),quit();
+    pr=((m-128)*16),pr1=(m*16);
   }
 };
 
-class AvgMap {
+struct AvgMap {
 int pr;
 int p1,p2; // index to prediction array
-  BlockData& x;
-
-public:
-  AvgMap(int a,int b,BlockData& bd): pr(0),p1(a),p2(b),x(bd) {
+  
+Init(int a,int b){
+     pr=(0),p1=(a),p2=(b);
   }
   inline int average(int a,int b){
       return pr=(a+b+1)>>1;
   }
-  inline int i1(){ return p1;  } //index 1
-  inline int i2(){ return p2;  } //index 2
-  inline int p() { return pr;  }
-  int mix(int m) {
-    x.mxInputs[m].add(stretch(pr));
-    return 0;
-  }
+ // int mix(int m) {
+ //   x.mxInputs[m].add(stretch(pr));
+ //   return 0;
+ // }
 };
 
-class DynamicSMap {
-int state;
-StateMap *sm;
-Array<int> cxt;
-U32 mask;
-Array<int>  pr;
-int limit;
-Array<U8> CxtState;
-  BlockData& x;
+struct DynamicSMap {
+  int state;
+  StateMap *sm;
+  int *cxt;
+  U32 mask;
+  int *pr;
+  int limit;
+  U8 *CxtState;
   int index;
   int count;
-public:
-  DynamicSMap(int m,int lim,int c,BlockData& bd): state(0),cxt(c),mask((1<<m)-1),pr(c),limit(lim),CxtState(mask+1),x(bd),index(0),count(c) {
-  sm=new StateMap[c];
+
+  Init(int m,int lim,int c){
+    state=(0), mask=((1<<m)-1),limit=(lim),index=(0),count=(c);
+    cxt = (int*)calloc(c*sizeof(int), 1);
+    pr = (int*)calloc(c*sizeof(int), 1);
+    CxtState = (U8*)calloc((mask+1)*sizeof(U8), 1);
+    sm=new StateMap[c];
   }
-  void set(U32 cx) {//da hell is hapening??????????? nothing, all good :D
-       CxtState[cxt[index]]=nex(CxtState[cxt[index]],x.y);       //update state
-       cxt[index]=(cx)&mask;                                     // get new context
-       pr[index]=sm[index].p(CxtState[cxt[index]],x.y,limit);    // predict from new context
-       index++;
-       if (index==count) index=0;
+  Free(){
+    free(cxt);
+    free(pr);
+    free(CxtState);
+    delete sm;
+  }
+  void set(U32 cx,int y) {
+    CxtState[cxt[index]]=nex(CxtState[cxt[index]],y);       // update state
+    cxt[index]=(cx)&mask;                                     // get new context
+    pr[index]=sm[index].p(CxtState[cxt[index]],y,limit);    // predict from new context
+    index++;
+    if (index==count) index=0;
   }
   inline int p() {
-      int pr0=pr[index++];
-      if (index==count) index=0;
-      return pr0;
+    int pr0=pr[index++];
+    if (index==count) index=0;
+    return pr0;
   }
   int mix(int m) {
     return 0;
@@ -2160,65 +2070,77 @@ public:
 };
 
 #define ispowerof2(x) ((x&(x-1))==0)
-class DynamicHSMap {
+struct DynamicHSMap {
   int state;
   StateMap *sm;
-  Array<int>  pr;
-  int limit;
-  BlockData& x;
+  int *pr;
+  int limit;  
   int index;
-  const int count;
-  const int hashElementCount;
-  const int hashSearchLimit;
-  Array<U8*> cp;
-  const int bitscount;
+  int count;
+  int hashElementCount;
+  int hashSearchLimit;
+  int bitscount;
   U32 n;
-  Array<U8,32> t;
-  public:
-  DynamicHSMap(int bits,int membits,int countOfContexts,BlockData& bd): 
-  state(0),pr(countOfContexts),
-  limit(1023),x(bd),index(0),count(countOfContexts),
-  // for jpeg there is 3 bits -> 8
-  // for bmp4 there is 4 bits -> 16
-  hashElementCount((1<<bits)), //+1 for checksum 
-  hashSearchLimit(4),
-  cp(countOfContexts),  
-  bitscount(bits),
-  n((1<<membits)-1),
-  t(hashElementCount*(1<<membits))
-  {
-     /* printf("hashElementCount %d\n",hashElementCount);
-      printf("countOfContexts %d\n",countOfContexts);
-      printf("bits %d\n",bits);
-      printf("n %d\n",n);
-      printf("t.size %d\n",t.size());
-      printf("membits %d %d %d\n",membits,1<<membits,hashElementCount*(1<<membits));*/
+  U8 **cp;  
+  U8 * t;
+  U8 * ptr;
+ 
+  Init(int bits,int membits,int countOfContexts){
+    state=(0),limit=(1023),index=(0),count=(countOfContexts),
+    // for jpeg there is 3 bits -> 8
+    // for bmp4 there is 4 bits -> 16
+    hashElementCount=((1<<bits)), //+1 for checksum 
+    hashSearchLimit=(4),
+    bitscount=(bits),
+    n=((1<<membits)-1);
+  
+    cp = (U8**)calloc(countOfContexts*sizeof(U8*), 1);
+    pr = (int*)calloc(countOfContexts*sizeof(int), 1);
+      
+    const int sz=32+(hashElementCount*(1<<membits))*sizeof(U8);
+    ptr = (U8*)calloc(sz, 1);
+    if (!ptr) quit("Out of memory");
+    //align
+    t = (U8*)(ptr+32-(((long)ptr)&(32-1)));
     sm=new StateMap[countOfContexts];
     for (int i=0;i<countOfContexts;i++)
       cp[i]=&t[0]+1;
+    /*   printf("hashElementCount %d\n",hashElementCount);
+      printf("countOfContexts %d\n",countOfContexts);
+      printf("bits %d\n",bits);
+      printf("n %d\n",n);
+      //printf("t.size %d\n",t.size());
+      printf("membits %d %d %d\n",membits,1<<membits,hashElementCount*(1<<membits));*/
   }
-  void set(U32 cx) {
-   if (cp[count-1] && index==0)  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],x.y);   //update state
+  Free(){
+    free(cp);
+    free(pr);
+    free(ptr);
+    delete sm;
+  }
+  
+  void set(U32 cx,int y) {
+    if (index==0 && cp[count-1])  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],y);   //update state
       if (cx>255){
-         cp[index]=find(cx)+1 ;                                      // find new
-         pr[index]=sm[index].p(*cp[index],x.y,limit);
-         index++;
-         if (index==count) index=0;
+        cp[index]=find(cx)+1;                                      // find new
+        pr[index]=sm[index].p(*cp[index],y,limit);
+        index++;
+        if (index==count) index=0;
       }else{
-          if (cx==0) {
+        if (cx==0) {
           index=0;
           return;}
-        for ( int i=0; i<count; ++i) {
-        cp[i]+=cx;
-        pr[i]=sm[i].p(*cp[i],x.y,limit);                             // predict from new context
+          for ( int i=0; i<count; ++i) {
+          cp[i]+=cx;
+          pr[i]=sm[i].p(*cp[i],y,limit);                             // predict from new context
         }
         index=0;
       }      
   }
   inline int p() {
-      int pr0=pr[index++];
-      if (index==count) index=0;
-      return pr0;
+    int pr0=pr[index++];
+    if (index==count) index=0;
+    return pr0;
   }
   int mix(int m) {
     return 0;
@@ -2317,6 +2239,7 @@ public:
 #else
 #define MALIGN 16
 #endif
+int n0n1[256];
 inline U64 CMlimit(U64 size){
     //if (size>(0x100000000UL)) return (0x100000000UL); //limit to 4GB, using this will consume lots of memory above level 11
     if (size>(0x80000000UL)) return (0x80000000UL); //limit to 2GB
@@ -2341,13 +2264,8 @@ class ContextMap {
   Array<U8*> cp0;  // First element of 7 element array containing cp[i]
   Array<U32> cxt;  // C whole byte contexts (hashes)
   Array<U8*> runp; // C [0..3] = count, value, unused, unused
-  Array<short, MALIGN>  r0;   //for rle 
-  Array<short, MALIGN>  r1;
-  Array<short, MALIGN>  r0i;
-  Array<short, MALIGN>  rmask; // mask for skiped context
   StateMap *sm;    // C maps of state -> p
   int cn;          // Next context to set by set()
-  //void update(U32 cx, int c);  // train model that context cx predicts c
   Random rnd;
   int result;
   BlockData& x;
@@ -2384,7 +2302,7 @@ inline U8* ContextMap::E::get(U16 ch) {
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
 ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(C),
-    cxt(C), runp(C), r0(C),r1(C),r0i(C),rmask(C),cn(0),result(0),x(bd) {
+    cxt(C), runp(C), cn(0),result(0),x(bd) {
   assert(m>=64 && (m&m-1)==0);  // power of 2?
   assert(sizeof(E)==64);
   sm=new StateMap[C];
@@ -2403,30 +2321,46 @@ inline void ContextMap::set(U32 cx, int next) {
   int i=cn++;
   //i&=next;
  //assert(i>=0 && i<C);
-  if (cx==0){ cxt[i]=0; rmask[i]=0;}
-  else{
   cx=cx*987654323+i;  // permute (don't hash) cx to spread the distribution
   cx=cx<<16|cx>>16;
   cxt[i]=cx*123456791+i;
-  rmask[i]=-1;
-  }
 }
 // Predict to mixer m from bit history state s, using sm to map s to
 // a probability.
-
+inline int sc(int p){
+    if (p>0) return p>>7;
+    return (p+127)>>7;// p+((1<<s)-1);
+}
 inline int mix2(BlockData& x, int m, int s, StateMap& sm) {
   int p1=sm.p(s,x.y);
-  int n0=-!nex(s,2);
-  int n1=-!nex(s,3);
-  int st=stretch(p1)>>2;
-  x.mxInputs[m].add(st); //m.add(st);
-  p1>>=4;
-  int p0=255-p1;
-  x.mxInputs[m].add(p1-p0);//m.add(p1-p0);
-  x.mxInputs[m].add(st*(n1-n0));//m.add(st*(n1-n0));
-  x.mxInputs[m].add((p1&n0)-(p0&n1));//m.add((p1&n0)-(p0&n1));
-  x.mxInputs[m].add((p1&n1)-(p0&n0));//m.add((p1&n1)-(p0&n0));
+  const int c=4;
+  if (s==0){
+    x.mxInputs[m].add(0); 
+    x.mxInputs[m].add(0);
+    x.mxInputs[m].add(0);
+    x.mxInputs[m].add(0);
+    x.mxInputs[m].add(c*16);
+    return 0;
+  }else{
+  int st=stretch(p1);
+  x.mxInputs[m].add(sc(st*(c*8))>>(int(s <= 2)));
+  x.mxInputs[m].add(sc((p1-2048)*(c*3)));
+  int n01=n0n1[s];
+    if (n01){
+        int p0=(n01<2)?4095:0;
+        x.mxInputs[m].add(sc((p1-p0)*(c*2)));
+        if (n0n1[s]==2){ // -1
+              x.mxInputs[m].add(sc(-st*(c*8)));
+        }else{
+              x.mxInputs[m].add(sc(st*(c*8)));
+        }
+     }else {
+        x.mxInputs[m].add(0);
+        x.mxInputs[m].add(0);
+     }
+     x.mxInputs[m].add(0);
   return s>0;
+  }
 }
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
@@ -2435,7 +2369,6 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
    result=0;
 
   for (int i=0; i<cn; ++i) {
-   if(cxt[i]){
     if (cp[i]) {
       assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[t.size()-1].bh[6][6]);
       assert(((long long)(cp[i])&63)>=15);
@@ -2445,12 +2378,9 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     }
 
     // Update context pointers
-    if (x.bpos>1 && runp[i][0]==0)
-    {
+    if (x.bpos>1 && runp[i][0]==0) {
      cp[i]=0;
-    }
-    else
-    {
+    } else {
      U16 chksum=cxt[i]>>16;
      U64 tmask=t.size()-1;
      switch(x.bpos)
@@ -2481,8 +2411,8 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
          runp[i][0]=1, runp[i][1]=c1;
        else if (runp[i][0]<254)  // same byte in context
          runp[i][0]+=2;
-       else if (runp[i][0]==255)
-         runp[i][0]=128;
+       //else if (runp[i][0]==255)
+       //  runp[i][0]=128;
        runp[i]=cp0[i]+3;
       } break;
      }
@@ -2493,149 +2423,16 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     if (s>0) result++;
     mix2(x,m, s, sm[i]);
 
-
-  }else{
-    for (int i=0; i<(inputs()-1); i++)
-       x.mxInputs[m].add(0);// m.add(0);     
-  }
-  }
     // predict from last byte in context
-     
-     for (int i=0; i<cn; ++i) {
-         U8 a=runp[i][0];
-         U8 b=runp[i][1];
-         r0[i]=a;
-         r1[i]=b;
-         r0i[i]=ilog(a+1);
-     }
-
-#if defined(SIMD_CM_R ) && defined(__AVX2__)
-    const int bsh=(8-bp);
-    const int bsh1=(7-bp);
-    int cnc=(cn/16)*16;
-    int i;
-    
-    for ( i=0; i<(cnc); i=i+16) {
-        YMM b1=_mm256_set1_epi16(1<<bsh1);
-        YMM x0=_mm256_setzero_si256();
-        YMM x1=_mm256_set1_epi16(1);
-        YMM b256=_mm256_set1_epi16(256);
-        YMM runm=_mm256_load_si256 ((YMM  *) &rmask[i]);
-        YMM b=_mm256_load_si256 ((YMM  *) &r1[i]);
-        YMM xcc=_mm256_set1_epi16(cc);
-        //(r1[i  ]+256)>>(8-bp)==cc
-        
-        YMM  xr1=_mm256_add_epi16 (b, b256);
-        xr1=_mm256_srli_epi16 (xr1, bsh);
-        xr1=_mm256_cmpeq_epi16(xr1,xcc); //(a == b) ? 0xffff : 0x0
-        //b                           //((r1[i  ]>>(7-bp)&1)*2-1) 
-       
-        YMM xb=_mm256_and_si256 (b, b1); //test if bit set                   //>>(7-bp)&1)*2
-        xb=_mm256_cmpeq_epi16(xb,x0);//compare and if eq set to -1, else 0   //
-        xb= _mm256_or_si256(xb,x1); // or with 1                              // -1
-        //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
-        YMM xr0i=_mm256_load_si256 ((YMM  *) &r0i[i]);//, x0);           //r0i[i]
-        YMM  c=_mm256_load_si256 ((YMM  *) &r0[i]);//, x0);              //~r0[i]&1
-        YMM xc=_mm256_andnot_si256 (c,x1);  
-        YMM r0ia= _mm256_add_epi16 (x1,xc);                          //1+(~r0[i]&1) result is 2 or 1 for multiplay |
-        xc=_mm256_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
-        xc=_mm256_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
-        //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
-        YMM xr=_mm256_sign_epi16(xc,xb); 
-        YMM xresult=_mm256_and_si256(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
-        xresult=_mm256_and_si256(xresult,runm); //mask out skiped context
-        //store result
-        m.addYMM(xresult);
+    if ( (runp[i][1]+256)>>(8-bp)==cc) {
+      int rc=runp[i][0];  // count*2, +1 if 2 different bytes seen
+      int b=(runp[i][1]>>(7-bp)&1)*2-1;  // predicted bit + for 1, - for 0
+      int c=ilog(rc+1)<<(2+(~rc&1));
+      x.mxInputs[m].add(b*c);
     }
-     int cnc1=((cn-cnc)/8)*8;
-        if (cnc1){
-        i=cnc;
-        cnc=cnc+8;
-        XMM x0=_mm_setzero_si128();
-        XMM x1=_mm_set1_epi16(1);
-        XMM b1=_mm_set1_epi16(1<<bsh1);
-        XMM xcc=_mm_set1_epi16(cc);
-        XMM b256=_mm_set1_epi16(256);
-        XMM runm=_mm_load_si128 ((XMM  *) &rmask[i]);
-        XMM b=_mm_load_si128 ((XMM  *) &r1[i]);
-        //(r1[i  ]+256)>>(8-bp)==cc
-        XMM  xr1=_mm_add_epi16 (b, b256);
-        xr1=_mm_srli_epi16 (xr1, bsh);
-        xr1=_mm_cmpeq_epi16(xr1,xcc); //(a == b) ? 0xffff : 0x0
-        //b                           //((r1[i  ]>>(7-bp)&1)*2-1) 
-        XMM xb=_mm_and_si128 (b, b1); //test if bit set                   //>>(7-bp)&1)*2
-        xb=_mm_cmpeq_epi16(xb,x0);//compare and if eq set to -1, else 0   //
-        xb= _mm_or_si128(xb,x1); // or with 1                              // -1
-         //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr0i=_mm_load_si128 ((XMM  *) &r0i[i]);           //r0i[i]
-        XMM  c=_mm_load_si128 ((XMM  *) &r0[i]);              //~r0[i]&1
-        XMM xc=_mm_andnot_si128 (c,x1);  
-        XMM r0ia= _mm_add_epi16 (x1,xc);                          //1+(~r0[i]&1) result is 2 or 1 for multiplay |
-        xc=_mm_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
-        xc=_mm_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
-        //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr=_mm_sign_epi16(xc,xb); 
-        XMM xresult=_mm_and_si128(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
-        xresult=_mm_and_si128(xresult,runm); //mask out skiped context
-        //store result
-        m.addXMM(xresult);
-    }
-    //do remaining 
-    for (int i=cnc; i<cn; ++i) {
-        if (rmask[i] &&( (r1[i  ]+256)>>(8-bp)==cc)) {
-            m.add(((r1[i  ]>>(7-bp)&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
-        else   m.add(0);
-    }
-#elif defined(SIMD_CM_R ) && defined(__SSSE3__) 
-    int cnc=(cn/8)*8;
-    const int bsh=(8-bp);
-     const int bsh1=(7-bp);
-     XMM  x0=_mm_setzero_si128();
-     XMM  x1=_mm_set1_epi16(1);
-     XMM  b1=_mm_set1_epi16(1<<bsh1);
-     XMM xcc=_mm_set1_epi16(cc);
-     XMM   b256=_mm_set1_epi16(256);
-    for (int i=0; i<(cnc); i=i+8) {
-        
-        XMM   runm=_mm_load_si128 ((XMM  *) &rmask[i]);
-        XMM   b=_mm_load_si128 ((XMM  *) &r1[i]);
-        //(r1[i  ]+256)>>(8-bp)==cc
-        XMM  xr1=_mm_add_epi16 (b, b256);
-        //XMM  xr1=_mm_add_epi16 (*(XMM  *) &r1[i], _mm_set1_epi16(256));
-        xr1=_mm_srli_epi16 (xr1, bsh);
-        xr1=_mm_cmpeq_epi16(xr1,xcc); //(a == b) ? 0xffff : 0x0
-        //b                           //((r1[i  ]>>(7-bp)&1)*2-1) 
-        XMM xb=_mm_and_si128 (b, b1); //test if bit set                   //>>(7-bp)&1)*2
-        xb=_mm_cmpeq_epi16(xb,x0);//compare and if eq set to -1, else 0   //
-        xb= _mm_or_si128(xb,x1); // or with 1                              // -1
-        //c                                                       //((r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr0i=_mm_load_si128 ((XMM  *) &r0i[i]);           //r0i[i]
-        XMM  c=_mm_load_si128 ((XMM  *) &r0[i]);              //~r0[i]&1
-        XMM xc=_mm_andnot_si128 (c,x1);  
-        XMM r0ia= _mm_add_epi16 (x1,xc);                          //1+(~r0[i]&1) result is 2 or 1 for multiplay |
-        xc=_mm_slli_epi16(xr0i, 2);                               //r0i[i]<<2                                  | 
-        xc=_mm_mullo_epi16(xc,r0ia);                              //(r0i[i]<<2*)  ~r0[i]&1?1+(~r0[i]&1):1      <-
-        //b*c                                                     // (r0i[i  ])<<(2+(~r0[i  ]&1)))
-        XMM xr=_mm_sign_epi16(xc,xb);// _mm_mullo_epi16(xc,xb); slower ?
-        XMM xresult=_mm_and_si128(xr,xr1);   //(r1[i  ]+256)>>(8-bp)==cc?xr:0
-        xresult=_mm_and_si128(xresult,runm); //mask out skiped context
-        //store result
-        m.addXMM(xresult);
-    }
-    //do remaining 
-    for (int i=cnc; i<cn; ++i) {
-        if (rmask[i] &&( (r1[i  ]+256)>>bsh==cc)) {
-            m.add(((r1[i  ]>>bsh1&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
-        else   m.add(0);
-    }
-#else          
-    for (int i=0; i<cn; ++i) {
-        if (rmask[i] && ((r1[i  ]+256)>>(8-bp)==cc)) {
-            x.mxInputs[m].add(((r1[i  ]>>(7-bp)&1)*2-1) *((r0i[i  ])<<(2+(~r0[i  ]&1)))); }
-        else   x.mxInputs[m].add(0);//m.add(0);
-      }
-#endif    
-   
+    else
+      x.mxInputs[m].add(0);
+  }
   if (bp==7) cn=0;
   return result;
 }
@@ -2799,50 +2596,6 @@ void Encoder::flush() {
 }
  
 /////////////////////////// Filters /////////////////////////////////
-//
-// Before compression, data is encoded in blocks with the following format:
-//
-//   <type> <size> <encoded-data>
-//
-// Type is 1 byte (type Filetype): DEFAULT=0, JPEG, EXE, ...
-// Size is 4 bytes in big-endian format.
-// Encoded-data decodes to <size> bytes.  The encoded size might be
-// different.  Encoded data is designed to be more compressible.
-//
-//   void encode(File* in, File* out, int n);
-//
-// Reads n bytes of in (open in "rb" mode) and encodes one or
-// more blocks to temporary file out (open in "wb+" mode).
-// The file pointer of in is advanced n bytes.  The file pointer of
-// out is positioned after the last byte written.
-//
-//   en.setFile(File* out);
-//   int decode(Encoder& en);
-//
-// Decodes and returns one byte.  Input is from en.decompress(), which
-// reads from out if in COMPRESS mode.  During compression, n calls
-// to decode() must exactly match n bytes of in, or else it is compressed
-// as type 0 without encoding.
-//
-//   Filetype detect(File* in, int n, Filetype type);
-//
-// Reads n bytes of in, and detects when the type changes to
-// something else.  If it does, then the file pointer is repositioned
-// to the start of the change and the new type is returned.  If the type
-// does not change, then it repositions the file pointer n bytes ahead
-// and returns the old type.
-//
-// For each type X there are the following 2 functions:
-//
-//   void encode_X(File* in, File* out, int n, ...);
-//
-// encodes n bytes from in to out.
-//
-//   int decode_X(Encoder& en);
-//
-// decodes one byte from en and returns it.  decode() and decode_X()
-// maintain state information using static variables.
-
 
 struct vStream {
     U32 stream;    //id for stream
@@ -3071,13 +2824,10 @@ int itcount=0;               //level count
 
 int getstreamid(int type){
     if (type<vTypes.size())return vTypes[type].streamId;//return typet[type][STREAM];
-    
     return -1;
 }
 
 bool isstreamtype(int type,int streamid){
-   // assert(streamid<streamCount);
-   // assert(type<TYPELAST);
     if (type<vTypes.size() && vTypes[type].streamId==streamid) return true;
     return false;
 }
@@ -3133,7 +2883,6 @@ void transform_encode_block(int type, File*in, U64 len, Encoder &en, int info, i
 				if (info>0){ 
 					// not really, split header and data
 					// add header to defaultType and direct encode data
-					//tmp->setpos(0);
 					int hdrsize=( tmp->getc()<<8)+(tmp->getc()); // must be present in encoded file
 					tmp->setpos(0);
 					typenamess[defaultType][it]+=hdrsize,  typenamesc[defaultType][it]++; 
@@ -3410,6 +3159,7 @@ static char   pp[] ="int t[5]={};"
 "void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0);"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
 " vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
+
 void compressStream(int streamid,U64 size, File* in, File* out) {
     int i; //stream
     i=streamid;
@@ -3467,7 +3217,7 @@ void compressStream(int streamid,U64 size, File* in, File* out) {
             p[fsz] = 0;
             //close compressed and uncomressed model files
             fclose(moin); 
-            modelo->close();// fclose();
+            modelo->close();
         }
         else quit("Config file not found.");        
     }
@@ -3953,7 +3703,7 @@ int main(int argc, char** argv) {
 
         // Print help message quick 
         if (argc<2) {
-            printf(PROGNAME " archiver (C) 2019, Matt Mahoney et al.\n"
+            printf(PROGNAME " archiver (C) 2021, Matt Mahoney et al.\n"
             "Free under GPL, http://www.gnu.org/licenses/gpl.txt\n");
 #ifdef __GNUC__     
             printf("Compiled %s, compiler gcc version %d.%d.%d\n\n",__DATE__, __GNUC__, __GNUC_MINOR__,__GNUC_PATCHLEVEL__);
@@ -4028,7 +3778,16 @@ printf("\n");
             DEFAULT_OPTION);
             quit();
         }
-       
+
+        for (int i=0;i<256;i++) {
+            int n0=-!nex(i,2);
+            int n1=-!nex(i,3);
+            int r=0;
+            if ((n1-n0)==1 ) r=2;
+            if ((n1-n0)==-1 ) r=1;
+            n0n1[i]=r;
+        }
+
         File* archive=0;               // compressed file
         int files=0;                   // number of files to compress/decompress
         Array<const char*> fname(1);   // file names (resized to files)

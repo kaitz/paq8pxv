@@ -90,7 +90,8 @@ int detect(int c4,int i) {
     
     if (type==BMPFILE && state==START) {
             state=INFO;
-            jend=info*y;
+            jend=info*y+of;
+            //printf("DETECT: BMP jend %d\n",jend);
            return state;
     }
      if (type==BMPFILE && state==INFO && i>=jend) {

@@ -39,7 +39,7 @@ void jitReadonly(void *p, size_t size){
 #endif
 }
 // tokens and classes (operators last and in precedence order)
-enum {  Num = 128, Fun, Sys, Glo, Loc, Id,
+enum {  Num = 128, Fun, Sys, Glo, Loc, Id,  Load, Enter,
   Char, Else, Enum, If, Int, Short, Return, For, Sizeof, While,
   Comma, Assign, Cond, Lor, Lan, Or, Xor, And, Eq, Ne, Lt, Gt, Le, Ge, Shl, Shr, Add, Sub, Mul, Div, Mod, Inc, Dec, Brak
 };
@@ -71,7 +71,9 @@ char *p, *lp, // current position in source code
      *je;     // current position in emitted native code
 int *e, *le, *text,*codestart,  // current position in emitted code
     *id,      // currently parsed indentifier
+    *n,       // current node in abstract syntax tree
     *sym,     // symbol table (simple list of identifiers)
+    *ast,
     tk,       // current token
     ival,     // current token value
     ty,       // current expression type
@@ -86,7 +88,6 @@ int *e, *le, *text,*codestart,  // current position in emitted code
     int  initvm( ) ; 
 char *mod;
 public:
-    int fix;
     int debug;    // print executed instructions
     BlockData& x;
     int vmMode;
@@ -95,18 +96,19 @@ public:
     Array<int*> membound; //array of allocated memory
     Array<int> prSize; // size in bytes of memory in mem[mindex]   
     Array<int> mcomp;  //component list set in vmi
-    Array<MixMap *>mmC; 
-    Array<Mixer *>mxC; 
     Array<ContextMap *>cmC;
     int smc, apm1, rcm, scm, cm, mx,st,av,ds,mm,dhs;
-    StateMapContext **smC;
-    APM1 **apm1C;
-    RunContextMap **rcmC;
-    SmallStationaryContextMap **scmC;    
-    StaticMap **stC; 
-    AvgMap **avC;     
-    DynamicSMap **dsC; 
-    DynamicHSMap **dhsC; 
+
+    MixMap1 mmA[255];
+    Mixer1 mxA[255];
+    StaticMap stA[255];
+    DynamicSMap dsA[255];
+    DynamicHSMap dhsA[255];
+    APM1 apm1A[255];
+    StateMapContext smA[255];
+    AvgMap  avA[255];   
+    SmallStationaryContextMap scmA[255];    
+    RunContextMap rcmA[255];  
     int totalc;  //total number of components
     int currentc; //current component, used in vmi
     int initdone; //set to 1 after main exits
@@ -117,19 +119,19 @@ public:
 VM(char* m,BlockData& bd,int mode);
 ~VM() ;
 void next();
-void  expr(int lev);
-void  stmt();
+void expr(int lev);
+void stmt();
 int dovm(int *ttt);
+void gen(int *n);
 #ifdef VMJIT
 int  dojit();
  #endif
- int detect(int c4,int pos);
- int  decode(int info,int len);
-  int  encode(int info,int len);
+int detect(int c4,int pos);
+int decode(int info,int len);
+int encode(int info,int len);
 int block(int info1,int info2);
 int doupdate(int y, int c0, int bpos,U32 c4,int pos);
-void  killvm( );
-void emit(int op,int val);
+void killvm( );
 void decompile();
 int getPrediction(int cInputs);
 void updateComponents();
@@ -151,52 +153,25 @@ char* vmmalloc(VM* v,size_t i,int w){
 
 void VM::killvm( ){
     if ( smc>0 )  {
-       for (int i=0;i<smc;i++) delete smC[i]; // fixit...
-       delete[]  smC; 
+       for (int i=0;i<smc;i++)  smA[i].Free(); 
     }
     if ( apm1>0 ) {
-        for (int i=0;i<apm1;i++) {
-            delete apm1C[i];
-        }
-        delete[]  apm1C;
-    }
-    if ( rcm>0 ) {
-        for (int i=0;i<rcm;i++) delete rcmC[i];
-        delete[]  rcmC;
+        for (int i=0;i<apm1;i++) apm1A[i].Free();
     }
     if ( scm>0 ) {
-        for (int i=0;i<scm;i++) delete scmC[i];
-        delete[]  scmC;
+        for (int i=0;i<scm;i++)  scmA[i].Free();
     }
     if ( cm>0 ) {
         for (int i=0;i<cm;i++) delete cmC[i]; 
-       // delete[]  cmC;
     }
-    if ( mx>0 ) {
-        for (int i=0;i<mx;i++) delete mxC[i];
-        //delete[]  mxC;
-    }
-    if ( st>0 ) {
-        for (int i=0;i<st;i++) delete stC[i];
-        delete[]  stC;
-    }
-    if ( av>0 ) {
-        for (int i=0;i<av;i++) delete avC[i];
-        delete[]  avC;
+   if ( mx>0 ) {
+        for (int i=0;i<mx;i++) mxA[i].Free();
     }
     if ( ds>0 ) {
-        for (int i=0;i<ds;i++) delete dsC[i];
-        delete[]  dsC;
+        for (int i=0;i<ds;i++)  dsA[i].Free();
     }
     if ( dhs>0 ) {
-        for (int i=0;i<dhs;i++) delete dhsC[i];
-        delete[]  dhsC;
-    }
-    if ( mm>0 ) {
-        for (int i=0;i<mm;i++) {
-            delete mmC[i];
-        }
-      //  delete[]  mmC;
+        for (int i=0;i<dhs;i++)  dhsA[i].Free();
     }
     // free memory allocated by vmmalloc
     if (mindex){
@@ -208,6 +183,7 @@ void VM::killvm( ){
     }
     smc=apm1=rcm=scm=cm=mx=mm=st=av=ds=dhs=currentc=totalc=initdone=mindex=0;
     if (sym) free(sym),sym=0;
+    if (ast) free(ast),ast=0;
     if (text) free(text),text=0;
     //if (data) free(data),data=0;
     if (sp0) free(sp0),sp0=sp=0;
@@ -221,16 +197,6 @@ void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i,int 
     v->totalc= a+b+c+d+e+f+g+h+i+j+h;
     v->mcomp.resize(v->totalc); 
     if (v->totalc==0 && h>0) quit("No inputs for mixer defined VM\n");
-    if (a>0 ) v->smC = new StateMapContext*[a];
-    if (b>0 ) v->apm1C = new APM1*[b];
-    if (c>0 ) v->dsC= new DynamicSMap*[c];
-    if (d>0 ) v->avC = new AvgMap*[d];
-    if (e>0 ) v->scmC = new SmallStationaryContextMap*[e];
-    if (f>0 ) v->rcmC = new RunContextMap*[f];
-    //if (g>0 ) v->cmC = new ContextMap*[g];
-   // if (h>0 ) v->mxC = new Mixer*[h];
-    if (i>0 ) v->stC = new StaticMap*[i];
-    if (k>0 ) v->dhsC= new DynamicHSMap*[k];
 }
 //vmi - init components
 enum {vmSMC=1,vmAPM1,vmDS,vmAVG,vmSCM,vmRCM,vmCM,vmMX,vmST,vmMM,vmDHS};
@@ -307,14 +273,14 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         v->cmC.resize(v->cmC.size()+1);
         if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+6*d;
         break;  }
-    case vmMX: {v->prSize.resize(v->prSize.size()+1); v->mxC.resize(v->mxC.size()+1);
+    case vmMX: {v->prSize.resize(v->prSize.size()+1); //v->mxC.resize(v->mxC.size()+1);
         break;  }
     case vmST: {if ( indexOfInputs==-1)v->prSize.resize(v->prSize.size()+1); if (ii>v->st )  printf("VM vmi error: st(%d) defined %d, max %d\n",component,ii, v->st),quit();
         if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
         break;  }
     case vmMM: {
         v->x.mxInputs[indexOfInputs].ncount=v->x.mxInputs[indexOfInputs].ncount+1;
-        v->mmC.resize(v->mmC.size()+1);
+        //v->mmC.resize(v->mmC.size()+1);
         break;  }
     default: quit("VM vmi error\n");
     }
@@ -323,28 +289,28 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     if (component==vmAPM1 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1) || component==vmMX)prindex=(v->prSize.size());
 
     switch (component) {
-    case vmSMC: v->smC[componentIndex] = new StateMapContext(f, d, v->x);
+    case vmSMC: v->smA[componentIndex].Init(f, d); //v->smC[componentIndex] = new StateMapContext(f, d, v->x);
         break;  
-    case vmAPM1: v->apm1C[componentIndex] = new APM1(f,d,indexOfInputs,  v->x);
+    case vmAPM1: v->apm1A[componentIndex].Init(f,d,indexOfInputs); //v->apm1C[componentIndex] = new APM1(f,d,indexOfInputs,  v->x);
         break;
-    case vmDS: v->dsC[componentIndex] = new DynamicSMap(f,d,indexOfInputs,  v->x);
+    case vmDS: v->dsA[componentIndex].Init(f,d,indexOfInputs);
         break;
-        case vmDHS: v->dhsC[componentIndex] = new DynamicHSMap(f,d,indexOfInputs,  v->x);
+        case vmDHS: v->dhsA[componentIndex].Init(f,d,indexOfInputs);
         break;
-    case vmRCM: v->rcmC[componentIndex] = new RunContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*f),  v->x);
+    case vmRCM: v->rcmA[componentIndex].Init(CMlimit(f<0?MEM()/(!f+1):MEM()*f));//v->rcmC[componentIndex] = new RunContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*f),  v->x);
         break;
-    case vmSCM: v->scmC[componentIndex] = new SmallStationaryContextMap(f ,v->x);
+    case vmSCM: v->scmA[componentIndex].Init(f); //v->scmC[componentIndex] = new SmallStationaryContextMap(f ,v->x);
         break;
-    case vmAVG:
-      v->avC[componentIndex] = new AvgMap(d,indexOfInputs,  v->x); 
+    case vmAVG:v->avA[componentIndex].Init(d,indexOfInputs);
+      //v->avC[componentIndex] = new AvgMap(d,indexOfInputs,  v->x); 
         break;
     case vmCM: v->cmC[componentIndex] = (ContextMap*)new ContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*(U64)f),d,v->x);
         break;
-    case vmMX: v->mxC[componentIndex] = (Mixer*)new Mixer(d,  v->x,f); //context,shift
+    case vmMX: v->mxA[componentIndex].Init(d,f); //context,shift
         break;
-    case vmST:  v->stC[componentIndex] = new StaticMap(f, v->x);
+    case vmST: v->stA[componentIndex].Init(f);
         break;
-    case vmMM:  v->mmC[componentIndex] =(MixMap*) new MixMap(d,f, v->x);
+    case vmMM: v->mmA[componentIndex].Init(d,f);
         break;
     default:
         quit("VM vmi error\n");
@@ -373,28 +339,28 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
 void setcomponent(VM* v,int c,int i, U32 f){
     switch (c) {
         case vmSMC: { 
-             v->smC[i]->set(f);
+             v->smA[i].set(f,v->x.y);
              break;}
         case vmAPM1:{ 
-             v->apm1C[i]->set(f); 
+             v->apm1A[i].cxt=(f); 
              break;}
         case vmDS:{ 
-             v->dsC[i]->set(f); 
+             v->dsA[i].set(f,v->x.y); 
              break;}
         case vmDHS:{ 
-             v->dhsC[i]->set(f); 
+             v->dhsA[i].set(f,v->x.y); 
              break;}
         case vmRCM:{ 
-             v->rcmC[i]->set(f); 
+             v->rcmA[i].set(f,v->x.c4); 
              break;}
         case vmSCM:{ 
-             v->scmC[i]->set(f);
+             v->scmA[i].set(f);
              break;}
         case vmCM:{ 
              v->cmC[i]->set(f); 
              break;}
         case vmMX:{
-             v->mxC[i]->set(f);//get mixer set value and set context
+             v->mxA[i].cxt=f;
              break;}
         case vmST:{
             //  v->stC[i]->set(f);
@@ -436,15 +402,15 @@ int mxc(VM* v,int input){
         if (input==inputIndex && (v->mcomp[i]>>24)==0 && (component==vmST|| component==vmSMC || component==vmRCM ||component==vmSCM || component==vmCM )) {
             int componentIndex=v->mcomp[i]>>16;    // component index
             switch (component) { // select component and mix
-            case vmSMC: v->smC[componentIndex]->mix(inputIndex);
+            case vmSMC: v->x.mxInputs[inputIndex].add(stretch(v->smA[componentIndex].pr)); //v->smC[componentIndex]->mix(inputIndex);
                 break;
-            case vmRCM: v->rcmC[componentIndex]->mix(inputIndex);
+            case vmRCM: v->rcmA[componentIndex].mix(v->x,inputIndex);
                 break;
-            case vmSCM: v->scmC[componentIndex]->mix(inputIndex);
+            case vmSCM: v->scmA[componentIndex].mix(v->x,inputIndex);
                 break;
             case  vmCM: v->cmC[componentIndex]->mix(inputIndex);
                 break;
-            case  vmST: v->stC[componentIndex]->mix(inputIndex);
+            case  vmST: v->x.mxInputs[inputIndex].add(v->stA[componentIndex].pr);
                 break;
             default:
                 quit("VM mxp error\n");
@@ -455,12 +421,11 @@ int mxc(VM* v,int input){
     return 0;
 }
  
-VM::VM(char* m,BlockData& bd,int mode):data1(2024*1024),x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),mmC(0),mxC(0),cmC(0) {
+VM::VM(char* m,BlockData& bd,int mode):data1(2024*1024),x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),/*mmC(0),mxC(0),*/cmC(0) {
     data=&data1[0];
     mod=m;
     smc=apm1=rcm=scm=cm=mx=st=av=mm=ds=dhs=currentc=totalc=initdone=mindex=0;
     debug=0;
-    fix=0;
     if (initvm()==-1) 
     exit(1);  //load cfg file, if error then exit
     initdone=1;
@@ -483,7 +448,7 @@ VM::VM(char* m,BlockData& bd,int mode):data1(2024*1024),x(bd),vmMode(mode),mem(0
                 int index=(mcomp[i]>>16)&0xff;
                 int input=mcomp[i]&0xff;
                 // set input 
-                mxC[index]->setTxWx(x.mxInputs[input].n.size(),&x.mxInputs[input].n[0]);
+                mxA[index].setTxWx(x.mxInputs[input].n.size(),&x.mxInputs[input].n[0]);
             }
         }
     }
@@ -494,7 +459,7 @@ VM::~VM() {killvm();
 
 void VM::next(){
   char *pp;
-  int n;
+  int nu;
   while (tk = *p) {
     ++p;
     if (tk == '\n') {
@@ -521,19 +486,19 @@ void VM::next(){
     }
     else if (tk == '0' && *(p)== 'x') { //Hexadecimal numbers
         p++;
-        for (ival = 0; '\0' != (n = *p); p++) {
-                if ( n >= 'a' && n <= 'f') {
-                        n = n - 'a' + 10;
-                } else if (n >= 'A' && n <= 'F') {
-                        n = n - 'A' + 10;
-                } else if (n >= '0' && n <= '9') {
-                        n = n - '0';
+        for (ival = 0; '\0' != (nu = *p); p++) {
+                if ( nu >= 'a' && nu <= 'f') {
+                        nu = nu - 'a' + 10;
+                } else if (nu >= 'A' && nu <= 'F') {
+                        nu = nu - 'A' + 10;
+                } else if (nu >= '0' && nu <= '9') {
+                        nu = nu - '0';
                 } else {
                         tk = Num;
                         return;
                 }
                 ival = ival<<4;
-                ival  =ival + n;
+                ival  =ival + nu;
         }
     }
     else if (tk >= '0' && tk <= '9') { //numbers
@@ -581,34 +546,14 @@ void VM::next(){
     else if (tk == '~' || tk == ';' || tk == '{' || tk == '}' || tk == '(' || tk == ')' || tk == ']' || tk == ':') return;
   }
 }
-void VM::emit(int op,int val=0){
-    *++e =op;
-switch (op){
-case LEA: {*++e=val; break;}
-case IMM: {*++e=val; break;}
-case JMP: {*++e=val; break;}
-case JSR: {*++e=val; break;}
-case BZ : {  break;}
-case BNZ: {  break;}
-case ENT: { *++e=val;break;} 
-case ADJ: {*++e=val; break;} 
-default:
-{break;}
-}
-  /*printf("   %.4s",  
-        &"LEA ,IMM ,JMP ,JSR ,BZ  ,BNZ ,ENT ,ADJ ,LEV ,LI  ,LS  ,LC  ,SI  ,SS  ,SC  ,PSH ,"
-         "OR  ,XOR ,AND ,EQ  ,NE  ,LT  ,GT  ,LE  ,GE  ,SHL ,SHR ,ADD ,SUB ,MUL ,DIV ,MOD ,THIS,"
-         "PRTF,VMS ,VMI ,VMX ,H2  ,READ,WRTE,EXIT"[op * 5]);
-    if (op < JMP) printf("0x%08x",val); //? +1
-     else if (op <= ADJ) printf("0x%08x",val); //else dprintf("\n");*/
-}
+
 void VM::expr(int lev){
   int t, *d,fc;
 //char *nam;
   if (!tk) { kprintf("%d: unexpected eof in expression\n", line); exit(-1); }
-  else if (tk == Num) { emit( IMM, ival);/**++e = IMM; *++e = ival;*/ next(); ty = iINT; }
+  else if (tk == Num) { *++e = IMM; *++e = ival; next(); ty = iINT; }
   else if (tk == '"') {
-    emit( IMM, ival); next(); 
+    *++e = IMM; *++e = ival;  next(); 
     while (tk == '"') next();
     data = (char *)(((int)data + sizeof(int)) & -sizeof(int)); ty = PTR;
   }
@@ -617,7 +562,7 @@ void VM::expr(int lev){
     ty = iINT; if (tk == Int) next(); else if (tk == Char) { next(); ty = rCHAR; } else if (tk == Short) { next(); ty = sSHORT; }
     while (tk == Mul) { next(); ty = ty + PTR; }
     if (tk == ')') next(); else { kprintf("%d: close paren expected in sizeof\n", line); exit(-1); }
-    emit(IMM,(ty == rCHAR) ? sizeof(char) :(ty == sSHORT) ? sizeof(short) : sizeof(int));//*++e = IMM; *++e = (ty == rCHAR) ? sizeof(char) :(ty == sSHORT) ? sizeof(short) : sizeof(int);
+    *++e = IMM; *++e = (ty == rCHAR) ? sizeof(char) :(ty == sSHORT) ? sizeof(short) : sizeof(int);
     ty = iINT;
   }
   else if (tk == Id) {
@@ -631,7 +576,7 @@ void VM::expr(int lev){
     next();
     if (tk == '(') {      
       if ((d[Val]>=VMS &&  d[Val]<H2) || d[Val]==READ|| d[Val]==WRTE){//for special functions in vm
-            emit(VTHIS);//*++e = VTHIS;
+            *++e = VTHIS;
             next();
             t = 1; //adjust stack
       }
@@ -655,24 +600,24 @@ void VM::expr(int lev){
              exit(-1);
          }
     }
-      while (tk != ')') { expr(Assign); emit(PSH);/**++e = PSH;*/ ++t; if (tk == Comma) next(); }
+      while (tk != ')') { expr(Assign); *++e = PSH; ++t; if (tk == Comma) next(); }
       next();
-      if (d[Class] == Sys) {emit( d[Val]);
+      if (d[Class] == Sys) {*++e =d[Val];
       
     if (t!=fc && fc!=0){ kprintf("%d: wrong number of arguments, (%d) expected %d\n", line,t,fc); exit(-1);}
       }
-      else if (d[Class] == Fun) { emit(JSR,d[Val]);/**++e = JSR; *++e = d[Val];*/ }
+      else if (d[Class] == Fun) { *++e = JSR; *++e = d[Val]; }
       else { kprintf("%d: bad function call\n", line); exit(-1); }
-      if (t) { emit(ADJ,t);/**++e = ADJ; *++e = t;*/ }
+      if (t) { *++e = ADJ; *++e = t; }
       ty = d[Type]; 
       
     }
-    else if (d[Class] == Num) { emit(IMM,d[Val]);/**++e = IMM; *++e = d[Val];*/ ty = iINT; }
+    else if (d[Class] == Num) { *++e = IMM; *++e = d[Val]; ty = iINT; }
     else {
-      if (d[Class] == Loc) { emit(LEA,loc - d[Val]);/**++e = LEA; *++e = loc - d[Val];*/ }
-      else if (d[Class] == Glo) { emit(IMM,d[Val]);/**++e = IMM; *++e = d[Val];*/ }
+      if (d[Class] == Loc) { *++e = LEA; *++e = loc - d[Val]; }
+      else if (d[Class] == Glo) { *++e = IMM; *++e = d[Val]; }
       else { kprintf("%d: undefined variable\n", line); exit(-1); }
-      emit(((ty = d[Type]) == rCHAR) ? LC : ((ty = d[Type]) == sSHORT) ? LS : LI);//*++e = ((ty = d[Type]) == rCHAR) ? LC : ((ty = d[Type]) == sSHORT) ? LS : LI;
+      *++e = ((ty = d[Type]) == rCHAR) ? LC : ((ty = d[Type]) == sSHORT) ? LS : LI;
     }
   }
   else if (tk == '(') {
@@ -699,24 +644,32 @@ void VM::expr(int lev){
     if (*e == LC || *e == LI || *e == LS) --e; else { kprintf("%d: bad address-of\n", line); exit(-1); }
     ty = ty + PTR;
   }
-  else if (tk == '!') { next(); expr(Inc); emit(PSH);emit(IMM,0);emit(EQ);/* *++e = PSH; *++e = IMM; *++e = 0; *++e = EQ;*/ ty = iINT; }
-  else if (tk == '~') { next(); expr(Inc); emit(PSH);emit(IMM,-1);emit(XOR);/* *++e = PSH; *++e = IMM; *++e = -1; *++e = XOR;*/ ty = iINT; }
+  else if (tk == '!') { //next(); expr(Inc); *++e = PSH; *++e = IMM; *++e = 0; *++e = EQ; ty = iINT; 
+  next(); *++e = IMM;
+    if (tk == Num) {*++e = !ival;next(); }else { *++e = 0; *++e = PSH; expr(Inc); *++e = EQ; }
+    ty = iINT;
+  }
+  else if (tk == '~') { //next(); expr(Inc); *++e = PSH; *++e = IMM; *++e = -1; *++e = XOR; ty = iINT;
+  next(); *++e = IMM;
+    if (tk == Num) {*++e = ~ival;next(); }else { *++e = -1; *++e = PSH; expr(Inc); *++e = XOR; }
+    ty = iINT;
+  }
   else if (tk == Add) { next(); expr(Inc); ty = iINT; }
   else if (tk == Sub) {
-    next(); //*++e = IMM;
-    if (tk == Num) { emit(IMM,-ival);/* *++e = -ival;*/ next(); } else { emit(IMM,-1);emit(PSH);emit(MUL);/* *++e = -1; *++e = PSH; expr(Inc); *++e = MUL;*/ }
+    next(); *++e = IMM;
+    if (tk == Num) {  *++e = -ival; next(); } else {  *++e = -1; *++e = PSH; expr(Inc); *++e = MUL; }
     ty = iINT;
   }
   else if (tk == Inc || tk == Dec) {
     t = tk; next(); expr(Inc);
-    if (*e == LC) { *e = PSH; emit(LC);/**++e = LC;*/ }
-    else if (*e == LI) { *e = PSH; emit(LI);/**++e = LI; */}
-    else if (*e == LS) { *e = PSH; emit(LS);/**++e = LS;*/ }
+    if (*e == LC) { *e = PSH; *++e = LC; }
+    else if (*e == LI) { *e = PSH; *++e = LI; }
+    else if (*e == LS) { *e = PSH; *++e = LS; }
     else { kprintf("%d: bad lvalue in pre-increment\n", line); exit(-1); }
-    emit(PSH);/**++e = PSH;*/
-    emit(IMM,(ty > PTR) ? sizeof(int) : (ty > iINT) ?  sizeof(short) : sizeof(char));/**++e = IMM; *++e = (ty > PTR) ? sizeof(int) : (ty > iINT) ?  sizeof(short) : sizeof(char);*/
-    emit((t == Inc) ? ADD : SUB);/**++e = (t == Inc) ? ADD : SUB;*/
-    emit((ty == rCHAR) ? SC : (ty == sSHORT) ? SS : SI);/**++e = (ty == rCHAR) ? SC : (ty == sSHORT) ? SS : SI;*/
+    *++e = PSH;
+    *++e = IMM; *++e = (ty > PTR) ? sizeof(int) : (ty > iINT) ?  sizeof(short) : sizeof(char);
+    *++e = (t == Inc) ? ADD : SUB;
+    *++e = (ty == rCHAR) ? SC : (ty == sSHORT) ? SS : SI;
   }
  
   else { kprintf("%d: bad expression\n", line); exit(-1); }
@@ -734,40 +687,40 @@ void VM::expr(int lev){
     }
     else if (tk == Cond) {
       next();
-      emit(BZ) ; d = ++e;
+      *++e=BZ; d = ++e;
       expr(Assign);
       if (tk == ':') next(); else { kprintf("%d: conditional missing colon\n", line); exit(-1); }
       *d = (int)(e + 3); *++e = JMP; d = ++e;
       expr(Cond);
       *d = (int)(e + 1);
     }
-    else if (tk == Lor) { next(); emit(BNZ) ;  d = ++e; expr(Lan); *d = (int)(e + 1); ty = iINT; }
-    else if (tk == Lan) { next(); emit(BZ) ;  d = ++e; expr(Or);  *d = (int)(e + 1); ty = iINT; }
-    else if (tk == Or)  { next();emit(PSH); expr(Xor); emit( OR);  ty = iINT; }
-    else if (tk == Xor) { next(); emit(PSH); expr(And);emit( XOR); ty = iINT; }
-    else if (tk == And) { next(); emit(PSH); expr(Eq);  emit( AND); ty = iINT; }
-    else if (tk == Eq)  { next(); emit(PSH); expr(Lt);  emit( EQ);  ty = iINT; }
-    else if (tk == Ne)  { next(); emit(PSH); expr(Lt);  emit( NE);  ty = iINT; }
-    else if (tk == Lt)  { next(); emit(PSH); expr(Shl); emit( LT);  ty = iINT; }
-    else if (tk == Gt)  { next(); emit(PSH); expr(Shl); emit( GT);  ty = iINT; }
-    else if (tk == Le)  { next(); emit(PSH); expr(Shl); emit( LE);  ty = iINT; }
-    else if (tk == Ge)  { next(); emit(PSH); expr(Shl); emit( GE);  ty = iINT; }
-    else if (tk == Shl) { next();emit(PSH); expr(Add); emit( SHL); ty = iINT; }
-    else if (tk == Shr) { next(); emit(PSH); expr(Add); emit( SHR); ty = iINT; }
+    else if (tk == Lor) { next(); *++e=(BNZ) ;  d = ++e; expr(Lan); *d = (int)(e + 1); ty = iINT; }
+    else if (tk == Lan) { next(); *++e=(BZ) ;  d = ++e; expr(Or);  *d = (int)(e + 1); ty = iINT; }
+    else if (tk == Or)  { next();*++e=(PSH); expr(Xor); *++e=( OR);  ty = iINT; }
+    else if (tk == Xor) { next(); *++e=(PSH); expr(And);*++e=( XOR); ty = iINT; }
+    else if (tk == And) { next(); *++e=(PSH); expr(Eq);  *++e=( AND); ty = iINT; }
+    else if (tk == Eq)  { next(); *++e=(PSH); expr(Lt);  *++e=( EQ);  ty = iINT; }
+    else if (tk == Ne)  { next(); *++e=(PSH); expr(Lt);  *++e=( NE);  ty = iINT; }
+    else if (tk == Lt)  { next(); *++e=(PSH); expr(Shl); *++e=( LT);  ty = iINT; }
+    else if (tk == Gt)  { next(); *++e=(PSH); expr(Shl); *++e=( GT);  ty = iINT; }
+    else if (tk == Le)  { next(); *++e=(PSH); expr(Shl); *++e=( LE);  ty = iINT; }
+    else if (tk == Ge)  { next(); *++e=(PSH); expr(Shl); *++e=( GE);  ty = iINT; }
+    else if (tk == Shl) { next();*++e=(PSH); expr(Add); *++e=( SHL); ty = iINT; }
+    else if (tk == Shr) { next(); *++e=(PSH); expr(Add); *++e=( SHR); ty = iINT; }
     else if (tk == Add) {
-      next(); emit(PSH); expr(Mul);
-      if ((ty = t) > PTR) {emit(PSH); emit(IMM,sizeof(int)); emit(MUL);  }//pointer
-      emit(ADD); //*++e = ADD;
+      next(); *++e=(PSH); expr(Mul);
+      if ((ty = t) > PTR) {*++e=(PSH); *++e=(IMM);*++e=sizeof(int); *++e=(MUL);  }//pointer
+      *++e=(ADD); //*++e = ADD;
     }
     else if (tk == Sub) {
       next(); *++e = PSH; expr(Mul);
-      if (t > PTR && t == ty) { *++e = SUB; *++e = PSH; emit(IMM,sizeof(int));emit(DIV); ty = iINT; }
-      else if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); emit(MUL); emit(SUB);   }
+      if (t > PTR && t == ty) { *++e = SUB; *++e = PSH; *++e=(IMM);*++e=(sizeof(int));*++e=(DIV); ty = iINT; }
+      else if ((ty = t) > PTR) { *++e = PSH; *++e = IMM; *++e = sizeof(int); *++e=(MUL); *++e=(SUB);   }
       else *++e = SUB;
     }
-    else if (tk == Mul) { next(); *++e = PSH; expr(Inc); emit(MUL);   ty = iINT; }
-    else if (tk == Div) { next(); *++e = PSH; expr(Inc);emit(DIV);   ty = iINT; }
-    else if (tk == Mod) { next(); *++e = PSH; expr(Inc); emit(MOD);   ty = iINT; }
+    else if (tk == Mul) { next(); *++e = PSH; expr(Inc); *++e=(MUL);   ty = iINT; }
+    else if (tk == Div) { next(); *++e = PSH; expr(Inc);*++e=(DIV);   ty = iINT; }
+    else if (tk == Mod) { next(); *++e = PSH; expr(Inc); *++e=(MOD);   ty = iINT; }
     else if (tk == Inc || tk == Dec) {
         if (ty > PTR) {  printf("%d: cant assign to pointer\n", line); exit(-1); }
       if (*e == LC) { *e = PSH; *++e = LC; }
@@ -788,28 +741,28 @@ void VM::expr(int lev){
       int *boundptr;
 #endif
       next(); 
-      emit(PSH);
+      *++e=(PSH);
       expr(Assign);     
 #ifdef VMBOUNDS  
       if (((int)e-directarray)==(4*3) && *(e-2)==PSH && *(e-1)==IMM && (unsigned int)*e>upperbound) printf("Array out of bounds: defined %d used %d, line %d\n",upperbound,*e, line), exit(-1);
 #endif
       if (tk == ']') next(); else { kprintf("%d: close bracket expected\n", line); exit(-1); }
       if (t > PTR) { 
-        emit(PSH); 
+        *++e=(PSH); 
 #ifdef VMBOUNDS        
         //runtime bounds check
-        emit(PSH);                                              // push index value again
-        emit(IMM,upperbound);emit(GT);  emit(BZ);boundptr=++e;  // compare index>upperbound
-           emit(IMM,line); emit(PSH); emit(BOUND); emit(ADJ,1); // fail if larger
+        *++e=(PSH);                                              // push index value again
+        *++e=(IMM);*++e=(upperbound);*++e=(GT);  *++e=(BZ);boundptr=++e;  // compare index>upperbound
+           *++e=(IMM);*++e=(line); *++e=(PSH); *++e=(BOUND); *++e=(ADJ);*++e=(1); // fail if larger
         *boundptr = (int)(e + 1);
 #endif
-        emit(IMM,((ty = t - PTR) == rCHAR) ? 1 : ((ty = t - PTR) == sSHORT) ? 2 : 4);
-        emit(MUL);
+        *++e=(IMM);*++e=(((ty = t - PTR) == rCHAR) ? 1 : ((ty = t - PTR) == sSHORT) ? 2 : 4);
+        *++e=(MUL);
       } //fixed to int !!!
       else if (t < PTR) { kprintf("%d: pointer type expected\n", line); exit(-1); }
-      emit(ADD);
+      *++e=(ADD);
       char aa=((ty = t - PTR) == rCHAR) ? LC : ((ty = t - PTR) == sSHORT) ? LS : LI;//9 i 10 s 11 c
-      emit(aa);
+      *++e=(aa);
     }
     else { kprintf("%d: compiler error tk=%d\n", line, tk); exit(-1); }
   }
@@ -823,7 +776,7 @@ void VM::stmt() {
         if (tk == '(') next(); else { kprintf("%d: open paren expected\n", line); exit(-1); }
         expr(Assign);
         if (tk == ')') next(); else { kprintf("%d: close paren expected\n", line); exit(-1); }
-        emit(BZ) ; b = ++e;
+        *++e=(BZ) ; b = ++e;
         stmt();
         if (tk == Else) {
             *b = (int)(e + 3); *++e = JMP; b = ++e;
@@ -838,7 +791,7 @@ void VM::stmt() {
         if (tk == '(') next(); else { kprintf("%d: open paren expected\n", line); exit(-1); }
         expr(Comma);
         if (tk == ')') next(); else { kprintf("%d: close paren expected\n", line); exit(-1); }
-        emit(BZ) ; b = ++e;
+        *++e=(BZ) ; b = ++e;
         stmt();
         *++e = JMP; *++e = (int)a;
         *b = (int)(e + 1);
@@ -850,7 +803,7 @@ void VM::stmt() {
         next();
         a = e + 1;
         if (tk != ';') expr(Comma); //2
-        emit(BZ) ; b = ++e;
+        *++e=(BZ) ; b = ++e;
         next();
         if (tk != ')'){
             *++e = JMP; c=e+1;*++e = (int)0; //j1
@@ -957,6 +910,65 @@ int VM::dovm(int *ttt){
 
 }
  #endif
+ /*
+ void VM::gen(int *n)
+{
+  int i, *a, *b;
+
+  i = *n;
+  if (i == Num) { *++e = IMM; *++e = n[1]; }
+  else if (i == Loc) { *++e = LEA; *++e = n[1]; }
+  else if (i == Load) { gen(n+2); *++e = (((n[1] == rCHAR) ? LC : n[1] == sSHORT) ? LS : LI); }
+  else if (i == Assign) { gen((int *)n[2]); *++e = PSH; gen(n+3); *++e = ((n[1] == rCHAR) ? SC : n[1] == sSHORT) ? SS : SI; }
+  else if (i == Inc || i == Dec) {
+    gen(n+2);
+    *++e = PSH; *++e = (((n[1] == rCHAR) ? LC : n[1] == sSHORT) ? LS : LI); *++e = PSH;
+    *++e = IMM; *++e = (n[1]  > PTR) ?  sizeof(int) : (n[1] > iINT) ?  sizeof(short) : sizeof(char);;
+    *++e = (i == Inc) ? ADD : SUB;
+    *++e = ((n[1] == rCHAR) ? SC : n[1] == sSHORT) ? SS : SI;
+  }  
+  else if (i == Cond) {
+    gen((int *)n[1]);
+    *++e = BZ; b = ++e;
+    gen((int *)n[2]);
+    if (n[3]) { *b = (int)(e + 3); *++e = JMP; b = ++e; gen((int *)n[3]); }
+    *b = (int)(e + 1);
+  }
+  else if (i == Lor) { gen((int *)n[1]); *++e = BNZ; b = ++e; gen(n+2); *b = (int)(e + 1); }
+  else if (i == Lan) { gen((int *)n[1]); *++e = BZ;  b = ++e; gen(n+2); *b = (int)(e + 1); }
+  else if (i == Or)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = OR; }
+  else if (i == Xor) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = XOR; }
+  else if (i == And) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = AND; }
+  else if (i == Eq)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = EQ; }
+  else if (i == Ne)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = NE; }
+  else if (i == Lt)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = LT; }
+  else if (i == Gt)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = GT; }
+  else if (i == Le)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = LE; }
+  else if (i == Ge)  { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = GE; }
+  else if (i == Shl) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = SHL; }
+  else if (i == Shr) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = SHR; }
+  else if (i == Add) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = ADD; }
+  else if (i == Sub) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = SUB; }
+  else if (i == Mul) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = MUL; }
+  else if (i == Div) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = DIV; }
+  else if (i == Mod) { gen((int *)n[1]); *++e = PSH; gen(n+2); *++e = MOD; }
+  else if (i == Sys || i == Fun) {
+    b = (int *)n[1];
+    while (b) { gen(b+1); *++e = PSH; b = (int *)*b; }
+    if (i == Fun) *++e = JSR; *++e = n[2];
+    if (n[3]) { *++e = ADJ; *++e = n[3]; }
+  }
+  else if (i == While) {
+    *++e = JMP; b = ++e; gen(n+2); *b = (int)(e + 1);
+    gen((int *)n[1]);
+    *++e = BNZ; *++e = (int)(b + 1);
+  }
+  else if (i == Return) { if (n[1]) gen((int *)n[1]); *++e = LEV; }
+  else if (i == '{') { gen((int *)n[1]); gen(n+2); }
+  else if (i == Enter) { *++e = ENT; *++e = n[1]; gen(n+2); *++e = LEV; }
+  else if (i != ';') { printf("%d: compiler error gen=%d\n", line, i); exit(-1); }
+}
+*/
 #ifdef VMJIT
 
 int VM::dojit(){
@@ -1264,22 +1276,21 @@ int VM::getPrediction(int cInputs){
         // mix inputs[0..x]
     if(cInputs>=0){     
         for (int j=0;j<cInputs+1;j++) {  
-           // mxc(this,j);    
            for (int i=0;i< totalc;i++){
         int inputIndex=mcomp[i] &0xff ;    // index  
         int component=(mcomp[i]>>8)&0xff;
         if (j==inputIndex && (mcomp[i]>>24)==0 && (component==vmST|| component==vmSMC || component==vmRCM ||component==vmSCM || component==vmCM )) {
             int componentIndex=mcomp[i]>>16;    // component index
             switch (component) { // select component and mix
-            case vmSMC: smC[componentIndex]->mix(inputIndex);
+            case vmSMC: x.mxInputs[inputIndex].add(stretch(smA[componentIndex].pr));//smC[componentIndex]->mix(inputIndex);
                 break;
-            case vmRCM: rcmC[componentIndex]->mix(inputIndex);
+            case vmRCM: rcmA[componentIndex].mix(x,inputIndex);
                 break;
-            case vmSCM: scmC[componentIndex]->mix(inputIndex);
+            case vmSCM: scmA[componentIndex].mix(x,inputIndex);
                 break;
             case  vmCM: cmC[componentIndex]->mix(inputIndex);
                 break;
-            case  vmST: stC[componentIndex]->mix(inputIndex);
+            case  vmST: x.mxInputs[inputIndex].add(stA[componentIndex].pr);
                 break;
             default:
                 quit("VM mxp error\n");
@@ -1297,38 +1308,40 @@ int VM::getPrediction(int cInputs){
         // individual components        
         if ((prindex>0 || compnr==vmMM )){
           //if (compnr!=vmMM )printcomponent(compnr),printf("(%d)=",i);
+            prindex--;
             switch (compnr) {
             case vmSMC: {
-                prSize[prindex-1]=smC[index]->p(); 
+                prSize[prindex]=smA[index].pr; 
                 break;
             }  
             case vmAPM1: {
-                prSize[prindex-1]=apm1C[index]->p(prSize[apm1C[index]->i1()]);
+                prSize[prindex]=apm1A[index].p(prSize[apm1A[index].p1],x.y);
                 break;
             }
             case vmDS: {
-                prSize[prindex-1]=dsC[index]->p();
+                prSize[prindex]=dsA[index].p();
                 break; 
             }
              case vmDHS: {
-                prSize[prindex-1]=dhsC[index]->p();
+                prSize[prindex]=dhsA[index].p();
                 break; 
             }
             case vmAVG: {
-                prSize[prindex-1]=avC[index]->average(prSize[avC[index]->i1()],prSize[avC[index]->i2()]);
+                prSize[prindex]=avA[index].average(prSize[avA[index].p1],prSize[avA[index].p2]);
                 break; 
             }
             case vmMM: {
-                mmC[index]->set(prSize[mmC[index]->i1()]);
-                mmC[index]->mix(mixnr);
+                mmA[index].p=prSize[ mmA[index].i1];
+               // mmA[index].mix(mixnr,x);
+                x.mxInputs[mixnr].add(mmA[index].pr());
                 break; 
             }                
             case vmMX: {
-                prSize[prindex-1]=mxC[index]->p(mixnr);            // predict from result
+                prSize[prindex]=mxA[index].p();
                 break;  
             }
             case vmST: {
-                 prSize[prindex-1]=stC[index]->p();
+                 prSize[prindex]=stA[index].pr1;
                  break; 
             }
             /*case vmSK: {
@@ -1357,7 +1370,8 @@ void  VM::updateComponents(){
             // individual components
             if (prindex>0 && compnr==vmMX){
                 index=(mcomp[i]>>16)&0xff;
-                mxC[index]->update( mcomp[i]  &0xff); //update
+                //mxC[index]->update( mcomp[i]  &0xff); //update
+                mxA[index].update(x.y);
             }
         }
         for (int j=0;j<x.cInputs+1;j++)  {
@@ -1397,6 +1411,8 @@ int VM::initvm() {
   if (!(text = le = e = (int *)malloc(poolsz))) { kprintf("could not malloc(%d) text area\n", poolsz); return -1; }
   //if (!(data =data0= (char *)malloc(poolsz))) { kprintf("could not malloc(%d) data area\n", poolsz); return -1; }
   if (!(sp =sp0= (int *)malloc(poolsz))) { kprintf("could not malloc(%d) stack area\n", poolsz); return -1; }
+  if (!(ast = (int *)malloc(poolsz))) { printf("could not malloc(%d) abstract syntax tree area\n", poolsz); return -1; }
+  //ast = ((int)ast + poolsz); // abstract syntax tree is most efficiently built as a stack
  data0 =data;
   memset(sym,  0, poolsz);
   memset(e,    0, poolsz);
@@ -1507,9 +1523,9 @@ int VM::initvm() {
           }
           next();
         }
-         emit(  ENT, i - loc);
+         *++e=(  ENT);*++e=( i - loc);
         while (tk != '}') stmt();
-        emit( LEV);
+        *++e=( LEV);
         id = sym; // unwind symbol table locals
         while (id[Tk]) {
           if (id[Class] == Loc) {
