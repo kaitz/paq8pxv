@@ -139,10 +139,10 @@ vmi(SCM,0,0,1,2);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(RCM,0,0,1,2);
+// third parameter is memory*4096, must be power of two
+// forth parameter is unused
+// sixth parameter is predictionIndex
+vmi(RCM,0,1024,0,0);
 ```
 ### CM
 ```c
@@ -150,10 +150,10 @@ vmi(RCM,0,0,1,2);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(CM,0,0,1,2);
+// third parameter is memory*4096, must be power of two
+// forth parameter is count of contexts
+// sixth parameter is predictionIndex
+vmi(CM,0,32*4096,1,0);
 ```
 ### MX
 ```c
