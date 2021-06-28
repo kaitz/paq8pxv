@@ -65,11 +65,11 @@ structure, except that empty directories are not stored, and file
 attributes (timestamps, permissions, etc.) are not preserved.
 During extraction, directories are created as needed.  For example:
 
-  paq8pxv -4 c:\tmp\foo bar
+  paq8pxv -1 c:\tmp\foo bar
 
-compresses foo and bar (if they exist) to c:\tmp\foo.paq8pxv at level 4.
+compresses foo and bar (if they exist) to c:\tmp\foo.paq8pxv
 
-  paq8pxv -d c:\tmp\foo.paq8pxv .
+  paq8pxv -d c:\tmp\foo.paq8pxv
 
 extracts foo and compares bar in the current directory.  If foo and bar
 are directories then their contents are extracted/compared.
@@ -89,17 +89,11 @@ paq8pxv.cpp recognizes the following compiler options:
   -DWINDOWS           (to compile in Windows)
   -DUNIX              (to compile in Unix, Linux, etc)
   -DMT                (to compile with multithreading support)
-  -DDEFAULT_OPTION=N  (to change the default compression level from 8 to N).
 
 If you compile without -DWINDOWS or -DUNIX, you can still compress files,
 but you cannot compress directories or create them during extraction.
 You can extract directories if you manually create the empty directories
 first.
-
-Use -DEFAULT_OPTION=N to change the default compression level to support
-drag and drop on machines with less than 256 MB of memory.  Use
--DDEFAULT_OPTION=4 for 128 MB, 3 for 64 MB, 2 for 32 MB, etc.
-
 
 Recommended compiler commands and optimizations:
 
@@ -137,7 +131,7 @@ An archive has the following format.
   file segmentation data
   stream data sizes[11]
 
--N is the option (-0 to -15) and mode, even if a default was used.
+-N is the option (-0 to -1) and mode, even if a default was used.
 00LMNNNN bit M is set if fast mode, 
          bit L is set if quick mode,
          if L or M are not set default to slow mode.
@@ -440,9 +434,6 @@ elements at a time.
 #include <windows.h>
 #endif
 
-#ifndef DEFAULT_OPTION
-#define DEFAULT_OPTION 8
-#endif
 #include <stdint.h>
 #ifdef _MSC_VER
 //
@@ -580,7 +571,7 @@ template<class T, const int Align> void Array<T,Align>::create(U64 requested_siz
   if(!ptr){
       printf("Requested size %d MB.\n",(U32)((bytes_to_allocate)/1000)/1000);
       #ifdef MT
-      printf("Try using lower option ex. -s7 or reduce thread count.\n");
+      printf("Try using less memory in your cfg file or reduce thread count.\n");
       #endif
       quit("Out of memory.");
   }
@@ -759,11 +750,8 @@ public:
 };
 
 /////////////////////// Global context /////////////////////////
-//bool modeQuick=false;
-U8 level=DEFAULT_OPTION;  // Compression level 0 to 15
-U64 MEM(){
-     return 0x10000UL<<level;
-}
+U8 level=1;  // Compression level 0 no compression
+             //             level 1 compression
 int defaultType;
 Segment segment; //for file segments type size info(if not -1)
  int streamCount;
@@ -789,8 +777,6 @@ public:
     Array<Inputs> mxInputs; // array of inputs
     int cInputs;
 BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),mxInputs(0),cInputs(-1) {
-        // Set globals according to option
-        assert(level<=9);
     }
 ~BlockData(){ }
 };
@@ -1950,11 +1936,7 @@ public:
 #define MALIGN 16
 #endif
 
-inline U64 CMlimit(U64 size){
-    //if (size>(0x100000000UL)) return (0x100000000UL); //limit to 4GB, using this will consume lots of memory above level 11
-    if (size>(0x80000000UL)) return (0x80000000UL); //limit to 2GB
-    return (size);
-}
+
 class ContextMap {
   const int C;  // max number of contexts
   class E {  // hash element, 64 bytes
@@ -3395,25 +3377,24 @@ int main(int argc, char** argv) {
         
 #ifdef MT 
         int topt=1;
-        if (argc>1 && aopt[0]=='-' && aopt[1]  && strlen(aopt)<=6) {
+        if (argc>1 && aopt[0]=='-' && aopt[1]  && strlen(aopt)<=5) {
 #else
-        if (argc>1 && aopt[0]=='-' && aopt[1]  && strlen(aopt)<=4) {    
+        if (argc>1 && aopt[0]=='-' && aopt[1]  && strlen(aopt)<=3) {    
 #endif
             if (aopt[1]=='d' && !aopt[2])
                 doExtract=true;
             else if (aopt[1]=='l' && !aopt[2])
                 doList=true;
-            else if (aopt[2]>='0' && aopt[2]<='9' && strlen(aopt)==3 && aopt[1]=='s'){
-                level=aopt[2]-'0';
+            else if (aopt[1]>='0' && aopt[1]<='1' && strlen(aopt)==2){
+                level=aopt[1]-'0';
             }
 #ifdef MT 
-            else if (aopt[2]>='0' && aopt[2]<='9'&& (aopt[4]<='9' && aopt[4]>'0') && strlen(aopt)==5 && 
-            (aopt[1]=='s')){
-                topt=aopt[4]-'0';
-                level=aopt[2]-'0';}
+            else if (aopt[1]>='0' && aopt[1]<='1'&& (aopt[3]<='9' && aopt[3]>'0') && strlen(aopt)==4 ){
+                topt=aopt[3]-'0';
+                level=aopt[1]-'0';}
 #endif
             else
-                quit("Valid options are -s0 through -s9, -d, -l\n");
+                quit("Valid options are -0 through -1, -d, -l\n");
             --argc;
             ++argv;
             pause=false;
@@ -3445,6 +3426,7 @@ printf("Multithreading enabled with %s.\n",
 "windows native threads"
 #endif
 );
+#endif
 
 #if defined(__AVX2__)
 printf("Compiled with AVX2\n");
@@ -3459,7 +3441,7 @@ printf("Compiled with SSE\n");
 #else
 printf("No vector instrucionts\n");
 #endif
-#endif
+
 printf("\n");
 
             printf(
@@ -3469,16 +3451,16 @@ printf("\n");
             "The output will be put in the same folder as the input.\n"
             "Or from a command window: "
 #endif
-            "To compress:\n"
-            "  " PROGNAME " -slevel file               (compresses to file." PROGNAME ")\n"
-            "  " PROGNAME " -slevel archive files...   (creates archive." PROGNAME ")\n"
-            "  " PROGNAME " file                       (level -%d pause when done)\n"
-            "level: -s0     store\n"
-            "  -s1...-s8    (uses 393, 398, 409 MB 1.2  1.3  1.5  1.9 2.7 GB)\n"
+            "\nTo compress:\n"
+            "  " PROGNAME " -level file               (compresses to file." PROGNAME ")\n"
+            "  " PROGNAME " -level archive files...   (creates archive." PROGNAME ")\n"
+            "  " PROGNAME " file                       (level -1 pause when done)\n"
+            "level: -0     store\n"
+            "       -1     compress\n"
 
 #ifdef MT 
             "  to use multithreading -level:threads (1-9, compression only)\n"
-            "  " PROGNAME " -s4:2 file (use level 4 threads 2)\n\n"
+            "  " PROGNAME " -1:2 file (compress and use 2 threads)\n\n"
 #endif            
 #if defined(WINDOWS) || defined (UNIX)
             "You may also compress directories.\n"
@@ -3489,12 +3471,11 @@ printf("\n");
             "  " PROGNAME " -d dir1/archive." PROGNAME " dir2 (extract to dir2)\n"
             "  " PROGNAME " archive." PROGNAME "              (extract, pause when done)\n"
             "\n"
-            "To view contents: " PROGNAME " -l archive." PROGNAME "\n"
-            "\n",
-            DEFAULT_OPTION);
+            "To view contents: " PROGNAME " -l archive." PROGNAME "\n");
             getchar();
             quit();
         }
+        clock_t start_time;  // in ticks
         // precalculate tabeles
         for (int i=0; i<1024; ++i)
             dt[i]=16384/(i+i+3);
@@ -4035,7 +4016,7 @@ printf("\n");
             }
         }
         fclose(archive);
-        if (!doList) printf("Models peak memory usage %d MB.\n",(getPeakMemory()/1000)/1000);
+        if (!doList) printf("Time %1.2f sec. Models peak memory usage %d MB.\n",double(clock()-start_time)/CLOCKS_PER_SEC, (getPeakMemory()/1000)/1000);
     
     if (pause) {
         printf("\nClose this window or press ENTER to continue...\n");

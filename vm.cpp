@@ -9,8 +9,6 @@
 // + port to paq Kaido Orav
 
 
-
-
 #ifdef WINDOWS
 #define PROT_NONE       0
 #define PROT_READ       1
@@ -140,7 +138,6 @@ void updateComponents();
 // keep track of pointers and sizes in bytes
 // no bounds test
 char* vmmalloc(VM* v,size_t i,int w){
-  //programChecker.alloc(U64(i*w));
   char*ptr= (char*)calloc(i*w,1);
   if (ptr==0) perror("mem error "),printf("%d ",i),quit("VM mem alloc fail");
   v->mem.resize(v->mem.size()+1);
@@ -295,13 +292,13 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         break;
         case vmDHS: v->dhsA[componentIndex].Init(f,d,indexOfInputs);
         break;
-    case vmRCM: v->rcmA[componentIndex].Init(CMlimit(f<0?MEM()/(!f+1):MEM()*f));
+    case vmRCM: v->rcmA[componentIndex].Init(f<=0?4096:f*4096);
         break;
     case vmSCM: v->scmA[componentIndex].Init(f); 
         break;
     case vmAVG:v->avA[componentIndex].Init(d,indexOfInputs);
         break;
-    case vmCM: v->cmC[componentIndex] = (ContextMap*)new ContextMap(CMlimit(f<0?MEM()/(!f+1):MEM()*(U64)f),d,v->x);
+    case vmCM: v->cmC[componentIndex] = (ContextMap*)new ContextMap(f<=0?4096:f*4096,d,v->x);
         break;
     case vmMX: v->mxA[componentIndex].Init(d,f); //context,shift
         break;
