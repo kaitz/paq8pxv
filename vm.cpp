@@ -388,7 +388,7 @@ int writefile(VM* v,U8 *i,int size){
     return -1;
 }
 //mix all input components  
-int mxc(VM* v,int input){  
+/*int mxc(VM* v,int input){  
     for (int i=0;i< v->totalc;i++){
         int inputIndex=v->mcomp[i] &0xff ;    // index  
         int component=(v->mcomp[i]>>8)&0xff;
@@ -412,7 +412,7 @@ int mxc(VM* v,int input){
         }
     }
     return 0;
-}
+}*/
  
 VM::VM(char* m,BlockData& bd,int mode):data1(2024*1024),x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),/*mmC(0),mxC(0),*/cmC(0) {
     data=&data1[0];

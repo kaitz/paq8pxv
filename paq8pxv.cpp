@@ -768,6 +768,8 @@ public:
     int blpos; // Relative position in block
     int filetype;
     int finfo;
+    int bposshift;
+    int c0shift_bpos;
     struct Inputs{
         int ncount;     // mixer input count
         //int wcount;     // mixer weights count
@@ -776,7 +778,7 @@ public:
     } ;
     Array<Inputs> mxInputs; // array of inputs
     int cInputs;
-BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),mxInputs(0),cInputs(-1) {
+BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),mxInputs(0),cInputs(-1),bposshift(0),c0shift_bpos(0) {
     }
 ~BlockData(){ }
 };
@@ -1551,16 +1553,29 @@ inline  U8* BH<B>::operator[](U32 i) {
 //     prediction.  C=1.
 // - ContextMap.  For large contexts, C >= 1.  Context need not be hashed.
 
-
-
+inline int clp(int z){
+    if (z<-2047){
+        z=-2047;
+    }else if (z>2047){
+        z=2047;
+    }
+    return z;
+}
 // A RunContextMap maps a context into the next byte and a repeat
 // count up to M.  Size should be a power of 2.  Memory usage is 3M/4.
 struct RunContextMap {
   BH<4> t;
   U8* cp;
+  short rc[512];
   Init(int m){ 
     t.resize(m/4);
     cp=t[0]+1;
+    for (int r=0;r<256;r++) {
+        int c=ilog(r+1)*8;
+	    rc[r+256]=clp(c);
+	    rc[r]=clp(-c);
+     }
+  
   }
   void set(U32 cx,int c4) {  // update count
     if (cp[0]==0 || cp[1]!=(U8)c4) cp[0]=1, cp[1]=(U8)c4;
@@ -1568,8 +1583,9 @@ struct RunContextMap {
     cp=t[cx]+1;
   }
   int p(BlockData& x) {  // predict next bit
-    if ((cp[1]+256)>>(8-x.bpos)==x.c0)
-      return ((cp[1]>>(7-x.bpos)&1)*2-1)*ilog(cp[0]+1)*8;
+    int b=x.c0shift_bpos ^ (cp[1] >> x.bposshift);
+    if (b<=1)
+      return rc[b*256+cp[0]];
     else
       return 0;
   }
@@ -1786,7 +1802,7 @@ struct DynamicHSMap {
     // for jpeg there is 3 bits -> 8
     // for bmp4 there is 4 bits -> 16
     hashElementCount=((1<<bits)), //+1 for checksum 
-    hashSearchLimit=(4),
+    hashSearchLimit=(5),
     bitscount=(bits),
     n=((1<<membits)-1);
   
@@ -1935,7 +1951,9 @@ public:
 #else
 #define MALIGN 16
 #endif
-
+short st32[8192];
+short st12[4096];
+short st8[8192]; 
 
 class ContextMap {
   const int C;  // max number of contexts
@@ -1961,7 +1979,7 @@ class ContextMap {
   Random rnd;
   int result;
   BlockData& x;
-  
+  short rc1[512];
   int mix1(int m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
     
@@ -2002,6 +2020,11 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(
     cp0[i]=cp[i]=&t[0].bh[0][0];
     runp[i]=cp[i]+3;
   }
+  for (int rc=0;rc<256;rc++) {
+    int c=ilog(rc+1)<<(2+(~rc&1));
+	    rc1[rc+256]=clp(c);
+	    rc1[rc]=clp(-c);
+  } 
 }
 
 ContextMap::~ContextMap() {
@@ -2034,24 +2057,18 @@ inline int mix2(BlockData& x, int m, int s, StateMap& sm) {
     x.mxInputs[m].add(c*16);
     return 0;
   }else{
-  int st=stretch(p1);
-  x.mxInputs[m].add(sc(st*(c*8))>>(int(s <= 2)));
-  x.mxInputs[m].add(sc((p1-2048)*(c*3)));
-  int n01=n0n1[s];
+    x.mxInputs[m].add(st32[p1]>>(int(s <= 2)));
+    x.mxInputs[m].add(st12[p1]);
+    const int  n01=n0n1[s];
     if (n01){
-        int p0=(n01<2)?4095:0;
-        x.mxInputs[m].add(sc((p1-p0)*(c*2)));
-        if (n0n1[s]==2){ // -1
-              x.mxInputs[m].add(sc(-st*(c*8)));
-        }else{
-              x.mxInputs[m].add(sc(st*(c*8)));
-        }
-     }else {
+        x.mxInputs[m].add(st8[(n01&4096)+p1]);
+        x.mxInputs[m].add(st32[(n01&4096)+p1]);
+    }else {
         x.mxInputs[m].add(0);
         x.mxInputs[m].add(0);
-     }
-     x.mxInputs[m].add(0);
-  return s>0;
+    }
+    x.mxInputs[m].add(0);
+    return 1;
   }
 }
 // Update the model with bit y1, and predict next bit to mixer m.
@@ -2116,11 +2133,11 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     mix2(x,m, s, sm[i]);
 
     // predict from last byte in context
-    if ( (runp[i][1]+256)>>(8-bp)==cc) {
-      int rc=runp[i][0];  // count*2, +1 if 2 different bytes seen
-      int b=(runp[i][1]>>(7-bp)&1)*2-1;  // predicted bit + for 1, - for 0
-      int c=ilog(rc+1)<<(2+(~rc&1));
-      x.mxInputs[m].add(b*c);
+    int b=x.c0shift_bpos ^ (runp[i][1] >> x.bposshift);
+    if (b<=1) {
+       b=b*256;   // predicted bit + for 1, - for 0
+       // count*2, +1 if 2 different bytes seen
+	   x.mxInputs[m].add(rc1[runp[i][0]+b]);
     }
     else
       x.mxInputs[m].add(0);
@@ -2159,6 +2176,8 @@ public:
         ++x.blpos;
     }
     x.bpos=(x.bpos+1)&7;
+    x.bposshift=7-x.bpos;
+    x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
     vm.updateComponents();
     pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
     if (pr!=0) quit();
@@ -3488,7 +3507,21 @@ printf("\n");
             if ((n1-n0)==-1 ) r=1;
             n0n1[i]=r;
         }
-
+        // precalc mix2 mixer inputs
+        for (int i=0;i<4096;i++) {
+            st12[i]=clp(sc(12*(i - 2048)));
+            for (int s=0;s<256;s++) {
+                int  s01=n0n1[s];
+                int  sp0=(s01<2)?4095:0;
+                int   ii=((s01&2)<<11)+i;
+                st8[ii] =clp(sc(8*(i-sp0)));
+                st32[ii]=clp(sc(32*stretch(i)));
+            }
+        } 
+        // set 2 -> 4096 so we can "and" array index in mix2
+        for (int s=0;s<256;s++) {
+            if (n0n1[s]==2) n0n1[s]=4096; 
+        }
 
         FILE* archive=0;               // compressed file
         int files=0;                   // number of files to compress/decompress
