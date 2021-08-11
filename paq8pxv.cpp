@@ -1188,7 +1188,7 @@ struct Mixer1 {
   int cxt;  // S contexts
   int pr;   // last result (scaled 12 bits)
   int shift1; 
- 
+  int elim;
 #if defined(__AVX2__)
  int dot_product (const short* const t, const short* const w, int n) {
   assert(n == ((n + 15) & -16));
@@ -1332,6 +1332,7 @@ void train(short *t, short *w, int n, int err) {
   void update(int y) {
       int err=((y<<12)-pr)*7;
       assert(err>=-32768 && err<32768);
+      if(err>=-elim && err<=elim) err=0; // needs to be component dependent
       train(&tx[0], &wx[cxt*N], N, err);
   }
  
@@ -1350,8 +1351,8 @@ void train(short *t, short *w, int n, int err) {
     tx=mn; 
   }
   
-  Init(int m,  int s){
-    M=m,  cxt=0, shift1=s;
+  Init(int m,  int s,int e){
+    M=m,  cxt=0, shift1=s,elim=e*7;
     pr=2048; //initial p=0.5
   }
   Free(){
