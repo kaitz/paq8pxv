@@ -232,9 +232,10 @@ switch (component) {
 void initcomponent(VM* v,int component,int componentIndex, int f,int d, int indexOfInputs){
     assert(componentIndex>=0); //component index
     assert(d>=0); //component context
+    //printcomponent(component); printf(" component %d,  componentIndex %d,   f %d,  d %d,   indexOfInputs %d\n",component, componentIndex,  f, d,  indexOfInputs);
     if (v->initdone==1) {kprintf("VM vmi error: vmi allowed only in main\n ");quit();}
     if (v->currentc>  v->totalc) {kprintf("VM vmi error: component %d not set %d - %d\n ",component,v->currentc, v->totalc);quit();}
-
+    if (componentIndex>  255)  {kprintf("VM vmi error: componentIndex\n ");quit();}
     const int ii=componentIndex+1;
     bool isInputs= (component==vmAPM1 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1));
     if (indexOfInputs>=0 &&  v->x.cInputs <indexOfInputs && isInputs==false){// input sets for mixers
@@ -300,7 +301,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         break;
     case vmCM: v->cmC[componentIndex] = (ContextMap*)new ContextMap(f<=0?4096:f*4096,d,v->x);
         break;
-    case vmMX: v->mxA[componentIndex].Init(d,f); //context,shift
+    case vmMX: v->mxA[componentIndex].Init(d,f&255,(f>>8)&255); //context,shift,err
         break;
     case vmST: v->stA[componentIndex].Init(f);
         break;

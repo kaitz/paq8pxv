@@ -518,7 +518,7 @@ int equals(const char* a, const char* b) {
 // a.append(x): appends x to the end of the array and reserving space for more elements if needed.
 // a.pop_back(): removes the last element by reducing the size by one (but does not free memory).
 #ifndef NDEBUG
-static void chkindex(U64 index, U64 upper_bound) {
+static void chkindex(U32 index, U32 upper_bound) {
   if (index>=upper_bound) {
     fprintf(stderr, "out of upper bound %d\n",index);
     quit();
@@ -540,15 +540,15 @@ public:
   ~Array();
   T& operator[](U64 i) {
     #ifndef NDEBUG
-    chkindex(i,used_size);
+    chkindex(U32(i),U32(used_size));
     #endif
-    return data[i];
+    return data[U32(i)];
   }
   const T& operator[](U64 i) const {
     #ifndef NDEBUG
-    chkindex(i,used_size);
+    chkindex(U32(i),U32(used_size));
     #endif
-    return data[i];
+    return data[U32(i)];
   }
   U64 size() const {return used_size;}
   void resize(U64 new_size);
@@ -569,7 +569,7 @@ template<class T, const int Align> void Array<T,Align>::create(U64 requested_siz
   U64 bytes_to_allocate=allocated_bytes();
   ptr=(char*)calloc(bytes_to_allocate,1);
   if(!ptr){
-      printf("Requested size %d MB.\n",(U32)((bytes_to_allocate)/1000)/1000);
+      printf("Requested size %d b.\n",(U32)(bytes_to_allocate));
       #ifdef MT
       printf("Try using less memory in your cfg file or reduce thread count.\n");
       #endif
@@ -613,7 +613,10 @@ template<class T, const int Align> Array<T, Align>::~Array() {
   data=0;ptr=0;
 }
 
-
+template <class T> void alloc(T*&ptr, int c) {
+  ptr=(T*)calloc(c, sizeof(T));
+  if (!ptr) quit("Out of memory.\n");
+}
 /////////////////////////// String /////////////////////////////
 
 // A tiny subset of std::string
@@ -1154,21 +1157,20 @@ struct APM1 {
   int mask;
   int rate,cxt;
   int p1; // pr select index
+  
   Init(int n,int r,int d){ 
     index=0,  mask=(n-1),rate=(r),cxt=(0),p1=(d);
     assert(ispowerof2(n));
-    t = (U16*)calloc((n*33)*sizeof(U16), 1);
+    alloc(t,n*33);
     for (int i=0; i<n; ++i)
       for (int j=0; j<33; ++j)
         t[i*33+j] = i==0 ? squash((j-16)*128)*16 : t[j];
   }
   Free(){
     free(t);
-  }
- 
+  } 
   int p(int pr,int y) {
     assert(pr>=0 && pr<4096 && rate>0 && rate<32);
-    
     pr=stretch(pr);
     int g=(y<<16)+(y<<rate)-y-y;
     t[index] += (g-t[index]) >> rate;
@@ -1373,45 +1375,7 @@ void train(short *t, short *w, int n, int err) {
 static int dt[1024];  // i -> 16K/(i+i+3)
 static int n0n1[256];
 
-class StateMap {
-protected:
-  const int N;  // Number of contexts
-  int cxt;      // Context of last prediction
-  Array<U32> t;       // cxt -> prediction in high 22 bits, count in low 10 bits
-  inline void update(int y, int limit) {
-    assert(cxt>=0 && cxt<N);
-    assert(y==0 || y==1);
-    U32 *p=&t[cxt], p0=p[0];
-    int n=p0&1023, pr=p0>>10;  // count, prediction
-    //if (n<limit) ++p0;
-    //else p0=(p0&0xfffffc00)|limit;
-    p0+=(n<limit);
-    p0+=(((y<<22)-pr)>>3)*dt[n]&0xfffffc00;
-    p[0]=p0;
-  }
 
-public:
-  StateMap(int n=256);
-  void Reset(int Rate=0){
-    for (int i=0; i<N; ++i)
-      t[i]=(t[i]&0xfffffc00)|min(Rate, t[i]&0x3FF);
-  }
-  // update bit y (0..1), predict next bit in context cx
-  int p(int cx, int y,int limit=1023) {
-    assert(cx>=0 && cx<N);
-    assert(limit>0 && limit<1024);
-    assert(y==0 || y==1);
-    update(y,limit);
-    return t[cxt=cx]>>20;
-  }
-};
-
-StateMap::StateMap(int n): N(n), cxt(0), t(n) {
-  for (int i=0; i<N; ++i)
-    t[i]=1<<31;
-}
-
- 
 struct StateMapContext {
   int N;  // Number of contexts
   int cxt;      // Context of last prediction
@@ -1422,7 +1386,7 @@ struct StateMapContext {
   Init(int n, int lim){ 
     N=(n), cxt=(0), pr=(2048), mask=(n-1),limit=(lim);
     assert(ispowerof2(n));
-    t=(U32*)calloc((n)*sizeof(U32*), 1);
+    alloc(t,n);
     assert(limit>0 && limit<1024);
     for (int i=0; i<N; ++i)
       t[i]=1<<31; 
@@ -1434,8 +1398,6 @@ struct StateMapContext {
     assert(y==0 || y==1);
     U32 *p=&t[cxt], p0=p[0];
     int n=p0&1023, pr1=p0>>10;  // count, prediction
-    //if (n<limit) ++p0;
-    //else p0=(p0&0xfffffc00)|limit;
     p0+=(n<limit);
     p0+=(((y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
     p[0]=p0;
@@ -1730,7 +1692,7 @@ struct AvgMap {
   int p1,p2; // index to prediction array
   
   Init(int a,int b){
-    pr=(0),p1=(a),p2=(b);
+    pr=0,p1=a,p2=b;
   }
   inline int average(int a,int b){
       return pr=(a+b+1)>>1;
@@ -1743,7 +1705,7 @@ struct AvgMap {
 
 struct DynamicSMap {
   int state;
-  StateMap *sm;
+  StateMapContext *sm;
   int *cxt;
   U32 mask;
   int *pr;
@@ -1753,22 +1715,28 @@ struct DynamicSMap {
   int count;
 
   Init(int m,int lim,int c){
-    state=(0), mask=((1<<m)-1),limit=(lim),index=(0),count=(c);
-    cxt = (int*)calloc(c*sizeof(int), 1);
-    pr = (int*)calloc(c*sizeof(int), 1);
-    CxtState = (U8*)calloc((mask+1)*sizeof(U8), 1);
-    sm=new StateMap[c];
+    state=0, mask=(1<<m)-1,limit=lim,index=0,count=c;
+    alloc(cxt,c);
+    alloc(pr,c);
+    alloc(CxtState,(mask+1));
+    alloc(sm,c);
+    for (int i=0; i<count; i++) 
+      sm[i].Init(256,lim);
   }
   Free(){
     free(cxt);
     free(pr);
     free(CxtState);
-    delete sm;
+    for (int i=0; i<count; i++) {
+       sm[i].Free();
+    }
+    
   }
   void set(U32 cx,int y) {
     CxtState[cxt[index]]=nex(CxtState[cxt[index]],y);       // update state
     cxt[index]=(cx)&mask;                                     // get new context
-    pr[index]=sm[index].p(CxtState[cxt[index]],y,limit);    // predict from new context
+    sm[index].set(CxtState[cxt[index]],y);    // predict from new context
+    pr[index]=sm[index].pr;
     index++;
     if (index==count) index=0;
   }
@@ -1785,7 +1753,7 @@ struct DynamicSMap {
 #define ispowerof2(x) ((x&(x-1))==0)
 struct DynamicHSMap {
   int state;
-  StateMap *sm;
+  StateMapContext *sm;
   int *pr;
   int limit;  
   int index;
@@ -1795,8 +1763,8 @@ struct DynamicHSMap {
   int bitscount;
   U32 n;
   U8 **cp;  
-  U8 * t;
-  U8 * ptr;
+  U8 *t;
+  U8 *ptr;
  
   Init(int bits,int membits,int countOfContexts){
     state=(0),limit=(1023),index=(0),count=(countOfContexts),
@@ -1815,8 +1783,10 @@ struct DynamicHSMap {
     if (!ptr) quit("Out of memory");
     //align
     t = (U8*)(ptr+32-(((long)ptr)&(32-1)));
-    sm=new StateMap[countOfContexts];
-    for (int i=0;i<countOfContexts;i++)
+    alloc(sm,count);
+    for (int i=0; i<count; i++) 
+      sm[i].Init(256,limit);
+    for (int i=0;i<count;i++)
       cp[i]=&t[0]+1;
     /*   printf("hashElementCount %d\n",hashElementCount);
       printf("countOfContexts %d\n",countOfContexts);
@@ -1829,23 +1799,28 @@ struct DynamicHSMap {
     free(cp);
     free(pr);
     free(ptr);
-    delete sm;
+    for (int i=0; i<count; i++) {
+       sm[i].Free();
+    }
   }
   
   void set(U32 cx,int y) {
     if (index==0 && cp[count-1])  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],y);   //update state
       if (cx>255){
         cp[index]=find(cx)+1;                                      // find new
-        pr[index]=sm[index].p(*cp[index],y,limit);
+        sm[index].set(*cp[index],y);
+        pr[index]=sm[index].pr;
         index++;
         if (index==count) index=0;
       }else{
         if (cx==0) {
           index=0;
-          return;}
-          for ( int i=0; i<count; ++i) {
+          return;
+        }
+        for ( int i=0; i<count; ++i) {
           cp[i]+=cx;
-          pr[i]=sm[i].p(*cp[i],y,limit);                             // predict from new context
+          sm[i].set(*cp[i],y);                             // predict from new context
+          pr[i]=sm[i].pr;
         }
         index=0;
       }      
@@ -1975,7 +1950,7 @@ class ContextMap {
   Array<U8*> cp0;  // First element of 7 element array containing cp[i]
   Array<U32> cxt;  // C whole byte contexts (hashes)
   Array<U8*> runp; // C [0..3] = count, value, unused, unused
-  StateMap *sm;    // C maps of state -> p
+  StateMapContext *sm;    // C maps of state -> p
   int cn;          // Next context to set by set()
   Random rnd;
   int result;
@@ -2016,7 +1991,9 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(
     cxt(C), runp(C), cn(0),result(0),x(bd) {
   assert(m>=64 && (m&m-1)==0);  // power of 2?
   assert(sizeof(E)==64);
-  sm=new StateMap[C];
+  alloc(sm,C);
+  for (int i=0; i<C; i++) 
+      sm[i].Init(256,1023);
   for (int i=0; i<C; ++i) {
     cp0[i]=cp[i]=&t[0].bh[0][0];
     runp[i]=cp[i]+3;
@@ -2029,7 +2006,9 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(
 }
 
 ContextMap::~ContextMap() {
-  delete[] sm;
+  for (int i=0; i<C; i++) {
+       sm[i].Free();
+    }
 }
 
 // Set the i'th context to cx
@@ -2047,8 +2026,9 @@ inline int sc(int p){
     if (p>0) return p>>7;
     return (p+127)>>7;// p+((1<<s)-1);
 }
-inline int mix2(BlockData& x, int m, int s, StateMap& sm) {
-  int p1=sm.p(s,x.y);
+inline int mix2(BlockData& x, int m, int s, StateMapContext& sm) {
+  sm.set(s,x.y);
+  int p1=sm.pr;
   const int c=4;
   if (s==0){
     x.mxInputs[m].add(0); 
@@ -3439,7 +3419,7 @@ int main(int argc, char** argv) {
             printf("Compiled with VM emulation.\n");
 #endif
 #ifdef MT
-printf("Multithreading enabled with %s.\n",
+printf("Multithreading enabled with %s. ",
 #ifdef PTHREAD
 "PTHREAD"
 #else
@@ -3466,32 +3446,20 @@ printf("\n");
 
             printf(
 #ifdef WINDOWS
-            "To compress or extract, drop a file or folder on the "
-            PROGNAME " icon.\n"
+            "To compress or extract, drop a file or folder on the " PROGNAME " icon.\n"
             "The output will be put in the same folder as the input.\n"
-            "Or from a command window: "
 #endif
-            "\nTo compress:\n"
-            "  " PROGNAME " -level file               (compresses to file." PROGNAME ")\n"
-            "  " PROGNAME " -level archive files...   (creates archive." PROGNAME ")\n"
-            "  " PROGNAME " file                       (level -1 pause when done)\n"
-            "level: -0     store\n"
-            "       -1     compress\n"
-
+            "\nUsage: " PROGNAME " [-options:threads] [output] input\n"
+            "   input              extract, pause when done\n"
+            "  -0                  store\n"
 #ifdef MT 
-            "  to use multithreading -level:threads (1-9, compression only)\n"
-            "  " PROGNAME " -1:2 file (compress and use 2 threads)\n\n"
+            "  -1[:t]              compress file where t is number of threds\n"
+#else
+            "  -1                  compress file\n"
 #endif            
-#if defined(WINDOWS) || defined (UNIX)
-            "You may also compress directories.\n"
-#endif
-            "\n"
-            "To extract or compare:\n"
-            "  " PROGNAME " -d dir1/archive." PROGNAME "      (extract to dir1)\n"
-            "  " PROGNAME " -d dir1/archive." PROGNAME " dir2 (extract to dir2)\n"
-            "  " PROGNAME " archive." PROGNAME "              (extract, pause when done)\n"
-            "\n"
-            "To view contents: " PROGNAME " -l archive." PROGNAME "\n");
+            "  -d dir1/input       extract to dir1\n"
+            "  -d dir1/input dir2  extract to dir2\n"
+            "  -l input            list archive contets\n");
             getchar();
             quit();
         }
