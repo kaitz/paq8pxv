@@ -144,6 +144,7 @@ int main(){
 |StaticMap |ST|9|yes|yes|
 |MixMap| MM|10|no|yes|
 |DynamicHashStateMap| DHS |11|yes|no|
+|StationaryMap| SM |12|no|yes|
 
 [See detailed info about components](components.md)
 
