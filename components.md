@@ -13,6 +13,7 @@
 |StaticMap |[ST](#st)|9|yes|yes|
 |MixMap| [MM](#mm)|10|no|yes|
 |DynamicHashStateMap| [DHS](#dhs) |11|yes|no|
+|StationaryMap| [SM](#sm) |12|no|yes|
 
 # Functions used to set up components
 ## vms - component counts
@@ -215,6 +216,26 @@ for ( i=0; i<10; i++) {  vmx(DHS,0,cxt[i]);}
 
 // update DHS contexts states where j is in range 0...16
 vmx(DHS,0,j);
+
+```
+### SM
+```c
+// Create SM component (0)
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is memory_bits
+// forth parameter is input_bits (low 8 bits), memory usage is N=((1<<memory_bits)*((1<<input_bits)-1)). pr mul value
+// sixth parameter is number of contexts
+
+//main
+// creates SM
+vmi(DHS,0,16,3,0);
+
+// update
+// set DHS contexts at the start of state update
+vmx(SM, 0,val);
+
 
 ```
 ### SK
