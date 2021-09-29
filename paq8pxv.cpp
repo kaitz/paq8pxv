@@ -394,9 +394,10 @@ elements at a time.
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
-#define VMBOUNDS                    // uncomment to aad bounds chack at runtime
-//#define ERRMSG                    // uncomment to show error messages if programm quits
-//#define VMMSG                     // prints vm error messages and x86 asm to console
+#define VMBOUNDS                    // uncomment to aad bounds chack at compile
+#define VMBOUNDSRUN                 // uncomment to aad bounds chack at runtime
+#define ERRMSG                    // uncomment to show error messages if programm quits
+#define VMMSG                     // prints vm error messages and x86 asm to console
 
 #ifdef WINDOWS
 #ifdef MT
@@ -480,7 +481,7 @@ inline int max(int a, int b) {return a<b?b:a;}
 #endif
 #endif
 #define ispowerof2(x) ((x&(x-1))==0)
-
+#include <math.h>
 // Error handler: print message if any, and exit
 void quit(const char* message=0) {
     #ifdef  ERRMSG 
@@ -616,6 +617,14 @@ template<class T, const int Align> Array<T, Align>::~Array() {
 template <class T> void alloc(T*&ptr, int c) {
   ptr=(T*)calloc(c, sizeof(T));
   if (!ptr) quit("Out of memory.\n");
+}
+ 
+
+template <class T> void alloc1(T*&data, int c,T*&ptr,const int align=16) {
+  ptr=(T*)calloc(c, sizeof(T));
+  if (!ptr) quit("Out of memory.\n");
+  data=(T*)(((uintptr_t)ptr+(align-1)) & ~(uintptr_t)(align-1));
+  
 }
 /////////////////////////// String /////////////////////////////
 
@@ -1186,11 +1195,12 @@ struct Mixer1 {
   int N, M;   // max inputs, max contexts, max context sets
   short*tx; // N inputs from add()  
   short* wx ; // N*M weights
-  char *ptr;
+  short *ptr;
   int cxt;  // S contexts
   int pr;   // last result (scaled 12 bits)
   int shift1; 
   int elim;
+  int uperr;
 #if defined(__AVX2__)
  int dot_product (const short* const t, const short* const w, int n) {
   assert(n == ((n + 15) & -16));
@@ -1332,29 +1342,34 @@ void train(short *t, short *w, int n, int err) {
 
   // Adjust weights to minimize coding cost of last prediction
   void update(int y) {
-      int err=((y<<12)-pr)*7;
-      assert(err>=-32768 && err<32768);
-      if(err>=-elim && err<=elim) err=0; // needs to be component dependent
+      int err=((y<<12)-pr)*uperr/4;
+      if (err>32767)
+          err=32767;
+      if (err<-32768)
+          err=-32768;
+      if(err>=-elim && err<=elim) err=0;
       train(&tx[0], &wx[cxt*N], N, err);
   }
  
   // predict next bit
   int p( ) {
     assert(cxt<M);
-    return pr=squash(dot_product(&tx[0], &wx[cxt*N], N)>>( shift1));
+    int dp=dot_product(&tx[0], &wx[cxt*N], N)*shift1>>13;
+    if (dp<-2047) {
+        dp=-2047;
+    } else if (dp > 2047) {
+        dp=2047;
+    }
+    return pr=squash(dp);
   }
   void setTxWx(int n,short* mn){
-    N=(n+15)&-16;
-    const int sz=32+(N*M)*sizeof(wx);
-    ptr = (char*)calloc(sz, 1);
-    if (!ptr) quit("Out of memory");
-    //align
-    wx = (short*)(ptr+32-(((long)ptr)&(32-1)));
+       N=n;
+    alloc1(wx,(N*M)+32,ptr,32);  //?
     tx=mn; 
   }
   
-  Init(int m,  int s,int e){
-    M=m,  cxt=0, shift1=s,elim=e*7;
+  Init(int m,  int s,int e,int ue){
+    M=m,  cxt=0, shift1=s,elim=e,uperr=ue;
     pr=2048; //initial p=0.5
   }
   Free(){
@@ -1530,11 +1545,11 @@ struct RunContextMap {
   BH<4> t;
   U8* cp;
   short rc[512];
-  Init(int m){ 
+  Init(int m,int rcm_ml=8){ 
     t.resize(m/4);
     cp=t[0]+1;
     for (int r=0;r<256;r++) {
-        int c=ilog(r+1)*8;
+        int c=ilog(r+1)*rcm_ml;
 	    rc[r+256]=clp(c);
 	    rc[r]=clp(-c);
      }
@@ -1581,7 +1596,7 @@ struct SmallStationaryContextMap {
     Context=0, Mask=((1<<BitsOfContext)-1), 
     Stride=((1<<InputBits)-1), bCount=(0), bTotal=(InputBits), B=(0)  ;
     N=(1ull<<BitsOfContext)*((1ull<<InputBits)-1);
-    Data = (U16*)calloc(N*sizeof(U16), 1);
+    alloc(Data,N);
     for (U32 i=0; i<N; ++i)
       Data[i]=0x7FFF;
     cp=&Data[0];
@@ -1621,30 +1636,35 @@ struct SmallStationaryContextMap {
     Uses (2^(BitsOfContext+2))*((2^InputBits)-1) bytes of memory.
 */
 
-class StationaryMap {
-  Array<U32> Data;
-  int Context, Mask, Stride, bCount, bTotal, B;
+struct StationaryMap {
+  U32 *Data;
+  int Context, Mask, Stride, bCount, bTotal, B, N;
   U32 *cp;
-  BlockData& x;
-public:
-  StationaryMap(int BitsOfContext,BlockData& bd, int InputBits = 8, int Rate = 0): 
-  
-  Data((1ull<<BitsOfContext)*((1ull<<InputBits)-1)), Context(0), 
-  Mask((1<<BitsOfContext)-1), Stride((1<<InputBits)-1), bCount(0), bTotal(InputBits), B(0),x(bd) {
+  int Multiplier ,  Divisor;
+  U16 Limit;
+  Init(int BitsOfContext, int InputBits = 8, int mul=8,int Rate = 0) {
+  Multiplier = mul,  Divisor = 32,  Limit = 1023;
+  N=((1ull<<BitsOfContext)*((1ull<<InputBits)-1));
+  Context=(0), 
+  Mask=((1<<BitsOfContext)-1), Stride=((1<<InputBits)-1), bCount=(0), bTotal=(InputBits), B=(0); 
     assert(InputBits>0 && InputBits<=8);
     assert(BitsOfContext+InputBits<=24);
+    alloc(Data,N);
     Reset(Rate);
     cp=&Data[0];
+  }
+  Free(){
+    free(Data);
   }
   void set(U32 ctx) {
     Context = (ctx&Mask)*Stride;
     bCount=B=0;
   }
   void Reset( int Rate = 0 ){
-    for (U32 i=0; i<Data.size(); ++i)
+    for (U32 i=0; i<N; ++i)
       Data[i]=(0x7FF<<20)|min(1023,Rate);
   }
-  void mix(int m, const int Multiplier = 1, const int Divisor = 4, const U16 Limit = 1023) {
+  void mix(BlockData& x,int m) {
     // update
     U32 Count = min(min(Limit,0x3FF), ((*cp)&0x3FF)+1);
     int Prediction = (*cp)>>10, Error = (x.y<<22)-Prediction;
@@ -1655,8 +1675,8 @@ public:
     B+=(x.y && B>0);
     cp=&Data[Context+B];
     Prediction = (*cp)>>20;
-    x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);
-    x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));
+    x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);//      1/4    8/32
+    x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));//    1/8    8/64
     bCount++; B+=B+1;
     if (bCount==bTotal)
       bCount=B=0;
@@ -1697,10 +1717,6 @@ struct AvgMap {
   inline int average(int a,int b){
       return pr=(a+b+1)>>1;
   }
- // int mix(int m) {
- //   x.mxInputs[m].add(stretch(pr));
- //   return 0;
- // }
 };
 
 struct DynamicSMap {
@@ -1713,7 +1729,7 @@ struct DynamicSMap {
   U8 *CxtState;
   int index;
   int count;
-
+ 
   Init(int m,int lim,int c){
     state=0, mask=(1<<m)-1,limit=lim,index=0,count=c;
     alloc(cxt,c);
@@ -1730,8 +1746,10 @@ struct DynamicSMap {
     for (int i=0; i<count; i++) {
        sm[i].Free();
     }
+    free(sm);
     
   }
+
   void set(U32 cx,int y) {
     CxtState[cxt[index]]=nex(CxtState[cxt[index]],y);       // update state
     cxt[index]=(cx)&mask;                                     // get new context
@@ -1765,7 +1783,7 @@ struct DynamicHSMap {
   U8 **cp;  
   U8 *t;
   U8 *ptr;
- 
+  
   Init(int bits,int membits,int countOfContexts){
     state=(0),limit=(1023),index=(0),count=(countOfContexts),
     // for jpeg there is 3 bits -> 8
@@ -1775,14 +1793,9 @@ struct DynamicHSMap {
     bitscount=(bits),
     n=((1<<membits)-1);
   
-    cp = (U8**)calloc(countOfContexts*sizeof(U8*), 1);
-    pr = (int*)calloc(countOfContexts*sizeof(int), 1);
-      
-    const int sz=32+(hashElementCount*(1<<membits))*sizeof(U8);
-    ptr = (U8*)calloc(sz, 1);
-    if (!ptr) quit("Out of memory");
-    //align
-    t = (U8*)(ptr+32-(((long)ptr)&(32-1)));
+    alloc(cp,countOfContexts);
+    alloc(pr,countOfContexts);
+    alloc1(t,(hashElementCount*(1<<membits)),ptr,32);  
     alloc(sm,count);
     for (int i=0; i<count; i++) 
       sm[i].Init(256,limit);
@@ -1802,8 +1815,9 @@ struct DynamicHSMap {
     for (int i=0; i<count; i++) {
        sm[i].Free();
     }
+    free(sm);
   }
-  
+
   void set(U32 cx,int y) {
     if (index==0 && cp[count-1])  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],y);   //update state
       if (cx>255){
@@ -1930,7 +1944,10 @@ public:
 short st32[8192];
 short st12[4096];
 short st8[8192]; 
-
+inline int sc(int p){
+    if (p>0) return p>>7;
+    return (p+127)>>7;// p+((1<<s)-1);
+}
 class ContextMap {
   const int C;  // max number of contexts
   class E {  // hash element, 64 bytes
@@ -1956,9 +1973,11 @@ class ContextMap {
   int result;
   BlockData& x;
   short rc1[512];
+  short st1[8192];
+  int cms;
   int mix1(int m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
-    
+   int next(int i, int y);
 public:
   ContextMap(U64 m, int c ,BlockData& bd);  // m = memory in bytes, a power of 2, C = c
   ~ContextMap();
@@ -1967,6 +1986,7 @@ public:
   int mix(int m) {return mix1(m,  x.c0,  x.bpos, (U8) x.c4,  x.y);}
   int get() {return result;}
   int inputs();
+  int mix2(BlockData& x, int m, int s, StateMapContext& sm);
 };
 
  
@@ -1987,8 +2007,11 @@ inline U8* ContextMap::E::get(U16 ch) {
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(C),
+ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c&255),  t(m>>6), cp(C), cp0(C),
     cxt(C), runp(C), cn(0),result(0),x(bd) {
+  int cmul=(c>>8)&255;
+  cms=(c>>16)&255;
+
   assert(m>=64 && (m&m-1)==0);  // power of 2?
   assert(sizeof(E)==64);
   alloc(sm,C);
@@ -1999,16 +2022,28 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c),  t(m>>6), cp(C), cp0(
     runp[i]=cp[i]+3;
   }
   for (int rc=0;rc<256;rc++) {
-    int c=ilog(rc+1)<<(2+(~rc&1));
-	    rc1[rc+256]=clp(c);
-	    rc1[rc]=clp(-c);
+    //int c=ilog(rc+1)<<(2+(~rc&1));
+    int c=ilog(rc+1);
+    c=c<<(2+(~rc&1));
+    c=c*cmul/4;
+    rc1[rc+256]=clp(c);
+    rc1[rc]=clp(-c);
   } 
+  for (int i=0;i<4096;i++) {
+    for (int s=0;s<256;s++) {
+        int  s01=n0n1[s];
+        int  sp0=(s01<2)?4095:0;
+        int   ii=((s01&2)<<11)+i;
+        st1[ii]=clp(sc(cms*stretch(i)));
+        }
+    }
 }
 
 ContextMap::~ContextMap() {
   for (int i=0; i<C; i++) {
        sm[i].Free();
     }
+    free(sm);
 }
 
 // Set the i'th context to cx
@@ -2022,11 +2057,8 @@ inline void ContextMap::set(U32 cx, int next) {
 }
 // Predict to mixer m from bit history state s, using sm to map s to
 // a probability.
-inline int sc(int p){
-    if (p>0) return p>>7;
-    return (p+127)>>7;// p+((1<<s)-1);
-}
-inline int mix2(BlockData& x, int m, int s, StateMapContext& sm) {
+
+inline int ContextMap::mix2(BlockData& x, int m, int s, StateMapContext& sm) {
   sm.set(s,x.y);
   int p1=sm.pr;
   const int c=4;
@@ -2038,7 +2070,7 @@ inline int mix2(BlockData& x, int m, int s, StateMapContext& sm) {
     x.mxInputs[m].add(c*16);
     return 0;
   }else{
-    x.mxInputs[m].add(st32[p1]>>(int(s <= 2)));
+    x.mxInputs[m].add(st1[p1]>>(int(s <= 2)));
     x.mxInputs[m].add(st12[p1]);
     const int  n01=n0n1[s];
     if (n01){
@@ -2052,6 +2084,7 @@ inline int mix2(BlockData& x, int m, int s, StateMapContext& sm) {
     return 1;
   }
 }
+
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
 int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
@@ -2062,8 +2095,11 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     if (cp[i]) {
       assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[t.size()-1].bh[6][6]);
       assert(((long long)(cp[i])&63)>=15);
-      int ns=nex(*cp[i], y1);
-      if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
+      int ns;
+      if (cms<39){ // 
+          ns=nex(*cp[i], y1);
+          if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
+      } else ns=nex(*cp[i], y1);
       *cp[i]=ns;
     }
 
@@ -2071,7 +2107,7 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     if (x.bpos>1 && runp[i][0]==0) {
      cp[i]=0;
     } else {
-     U16 chksum=cxt[i]>>16;
+     U16 chksum=(cxt[i]>>16)^i;
      U64 tmask=t.size()-1;
      switch(x.bpos)
      {
@@ -2129,13 +2165,265 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
 int ContextMap::inputs() {
     return 6;
 }
-  
+
+//
+// Autotune component parameters
+//
+
+void compressStream(int streamid,U64 size, FILE* in, FILE* out);
+bool doFullOpt=false;
+double randfloat(){return (double(rand())+0.5)/double(RAND_MAX+1);};
+int randint(int min,int max){return (rand()%(max-min+1))+min;};
+
+// Parameters for VM components
+struct VMParam {
+  bool vm_mixer[256];
+  int vm_mixer_limit[256];
+  bool vm_mixer_ml[256];
+  int vm_mixer_limit_ml[256];
+  bool vm_mixer_ue[256];
+  int vm_mixer_limit_ue[256];
+  bool vm_apm[256];
+  int vm_apm_limit[256];
+  bool vm_smc[256];
+  int vm_smc_limit[256];
+  bool vm_ds[256];
+  int vm_ds_limit[256];
+  bool vm_cm[256];
+  int vm_cm_limit[256];
+  bool vm_cms[256];
+  int vm_cms_limit[256];
+  bool vm_sm[256];
+  int vm_sm_limit[256];
+  bool vm_rcm[256];
+  int vm_rcm_limit[256];
+  bool isactive;
+  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm){
+   isactive=true;
+   for (int i=0;i<256;i++) vm_mixer[i]=m; 
+   for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
+   for (int i=0;i<256;i++) vm_mixer_ue[i]=mue;  
+   for (int i=0;i<256;i++) vm_apm[i]=apm;
+   for (int i=0;i<256;i++) vm_smc[i]=smc;
+   for (int i=0;i<256;i++) vm_ds[i]=ds;
+   for (int i=0;i<256;i++) vm_cm[i]=cm;
+   for (int i=0;i<256;i++) vm_cms[i]=cms;
+   for (int i=0;i<256;i++) vm_sm[i]=sm;
+   for (int i=0;i<256;i++) vm_rcm[i]=rcm;
+  }
+};
+
+VMParam parm1[256];  // initial stream parameters
+VMParam *parm2[256]; // stream parameters for tuning
+
+struct Parameter{
+  int *param;
+  int min,max;
+};
+
+class SimulatedAnnealing {
+    VMParam *InitState;
+    VMParam BestState,ActualState;
+    Parameter parameters[256*12];
+    int accepted,rejected;
+    int current_best,tune_best,total_runs;
+    double init_prob_accepted;
+    double cooling_rate; 
+    double sum_deltaError,temperature;
+    int maxbytes;
+    int streamid;
+    FILE* in;
+    bool full_search;
+public:
+
+SimulatedAnnealing(VMParam *parmin,double init_prob,double cooling,int fraction,int in_size,int sid, FILE* n, bool full)
+:InitState(parmin),init_prob_accepted(init_prob),cooling_rate(cooling), streamid(sid),in(n),full_search(full){
+   maxbytes=in_size;
+   if (fraction<100) maxbytes=int(double(in_size)*(double(fraction)/100.0)+0.5);
+}
+void StoreBestState(VMParam *Dst) {
+  CopyState(Dst,&BestState);
+};
+int GetBest() {
+  return current_best;
+};
+int GetEnergy(VMParam *Param) {
+  uint32_t size=0;
+  parm2[streamid]=Param;
+  FILE *tmp=tmpfile2();
+  fseek(in, 0, SEEK_SET);  
+  compressStream(streamid, maxbytes,  in, tmp);
+  size=(U32)ftell(tmp);
+  fclose(tmp);
+  return size;
+}
+
+void CopyState(VMParam *Dst,VMParam *Src) {
+  memcpy(Dst,Src,sizeof(VMParam));
+}
+
+int CreateVector(VMParam *Param,Parameter *parameters) {
+  int n=0;
+  for (int i=0;i<256;i++)
+   if (Param->vm_mixer[i]) {
+    parameters[n].param=&Param->vm_mixer_limit[i];
+    parameters[n].min=0;parameters[n].max=32768;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_mixer_ml[i]) {
+    parameters[n].param=&Param->vm_mixer_limit_ml[i];
+    parameters[n].min=1;parameters[n].max=255;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_mixer_ue[i]) {
+    parameters[n].param=&Param->vm_mixer_limit_ue[i];
+    parameters[n].min=1;parameters[n].max=112;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_apm[i]) {
+    parameters[n].param=&Param->vm_apm_limit[i];
+    parameters[n].min=1;parameters[n].max=16;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_smc[i]) {
+    parameters[n].param=&Param->vm_smc_limit[i];
+    parameters[n].min=1;parameters[n].max=1023;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_ds[i]) {
+    parameters[n].param=&Param->vm_ds_limit[i];
+    parameters[n].min=1;parameters[n].max=1023;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_cm[i]) {
+    parameters[n].param=&Param->vm_cm_limit[i];
+    parameters[n].min=0;parameters[n].max=30;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_cms[i]) {
+    parameters[n].param=&Param->vm_cms_limit[i];
+    parameters[n].min=1;parameters[n].max=60;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_sm[i]) {
+    parameters[n].param=&Param->vm_sm_limit[i];
+    parameters[n].min=1;parameters[n].max=32;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_rcm[i]) {
+    parameters[n].param=&Param->vm_rcm_limit[i];
+    parameters[n].min=1;parameters[n].max=30;
+    n++;
+  }
+  return n;
+}
+
+void ChangeParameter(int idx,double radius) {
+   int *p=parameters[idx].param;
+   int min_param=parameters[idx].min;
+   int max_param=parameters[idx].max;
+
+   int r=(int)(radius*double(max_param-min_param)+0.5);
+   *p = randint(max(min_param,*p-r),min(max_param,*p+r));
+}
+
+void CreateProposal(VMParam *Param, double radius) {
+  int dim=CreateVector(Param,parameters);
+  if (dim<1) return;
+
+ if (full_search) for (int i=0;i<dim;i++) ChangeParameter(i,radius);
+ else ChangeParameter(randint(0,dim-1),radius);
+}
+
+void Init() {
+  srand(time(0));
+  current_best = GetEnergy(InitState);
+  InitState->isactive=false;
+  tune_best=current_best;
+  CopyState(&BestState,InitState);
+  total_runs=0;
+  sum_deltaError=temperature=0.0;
+  printf(" SA InitState: %i bytes cooling rate=%0.5f\n",current_best,cooling_rate);
+}
+
+void Tune(int maxruns, double radius) {
+  accepted=rejected=0;
+  CopyState(&ActualState,&BestState);
+
+  sum_deltaError=0;
+  int num_runs=0;
+  while (num_runs<maxruns) {
+
+     VMParam NewState;
+     CopyState(&NewState,&ActualState);
+     CreateProposal(&NewState,radius);
+
+     int proposal=GetEnergy(&NewState);
+
+     bool proposal_accepted=false;
+
+     num_runs++;
+     total_runs++;
+
+     int deltaError = proposal - tune_best;
+     if (num_runs<=2) {
+         sum_deltaError+=abs(deltaError);
+         double tE=sum_deltaError/double(num_runs);
+         temperature=-tE/log(init_prob_accepted);
+     }
+
+     if (deltaError>0) {
+       double prob=exp(-double(deltaError/temperature));
+       if (randfloat()<prob) proposal_accepted=true;
+     } else proposal_accepted=true;
+
+     if (proposal_accepted) {
+       CopyState(&ActualState,&NewState);
+       tune_best=proposal;
+       accepted++;
+     } else rejected++;
+
+     // we found new optimum
+     double rate=accepted+rejected>0?double(accepted)/double(accepted+rejected):0.0;
+     printf("[%i] [rate: %4.1f%%], temperature: %0.9f\r",total_runs,rate*100.0,temperature);
+
+     if (proposal<current_best) {
+       CopyState(&BestState,&NewState);
+       current_best=proposal;
+       printf("\n best: %i (radius: %0.5f)\n",current_best,radius);
+     }
+
+     temperature=temperature*cooling_rate;
+     if (temperature<1e-9) break;
+  }
+}
+
+void Anneal(int maxruns) {
+    Init();
+    printf(" Max runs: %i\n",maxruns);
+    if (full_search==true) printf(" Full tune\n");
+    Tune(maxruns/5,0.05);
+    Tune((maxruns*2)/5,0.01);
+    Tune((maxruns*2)/5,0.005);
+}
+};
+
+#include "vm.cpp"
+
 //////////////////////////// Predictor /////////////////////////
 // A Predictor estimates the probability that the next bit of
 // uncompressed data is 1.  Methods:
 // p() returns P(1) as a 12 bit number (0-4095).
 // update(y) trains the predictor with the actual bit (0 or 1).
-#include "vm.cpp"
 
 //general predicor class
 class Predictor {
@@ -2143,13 +2431,13 @@ public:
  BlockData x; //maintains current global data block
  int pr;  
   VM vm;
-  Predictor(char *m): pr(2048),vm(m,x,VMCOMPRESS) {setdebug(0); }
+  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {setdebug(0); }
   int p()  {assert(pr>=0 && pr<4096); return pr;} 
-  ~Predictor(){ vm.killvm( );}
+  ~Predictor(){ }
   void set() {  vm.block(x.finfo,0);  }
   void setdebug(int a){      vm.debug=a;  }
   void update()  {
-    //update0(); // Update global context: pos, bpos, c0, c4
+    // Update global context: pos, bpos, c0, c4
     x.c0+=x.c0+x.y;
     if (x.c0>=256) {
         x.c4=(x.c4<<8)+(x.c0&0xff);
@@ -2230,7 +2518,7 @@ private:
 
 public:
   Predictor *predictor;
-  Encoder(Mode m, FILE* f,char *model);
+  Encoder(Mode m, FILE* f,char *model, VMParam *p=0);
   Mode getMode() const {return mode;}
   U64 size() const {return  ftell (archive);}  // length of archive so far archive->curpos()
   void flush();  // call this when compression is finished
@@ -2240,7 +2528,7 @@ public:
   void compress(int c) {
     assert(mode==COMPRESS);
     if (level==0)
-       fputc ( c , archive );//archive->putc(c);
+       fputc(c, archive);
     else {
       for (int i=7; i>=0; --i)
         code((c>>i)&1);
@@ -2251,11 +2539,11 @@ public:
   int decompress() {
     if (mode==COMPRESS) {
       assert(alt);
-      return fgetc (alt);//alt->getc();
+      return fgetc(alt);
     }
     else if (level==0){
      int a;
-     a=fgetc (archive);//archive->getc();
+     a=fgetc(archive);
       return a ;}
     else {
       int c=0;
@@ -2271,9 +2559,9 @@ public:
    }
 };
 
-Encoder::Encoder(Mode m, FILE* f,char *model):
+Encoder::Encoder(Mode m, FILE* f,char *model, VMParam *p):
     mode(m), archive(f), x1(0), x2(0xffffffff), x(0), alt(0) {        
-    if (model!=0)         predictor=new Predictor(model);
+    if (model!=0)         predictor=new Predictor(model,p);
     else predictor=0;
     // x = first 4 bytes of archive
     if (level>0 && mode==DECOMPRESS) {
@@ -2287,8 +2575,9 @@ void Encoder::flush() {
      put32(x1,archive);  // Flush first unequal byte of range
 }
  
+//
 /////////////////////////// Filters /////////////////////////////////
-
+//
 struct vStream {
     U32 stream;    //id for stream
     char  model[16];     // model for stream, will be stored in archive if stream is used
@@ -2393,7 +2682,7 @@ int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
             for (int j=0;j<vTypes.size();j++){
                 if  (isrecursionType==true && vTypes[j].type>defaultType){ 
                 //disable nonrecursive type
-                 if ((vTypes[j].state==START || vTypes[j].state==INFO)){ //return acive type
+                 if ((vTypes[j].state==START || vTypes[j].state==INFO)){ //return active type
                   // printf("Type %d s=%d e=%d \n",foundblock,vTypes[foundblock].start, vTypes[foundblock].end);
                   // printf("Type %d s=%d e=%d r=%d \n",j,vTypes[j].start, vTypes[j].end , vTypes[j].rpos);
                   if (vTypes[foundblock].start>vTypes[j].rpos){  
@@ -2847,11 +3136,57 @@ static char   pp[] ="int t[5]={};"
 " if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
 " for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
-"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0);"
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0);"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
 " vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
 
+//
+// Autotune main
+// 
+bool tune[256];
+bool disableo[256];
+int max_fraction=100;
+int max_runs=25;
+
+void pTune(int streamid,U64 size, FILE* in, FILE* out) {
+    tune[streamid]=false;    // disable recursion;
+    disableo[streamid]=true; // disable console info about compression result
+    U32 inpos=(U32)ftell(in);
+             
+    SimulatedAnnealing SA(&parm1[streamid],0.01,0.9,max_fraction,U32(size),streamid,in,doFullOpt);
+    SA.Anneal(max_runs);
+    printf("\n\n  best value found: %i bytes\n",SA.GetBest());
+    SA.StoreBestState(&parm1[streamid]);
+    fseek(in, inpos, SEEK_SET);   
+    disableo[streamid]=false;         // enable console info for final compression
+    parm2[streamid]=&parm1[streamid]; // set model parameters for final compression
+    // print out best parameters
+    if (parm2[streamid]->vm_mixer[0]==true) printf("\nmixer update limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit[i]);
+    if (parm2[streamid]->vm_mixer_ml[0]==true) printf("\nmixer mul limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer_ml[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit_ml[i]);
+    if (parm2[streamid]->vm_mixer_ue[0]==true) printf("\nmixer update error limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer_ue[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit_ue[i]);
+    if (parm2[streamid]->vm_apm[0]==true) printf("\napm limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_apm[i]==true) printf("%d, ",parm2[streamid]->vm_apm_limit[i]);
+    if (parm2[streamid]->vm_smc[0]==true) printf("\nsmc limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_smc[i]==true) printf("%d, ",parm2[streamid]->vm_smc_limit[i]);
+    if (parm2[streamid]->vm_ds[0]==true) printf("\nds limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_ds[i]==true) printf("%d, ",parm2[streamid]->vm_ds_limit[i]);
+    if (parm2[streamid]->vm_cm[0]==true) printf("\ncm limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cm[i]==true) printf("%d, ",parm2[streamid]->vm_cm_limit[i]);
+    if (parm2[streamid]->vm_cms[0]==true) printf("\ncms rate:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%d, ",parm2[streamid]->vm_cms_limit[i]);
+    if (parm2[streamid]->vm_sm[0]==true) printf("\nsm limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_sm[i]==true) printf("%d, ",parm2[streamid]->vm_sm_limit[i]);
+    if (parm2[streamid]->vm_sm[0]==true) printf("\nrcm limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_rcm[i]==true) printf("%d, ",parm2[streamid]->vm_rcm_limit[i]);
+    printf("\n\n");
+} 
+
 void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
+    // call Autotune if enabled
+    if (tune[streamid]==true) pTune(streamid,size,in,out);
     int i; //stream
     i=streamid;
     Encoder* threadencode;
@@ -2872,6 +3207,7 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
     if (level>0){
         moin=fopen(vStreams[i].model, "rb");
         if(moin){
+            
             FILE *modelo;//open tmp file for compressed config file
             modelo=tmpfile2();
             Encoder* enm;
@@ -2912,8 +3248,8 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
         else quit("Config file not found.");        
     }
 
-    printf("Compressing %s   stream(%d).  Total %d\n",vStreams[i].model,i,(U32)datasegmentsize); 
-    threadencode=new Encoder (COMPRESS, out,(char *)p); 
+    if (disableo[streamid]==false) printf("Compressing %s   stream(%d).  Total %d\n",vStreams[i].model,i,(U32)datasegmentsize); 
+    threadencode=new Encoder (COMPRESS, out,(char *)p,parm2[streamid]); 
     
     while (datasegmentsize>0) {
         while (datasegmentlen==0){
@@ -2934,17 +3270,25 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
             }
         }
         for (U64 k=0; k<datasegmentlen; ++k) {
-            if (!(datasegmentsize&0x1fff)) printStatus(size-datasegmentsize, size,i);
+           if (disableo[streamid]==false) if (!(datasegmentsize&0x1fff)) printStatus(size-datasegmentsize, size,i);
             threadencode->compress(fgetc(in));
             datasegmentsize--;
+            if (datasegmentsize==0) break;
         }
         datasegmentlen=0;
     }
     threadencode->flush();
     
     delete threadencode;
-    printf("Stream(%d) compressed from %d to %d bytes\n",i,(U32)size, (ftell(out)-(U32)currentpos)-modelSizeCompressed);
-    printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
+   free(p);
+    if (disableo[streamid]==false){
+        printf("S[%d] compressed %d->%d bytes. Data %d->%d, model %d->%d.\n",i,
+        (U32)size+modelSize,ftell(out),
+         (U32)size,(ftell(out)-modelSizeCompressed),
+         
+         modelSize, modelSizeCompressed );
+        //printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
+    }
 }
 
 #ifdef MT
@@ -3363,46 +3707,8 @@ size_t getPeakMemory(){
     return (size_t)0L;
 #endif
 }
-
-// To compress to file1.paq8pxv: paq8pxv [-n] file1 [file2...]
-// To decompress: paq8pxv file1.paq8pxv [output_dir]
-int main(int argc, char** argv) {
-    bool pause=argc<=2;  // Pause when done?
-
-        // Get option
-        bool doExtract=false;  // -d option
-        bool doList=false;  // -l option
-        char* aopt;
-        aopt=&argv[1][0];
-        
-#ifdef MT 
-        int topt=1;
-        if (argc>1 && aopt[0]=='-' && aopt[1]  && strlen(aopt)<=5) {
-#else
-        if (argc>1 && aopt[0]=='-' && aopt[1]  && strlen(aopt)<=3) {    
-#endif
-            if (aopt[1]=='d' && !aopt[2])
-                doExtract=true;
-            else if (aopt[1]=='l' && !aopt[2])
-                doList=true;
-            else if (aopt[1]>='0' && aopt[1]<='1' && strlen(aopt)==2){
-                level=aopt[1]-'0';
-            }
-#ifdef MT 
-            else if (aopt[1]>='0' && aopt[1]<='1'&& (aopt[3]<='9' && aopt[3]>'0') && strlen(aopt)==4 ){
-                topt=aopt[3]-'0';
-                level=aopt[1]-'0';}
-#endif
-            else
-                quit("Valid options are -0 through -1, -d, -l\n");
-            --argc;
-            ++argv;
-            pause=false;
-        }
-
-        // Print help message quick 
-        if (argc<2) {
-            printf(PROGNAME " archiver (C) 2021, Matt Mahoney et al.\n"
+void printHelp(){
+    printf(PROGNAME " archiver (C) 2021, Matt Mahoney et al.\n"
             "Free under GPL, http://www.gnu.org/licenses/gpl.txt\n");
 #ifdef __GNUC__     
             printf("Compiled %s, compiler gcc version %d.%d.%d. ",__DATE__, __GNUC__, __GNUC_MINOR__,__GNUC_PATCHLEVEL__);
@@ -3449,21 +3755,103 @@ printf("\n");
             "To compress or extract, drop a file or folder on the " PROGNAME " icon.\n"
             "The output will be put in the same folder as the input.\n"
 #endif
-            "\nUsage: " PROGNAME " [-options:threads] [output] input\n"
+            "\nUsage: " PROGNAME " [-options] [output] input\n"
             "   input              extract, pause when done\n"
-            "  -0                  store\n"
-#ifdef MT 
-            "  -1[:t]              compress file where t is number of threds\n"
-#else
+            "  -0                  store\n"       
             "  -1                  compress file\n"
-#endif            
+#ifdef MT 
+            "  -t<n>               where n is number of threds, default=1\n"
+#endif
+            "  -2<hijklmnop>       tune on file, output file is not created\n"
+            "                      set h, i, j, k, l, m, n, o, p to f-false or t-true\n"
+            "                      to activate tune on that parameter.\n"
+            "                      h - mixer update limit\n"
+            "                      i - mixer shift limit\n"
+            "                      j - apm rate\n"
+            "                      k - smc limit\n"
+            "                      l - ds limit\n"
+            "                      i - mixer error mul limit\n"
+            "                      m - cm limit\n"
+            "                      n - sm limit\n"
+            "                      o - cm sm rate\n"
+            "                      p - rcm mul\n"            
+            "  -o<n>               n specifies percentage of tune, default=100%\n"
+            "  -r<n>               number of tune runs, default=25\n"
+            "  -f                  full tune on all parameters, default=false\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
-            "  -l input            list archive contets\n");
+            "  -l input            list archive\n");
             getchar();
             quit();
+}
+template <class T> T clamp(T val,T min,T max) {return val<min?min:val>max?max:val;};
+// Get option
+bool doExtract=false;  // -d option
+bool doList=false;     // -l option
+int topt=1;
+        
+int getOption(int argc,char **argv) {
+  char tmp[256];
+  int i;
+  for (i=1;i<argc;i++) {
+    strcpy(tmp,argv[i]);
+    if ((tmp[0])=='-') {
+      if (tmp[1]=='d') doExtract=true;
+      else if (tmp[1]=='l') doList=true;
+      else if (tmp[1]=='f') doFullOpt=true;
+      else if (tmp[1]=='0') level=0;
+      else if (tmp[1]=='1') level=1;
+      else if (tmp[1]=='2') {
+          level=2;
+          bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
+          bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
+          bool cms=false; bool rcm=false;
+          if (tmp[2]=='t')    m=true; else if (tmp[2]=='f')    m=false; else printHelp();
+          if (tmp[3]=='t')   ml=true; else if (tmp[3]=='f')   ml=false; else printHelp();
+          if (tmp[4]=='t')  apm=true; else if (tmp[4]=='f')  apm=false; else printHelp();
+          if (tmp[5]=='t')  smc=true; else if (tmp[5]=='f')  smc=false; else printHelp();
+          if (tmp[6]=='t')   ds=true; else if (tmp[6]=='f')   ds=false; else printHelp();
+          if (tmp[7]=='t')  mue=true; else if (tmp[7]=='f')  mue=false; else printHelp();
+          if (tmp[8]=='t')   cm=true; else if (tmp[8]=='f')   cm=false; else printHelp();
+          if (tmp[9]=='t')   sm=true; else if (tmp[9]=='f')   sm=false; else printHelp();
+          if (tmp[10]=='t') cms=true; else if (tmp[10]=='f') cms=false; else printHelp();
+          if (tmp[11]=='t') rcm=true; else if (tmp[11]=='f') rcm=false; else printHelp();
+          if (tmp[12]!=0) printHelp();
+          // set stream parms active
+          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm);
+      }
+#ifdef MT
+      else if (tmp[1]=='t') {
+         if (strlen(tmp+2)>0) topt=clamp(atoi(tmp+2),1,9);
+      }
+#endif       
+      
+      else if (tmp[1]=='o') {
+         if (strlen(tmp+2)>0) max_fraction=clamp(atoi(tmp+2),0,100);
+      } else if (tmp[1]=='r'){
+        max_runs=clamp(atoi(tmp+2),0,1000);
+      } else printf("unknown option '%s'\n",tmp);
+    } else {
+      break;
+    }
+  }
+  return i-1;  
+}
+
+// To compress to file1.paq8pxv: paq8pxv [-n] file1 [file2...]
+// To decompress: paq8pxv file1.paq8pxv [output_dir]
+int main(int argc, char** argv) {
+    bool pause=argc<=2;  // Pause when done?
+
+        int args=getOption(argc,argv);
+        argc=argc-args;
+        argv=argv+args;
+        // Print help message quick 
+        if (argc<2) {
+            printHelp();
         }
         clock_t start_time;  // in ticks
+
         // precalculate tabeles
         for (int i=0; i<1024; ++i)
             dt[i]=16384/(i+i+3);
@@ -3490,6 +3878,19 @@ printf("\n");
         // set 2 -> 4096 so we can "and" array index in mix2
         for (int s=0;s<256;s++) {
             if (n0n1[s]==2) n0n1[s]=4096; 
+        }
+        // enable or disable tune
+        if (level==2) {
+            for (int s=0;s<256;s++) {
+                tune[s]=true;
+                disableo[s]=false;
+            }
+            //level=1;
+        }else {
+            for (int s=0;s<256;s++) {
+                tune[s]=false;
+                disableo[s]=false;
+            }
         }
 
         FILE* archive=0;               // compressed file
@@ -3553,7 +3954,9 @@ printf("\n");
             // If there is at least one file to compress
             // then create the archive header.
             if (files<1) quit("Nothing to compress\n");
-            archive=fopen(archiveName.c_str(),"wb+");
+            // If tune is active use temporary file for archive
+            if (level==2)archive=tmpfile2(),level=1;
+            else archive=fopen(archiveName.c_str(),"wb+");
             fprintf(archive,"%s",PROGNAME);
             fputc(0,archive);
             fputc(level,archive);
