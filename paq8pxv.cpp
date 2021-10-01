@@ -1038,55 +1038,64 @@ StateTable::StateTable(): ns(1024) {
 #endif
 
 ///////////////////////////// Squash //////////////////////////////
-// return p = 1/(1 + exp(-d)), d scaled by 8 bits, p scaled by 12 bits
-class Squash {
-  Array<U16> t;
+class squash_table {
 public:
-  Squash();
-  int operator()(int p) const {
-   if (p<-2047) return  0; 
-   if (p>2047) return  4095;
-   return t[p+2048];
+  short t[4095];
+  int squash(int d ) {
+    // return p = 1/(1 + exp(-d)), d scaled by 8 bits, p scaled by 12 bits
+    if (d < -2047)return 1;
+    if (d > 2047)return 4095;
+    float p = 1.0f / (1.0f + exp(-d / 256.0));
+    p *= 4096.0;
+    uint32_t pi = (uint32_t)round(p);
+    if (pi > 4095)pi = 4095;
+    if (pi < 1)pi = 1;
+    return pi;
   }
-} squash;
 
-Squash::Squash(): t(4096) {
-int ts[33]={1,2,3,6,10,16,27,45,73,120,194,310,488,747,1101,
-    1546,2047,2549,2994,3348,3607,3785,3901,3975,4022,
-    4050,4068,4079,4085,4089,4092,4093,4094};
-  int w,d;
-  for (int i=-2047; i<=2047; ++i){
-    w=i&127;
-  d=(i>>7)+16;
-  t[i+2048]=(ts[d]*(128-w)+ts[(d+1)]*w+64) >> 7;
+  squash_table() {
+    for (int i = -2047; i <= 2047; i++) {
+      t[i + 2047] = squash(i);
     }
+  }
+
+} sqt;
+
+int squash(int d) {
+  if (d < -2047)return 1;
+  if (d > 2047)return 4095;
+  return sqt.t[d + 2047];
 }
+
 //////////////////////////// Stretch ///////////////////////////////
-
-// Inverse of squash. d = ln(p/(1-p)), d scaled by 8 bits, p by 12 bits.
-// d has range -2047 to 2047 representing -8 to 8.  p has range 0 to 4095.
-
-class Stretch {
-  Array<short> t;
+class stretch_table {
 public:
-  Stretch();
-  int operator()(int p) const {
-    assert(p>=0 && p<4096);
-    return t[p];
+  short t[4096];
+  int stretch(int p) {
+    // Inverse of squash. d = ln(p/(1-p)), d scaled by 8 bits, p by 12 bits.
+    // d has range -2047 to 2047 representing -8 to 8. p has range 0 to 4095.
+    assert(p >= 0 && p <= 4095);
+    if (p == 0)p = 1;
+    float f = p / 4096.0f;
+    float d = log(f / (1.0f - f)) * 256.0f;
+    int32_t di = (int32_t)round(d);
+    if (di > 2047)di = 2047;
+    if (di < -2047)di = -2047;
+    return di;
   }
-} stretch;
 
-Stretch::Stretch(): t(4096) {
-  int pi=0;
-  for (int x=-2047; x<=2047; ++x) {  // invert squash()
-    int i=squash(x);
-    for (int j=pi; j<=i; ++j)
-      t[j]=x;
-    pi=i+1;
+  stretch_table() {
+    for (int i = 0; i <= 4095; i++) {
+      t[i] = stretch(i);
+    }
   }
-  t[4095]=2047;
+
+} str;
+
+
+int stretch(int p) {
+  return str.t[p];
 }
-
 //////////////////////////// Mixer /////////////////////////////
 
 // Mixer m(N, M, S=1, w=0) combines models using M neural networks with
@@ -1354,17 +1363,12 @@ void train(short *t, short *w, int n, int err) {
   // predict next bit
   int p( ) {
     assert(cxt<M);
-    int dp=dot_product(&tx[0], &wx[cxt*N], N)*shift1>>13;
-    if (dp<-2047) {
-        dp=-2047;
-    } else if (dp > 2047) {
-        dp=2047;
-    }
+    int dp=dot_product(&tx[0], &wx[cxt*N], N)*shift1>>11;
     return pr=squash(dp);
   }
   void setTxWx(int n,short* mn){
-       N=n;
-    alloc1(wx,(N*M)+32,ptr,32);  //?
+    N=n;
+    alloc1(wx,(N*M)+32,ptr,32);
     tx=mn; 
   }
   
@@ -1682,7 +1686,20 @@ struct StationaryMap {
       bCount=B=0;
   }
 };
- 
+
+struct SkMap {
+  int pr;
+  Init() {
+    pr=0;
+  }
+  void set(int ctx) {
+    pr=clp(ctx);
+  }
+  void mix(BlockData& x,int m) {
+    x.mxInputs[m].add(pr);
+  }
+};
+
 struct MixMap1 {
   int p,i1,c1; 
 
@@ -2451,7 +2468,7 @@ public:
     pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
     if (pr!=0) quit();
     //printf("%d",x.cInputs);
-    pr=vm.getPrediction(x.cInputs);
+    pr=vm.getPrediction( );
     //printf("%d",x.cInputs);
   }
 };
@@ -3136,7 +3153,7 @@ static char   pp[] ="int t[5]={};"
 " if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
 " for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
-"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0);"
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0);"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
 " vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
 
@@ -3765,16 +3782,16 @@ printf("\n");
             "  -2<hijklmnop>       tune on file, output file is not created\n"
             "                      set h, i, j, k, l, m, n, o, p to f-false or t-true\n"
             "                      to activate tune on that parameter.\n"
-            "                      h - mixer update limit\n"
-            "                      i - mixer shift limit\n"
+            "                      h - mixer update limit, default=0\n"
+            "                      i - mixer shift limit, default=64\n"
             "                      j - apm rate\n"
             "                      k - smc limit\n"
             "                      l - ds limit\n"
-            "                      i - mixer error mul limit\n"
-            "                      m - cm limit\n"
+            "                      i - mixer error mul limit, default=28\n"
+            "                      m - cm run mul, default=4\n"
             "                      n - sm limit\n"
-            "                      o - cm sm rate\n"
-            "                      p - rcm mul\n"            
+            "                      o - cm sm rate, default=32\n"
+            "                      p - rcm mul, default=8\n"            
             "  -o<n>               n specifies percentage of tune, default=100%\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
