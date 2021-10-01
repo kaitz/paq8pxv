@@ -47,8 +47,21 @@ void fputc(int wt){
     if (y==1024) {y=0;write(p2,1024);}
     totalout++;
 }
+int gett(int s_size ){
+    int k,j,w,t;
+    k=w=t=0;
+    for(j=0;j<s_size;j++){ 
+       k=s[j];
+       if (k>='A' && k<='Z') w=1; // upper
+       if (w==1 && j==0) w=2; // first upper
+       if (w==0 && k>0) w=4; // lower
+       t=t|w;
+       w=0;
+    }
+    return t;
+}
 int encode(int info,int len) {
-    int s_size,dhash,d,w,wt,c,fpos,j,k;
+    int s_size,dhash,d,w,wt,c,fpos,j,k,m;
     s_size=dhash=d=w=wt=fpos=totalout=y=0;
     while (fpos<len){
         read(inpc, 1);
@@ -56,16 +69,15 @@ int encode(int info,int len) {
         fpos++;
         if (((c>='a' && c<='z') || (c>='A' && c<='Z')) && s_size<BLOCK) {
             if (c>='A' && c<='Z') w=1;
-            if (s_size==0 && w==1) wt=1; //frist uper
-            if (s_size>0 && ((wt==2 && w==0 )|| (wt==1 && w==0)||(wt==0 && w==1 ))) wt=3; //var
-            if (s_size>0 && w==1 && wt!=3) wt=2; //upper
             s[s_size++]=c;
             if (c>='A' && c<='Z') c=c+('a'-'A');
             dhash=h2(dhash,h2(c,23));
             w=0;
         }
         else {
-            if (s_size>0 && (wt!=3)) {
+            m=gett(s_size);
+            if (s_size>0 && (m==6 || m==3||m==2||m==4)) {
+            if (m==6)wt=64; else wt=2;if (m==4)wt=0;
                 for (j=0; j<224;j++){
                     if (hash[j]==dhash && slen[j]==s_size){
                         if (wt>0)  fputc(wt);
@@ -86,11 +98,21 @@ int encode(int info,int len) {
                 }
             }
             if (s_size>0) {
+                if (m==6) { fputc(64);
+                    s[0]=s[0]+32;
+                }
+                if (m==3||m==2) { fputc(2);
+                    for(k=0;k<s_size;k++) s[k]=s[k]+32;
+                }
                 for(k=0;k<s_size;k++)
                 fputc(s[k]);
+                s[s_size++]=0;
             }
             wt=w=dhash=s_size=0;
-            if (c>127 || c==1 || c==2 || c==3) fputc(3);
+            // 64 - first char is uppercase in word
+            // 2 - upper word
+            // 3 - escape
+            if (c>127 || c==64 || c==2 || c==3) fputc(3);
             fputc(c);
         }
     }

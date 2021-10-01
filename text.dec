@@ -44,6 +44,7 @@ int decode(int info,int len) {
    read(p1, 1);
    j++;
    putc(p1[0]);
+   v=0;
   }
   else if(c>127){
    if (c>239){
@@ -53,15 +54,17 @@ int decode(int info,int len) {
    }
    z=slen[c-128];
    for(i=0;i<z;i++) t[i]=w[i+spos[c-128]];
-   if(v==1) --v,t[0]=t[0]-32;
+   if(v==64) v=0,t[0]=t[0]-32;
    if(v==2){
     for(i=0;i<z;i++) t[i]=t[i]-32;
    }
    for(i=0;i<z;i++) putc(t[i]);
    v=0;
   }
-  else if (c==1 || c==2) v=c;
-  else putc(c);
+  else if (c==64 || c==2) v=c;
+  else if (v==64) putc(c-32),v=0;
+  else if (v==2 && (c>='a' && c<='z')) putc(c-32);
+  else putc(c),v=0;
  }
  if (y>0) {write(p2,y);}
  return f;
