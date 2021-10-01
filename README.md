@@ -83,9 +83,9 @@ Usage is definded in main configuration file conf.pxv
 | bmp8| bmp8.det| none| none| test3i8.cfg| n|8bit .bmp image|
 | bmp24| bmp24.det| bmp24.enc| bmp24.dec| test3i24.cfg|n |24bit .bmp image|
 | dec| dec.det| dec.enc| dec.dec| test3d.cfg|n | DEC Alpha executable code transform, swap byte order|
-| exe| exe.det| exe.enc| exe.dec| test3d.cfg|n |x86 executable code|
+| exe| exe.det| exe.enc| exe.dec| test3exe.cfg|n |x86 executable code|
 | arm| arm.det| arm.enc| arm.dec| test3d.cfg|n |arm executable code|
-| text| text.det| text.enc|text.dec | test3d.cfg| n|text|
+| text| text.det| text.enc|text.dec | test3txt.cfg| n|text|
 | jpeg| jpeg.det| none| none| jpeg.cfg|n |jpeg image|
  
 
@@ -145,6 +145,7 @@ int main(){
 |MixMap| MM|10|no|yes|
 |DynamicHashStateMap| DHS |11|yes|no|
 |StationaryMap| SM |12|no|yes|
+|SkMap| SK |13|no|yes|
 
 [See detailed info about components](components.md)
 
