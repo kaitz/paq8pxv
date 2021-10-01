@@ -938,27 +938,27 @@ void VM::expr(int lev){
       next();
     }
     else if (tk == Brak) {
-#if   defined(VMBOUNDS) ||  defined (VMBOUNDSRUN)  
+      //Bounds
       int directarray=(int)e;
       unsigned int upperbound=id[UBound]-1;
       int *boundptr;
-#endif
+
       next(); 
       *++e=(PSH);
       expr(Assign);     
-#ifdef VMBOUNDS  
-      if (((int)e-directarray)==(4*3) && *(e-2)==PSH && *(e-1)==IMM && (unsigned int)*e>upperbound) printf("Array out of bounds: defined %d used %d, line %d\n",upperbound,*e, line), exit(-1);
-#endif
+      if (doBounds==true){
+          if (((int)e-directarray)==(4*3) && *(e-2)==PSH && *(e-1)==IMM && (unsigned int)*e>upperbound) printf("Array out of bounds: defined %d used %d, line %d\n",upperbound,*e, line), exit(-1);
+      }
       if (tk == ']') next(); else { kprintf("%d: close bracket expected\n", line); exit(-1); }
       if (t > PTR) { 
         *++e=(PSH); 
-#ifdef VMBOUNDSRUN        
-        //runtime bounds check
-        *++e=(PSH);                                              // push index value again
-        *++e=(IMM);*++e=(upperbound);*++e=(GT);  *++e=(BZ);boundptr=++e;  // compare index>upperbound
-           *++e=(IMM);*++e=(line); *++e=(PSH); *++e=(BOUND); *++e=(ADJ);*++e=(1); // fail if larger
-        *boundptr = (int)(e + 1);
-#endif
+        if (doBoundsRun==true){     
+          //runtime bounds check
+          *++e=(PSH);                                              // push index value again
+          *++e=(IMM);*++e=(upperbound);*++e=(GT);  *++e=(BZ);boundptr=++e;  // compare index>upperbound
+             *++e=(IMM);*++e=(line); *++e=(PSH); *++e=(BOUND); *++e=(ADJ);*++e=(1); // fail if larger
+          *boundptr = (int)(e + 1);
+        }
         *++e=(IMM);*++e=(((ty = t - PTR) == rCHAR) ? 1 : ((ty = t - PTR) == sSHORT) ? 2 : 4);
         *++e=(MUL);
       } //fixed to int !!!

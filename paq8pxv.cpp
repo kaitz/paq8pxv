@@ -394,8 +394,6 @@ elements at a time.
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define MT                          // uncomment for multithreading, compression only
 #define VMJIT                       // uncomment to compile with x86 JIT
-#define VMBOUNDS                    // uncomment to aad bounds chack at compile
-#define VMBOUNDSRUN                 // uncomment to aad bounds chack at runtime
 #define ERRMSG                    // uncomment to show error messages if programm quits
 #define VMMSG                     // prints vm error messages and x86 asm to console
 
@@ -2189,6 +2187,8 @@ int ContextMap::inputs() {
 
 void compressStream(int streamid,U64 size, FILE* in, FILE* out);
 bool doFullOpt=false;
+bool doBounds=false;
+bool doBoundsRun=false;
 double randfloat(){return (double(rand())+0.5)/double(RAND_MAX+1);};
 int randint(int min,int max){return (rand()%(max-min+1))+min;};
 
@@ -3795,6 +3795,8 @@ printf("\n");
             "  -o<n>               n specifies percentage of tune, default=100%\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
+            "  -b                  b - enable bounds check at compile, dafault=false\n"
+            "  -r                  r - enable bounds check at runtime, dafault=false\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
             "  -l input            list archive\n");
@@ -3818,6 +3820,8 @@ int getOption(int argc,char **argv) {
       else if (tmp[1]=='f') doFullOpt=true;
       else if (tmp[1]=='0') level=0;
       else if (tmp[1]=='1') level=1;
+      else if (tmp[1]=='b') doBounds=true;
+      else if (tmp[1]=='r') doBoundsRun=true;
       else if (tmp[1]=='2') {
           level=2;
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
