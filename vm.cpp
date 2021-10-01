@@ -184,7 +184,7 @@ void VM::killvm( ){
             //programChecker.free((U64)memSize[i]); // meaningless if MT enabled and thread count 1+ 
         }
     }
-    smc=apm1=rcm=scm=cm=mx=mm=st=av=ds=dhs=sm=currentc=totalc=initdone=mindex=0;
+    smc=apm1=rcm=scm=cm=mx=mm=st=av=ds=dhs=sm=sk=currentc=totalc=initdone=mindex=0;
     if (sym) free(sym),sym=0;
     if (ast) free(ast),ast=0;
     if (text) free(text),text=0;
@@ -547,7 +547,7 @@ int writefile(VM* v,U8 *i,int size){
 VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),cmC(0),parm(p) {
     data=&data1[0];
     mod=m;
-    smc=apm1=rcm=scm=cm=mx=st=av=mm=ds=dhs=sm=currentc=totalc=initdone=mindex=totalPR=0;
+    smc=apm1=rcm=scm=cm=mx=st=av=mm=ds=dhs=sm=sk=currentc=totalc=initdone=mindex=totalPR=0;
     debug=0;
     if (initvm()==-1) 
     exit(1);  //load cfg file, if error then exit
