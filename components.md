@@ -14,7 +14,7 @@
 |MixMap| [MM](#mm)|10|no|yes|
 |DynamicHashStateMap| [DHS](#dhs) |11|yes|no|
 |StationaryMap| [SM](#sm) |12|no|yes|
-
+|SkMap| [SK](#sk) |13|no|yes|
 # Functions used to set up components
 ## vms - component counts
 vms(countOfSMC,countOfAPM1,countOfDS,...);
@@ -57,7 +57,7 @@ vmx(APM1,index,c0);
 // second parameter is component index upto number defined in vms
 // third parameter is memory size
 // forth parameter is limit=1...1023
-// sixth parameter is output (pr index=-1,MX input=0...MX)
+// fifth parameter is output (pr index=-1,MX input=0...MX)
 //                    output=-1 use pr[index] where index=0...lastComponent
 //                    output>=0 select MX component as output
 //
@@ -89,7 +89,7 @@ vmi(SMC,1,0x10,1023,-1);  //  pr[1]=smc(1).predict()
 // second parameter is component index upto number defined in vms
 // third parameter is size
 // forth parameter is rate
-// sixth parameter is predictionIndex
+// fifth parameter is predictionIndex
 //
 // vmi(APM1,index,size,rate,predictionIndex);
 
@@ -109,7 +109,7 @@ vmi(APM1,0,0x1000,7,0);   //  pr[1]=apm(pr[0])
 // second parameter is component index upto number defined in vms
 // third parameter is
 // forth parameter is 
-// sixth parameter is 
+// fifth parameter is 
 vmi(DS,0,0,1,2);
 ```
 ### AVG
@@ -120,7 +120,7 @@ vmi(DS,0,0,1,2);
 // second parameter is component index upto number defined in vms
 // third not used, set 0
 // forth parameter is index into pr[] array
-// sixth parameter is index into pr[] array
+// fifth parameter is index into pr[] array
 vmi(AVG,0,0,1,2);
 ```
 ### SCM
@@ -131,7 +131,7 @@ vmi(AVG,0,0,1,2);
 // second parameter is component index upto number defined in vms
 // third parameter is
 // forth parameter is 
-// sixth parameter is 
+// fifth parameter is 
 vmi(SCM,0,0,1,2);
 ```
 ### RCM
@@ -142,7 +142,7 @@ vmi(SCM,0,0,1,2);
 // second parameter is component index upto number defined in vms
 // third parameter is memory*4096, must be power of two
 // forth parameter is unused
-// sixth parameter is predictionIndex
+// fifth parameter is predictionIndex
 vmi(RCM,0,1024,0,0);
 ```
 ### CM
@@ -153,7 +153,7 @@ vmi(RCM,0,1024,0,0);
 // second parameter is component index upto number defined in vms
 // third parameter is memory*4096, must be power of two
 // forth parameter is count of contexts
-// sixth parameter is predictionIndex
+// fifth parameter is predictionIndex
 vmi(CM,0,32*4096,1,0);
 ```
 ### MX
@@ -164,7 +164,7 @@ vmi(CM,0,32*4096,1,0);
 // second parameter is component index upto number defined in vms
 // third parameter is
 // forth parameter is 
-// sixth parameter is 
+// fifth parameter is 
 vmi(MX,0,0,1,2);
 ```
 ### ST
@@ -173,10 +173,15 @@ vmi(MX,0,0,1,2);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(ST,0,0,1,2);
+// third parameter is value m where pr=((m-128)*16) if fift parameter is -1, or pr=(m*16) if 0
+// forth parameter is nil
+// fifth parameter is output (pr index=-1,MX input=0...MX)
+//                    output=-1 use pr[index] where index=0...lastComponent
+//                    output>=0 select MX component as output
+
+//main
+//
+vmi(ST,0,144,0,0);
 ```
 ### MM
 ```c
@@ -189,7 +194,7 @@ vmi(ST,0,0,1,2);
 //         1 adds stretch(pr) >> 1  to mixer
 //         3...x  (pr-2048 >> 3...x) to mixer
 // forth parameter is pr index
-// sixth parameter is mixer index
+// fifth parameter is mixer index
 
 ```
 ```c
@@ -204,7 +209,7 @@ vmi(MM,0,0,1,2);
 // second parameter is component index upto number defined in vms
 // third parameter is input bits
 // forth parameter is memory bits, memory usage is ((1<<bits)*(1<<memory))
-// sixth parameter is number of contexts
+// fifth parameter is number of contexts
 
 //main
 // creates DHS with 10 context using 256MB of memory where state count per context is 16 (1<<4)
@@ -226,7 +231,7 @@ vmx(DHS,0,j);
 // second parameter is component index upto number defined in vms
 // third parameter is memory_bits
 // forth parameter is input_bits (low 8 bits), memory usage is N=((1<<memory_bits)*((1<<input_bits)-1)). pr mul value
-// sixth parameter is number of contexts
+// fifth parameter is number of contexts
 
 //main
 // creates SM
@@ -244,8 +249,15 @@ vmx(SM, 0,val);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// sixth parameter is 
-vmi(SK,0,0,1,2);
+// third parameter is nil
+// forth parameter is nil
+// fifth parameter is mixer index
+
+//main
+// creates SM
+vmi(SK,0,0,0,0);
+
+// update
+// set SK value to be added to mixer, range -2047..2047
+vmx(SK, 0,val);
 ```
