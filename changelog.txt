@@ -1,0 +1,260 @@
+jpg/text parameters
+ -Change jpg/text parameters.
+ -Add changelog
+text enc/dec
+ 0e0d8cc
+ Change text encode. Lower case conversion on most words
+pre11
+ 019a9a7
+ Make VM bounds checks as command line options.
+pre10
+ 09d3312
+ Fix test3exe.cfg, decompression was not identical. Local variables are random initzialized.
+pre9
+5a35ea8
+ Change mixer prediction shift, adjust cfg files
+ Add Sk component
+ Use Sk in matchMod function in cfg files
+ Adjust test3txt.cfg APM components
+ Use Squash/Stretch from paq8px_v205
+ Update help screen
+pre8
+ 93c0c76
+ Add parameter tuning for components
+ Add StationaryMap component
+ Fix memory leaks
+ In cfg allow enum value used as array init value. Allow Or operator.
+ Add compile time option to disable runtime/cfg compile time array bounds checks.
+ Add text cfg file
+ Add exe cfg file
+ Change text detection, allow a bit more binary data
+ Tune most cfg files component parameters
+ Update help screen
+pre7
+ e4bcd02
+ -remove StateMap class and use struct version instead
+ -adjust help screen
+ -fix vm component init on mixer
+pre7
+ fe0ced2
+ -use limit in mixer update
+ -adjust some models for mixer update
+pre6
+ c06467b
+ -use precalculated table in:
+ ContextMap mix2
+ ContextMap and RunContextMap run prediction
+remove level option
+ 22a70e0
+ -remove level option, all memory usage is defined in cfg files. Defaults to -8.
+pre5
+ 710400e
+ -remove file class
+ -remove programmchecker class, use peakmemory instead
+ -remove more unused code
+v17
+ 3a32e16
+ -make most components as structs
+ -fix im24 end detection
+ -clean up useless code
+ -change ContextMap
+pre4
+ 79ac6fc
+ cleanup
+ add contexts
+pre3
+ 003f759
+ fix DHS
+pre2
+ fb77800
+ - fix jpeg.cfg pre1 commit
+ - fix vm.cpp pre1 commit
+pre1
+ 14bd42a
+ - chamge MM
+ - change jpeg.cfg
+ - global variable assignment
+
+
+small fixes
+ 5acf9dd
+ JIT fix: in ENT change push location
+ optimize ENT if blank proc
+ remove try ... catch
+update im4,jpeg cfg
+ 0b15136
+ update im4
+ update jpeg
+change detection
+ 22624cd
+ change detection
+ update affected .det files
+bmp24 filer
+ 03a7d61
+ add bmp24 image filter for better compression
+fix JIT+update main comp.
+ 6e37b8d
+ fix JIT
+ update main compression, now a bit better compression
+v16
+ c06b945
+ fix im4 detect
+v16
+ cd8c8d4
+ add 4 bit image compression
+ update jpeg model, now compression works
+ add new component DHS (used by 4bit image and jpeg)
+ small changes
+ reduce warnings at compile time
+ make jit memory execute/read only
+Update test3d.cfg
+ 041e2d9
+ fix buf error
+image fix and slow mode compression
+ f307c99
+ fix image detection
+ add 4 bit bmp detection
+ first attempt on slow compression on new config
+Update text.det
+ 3ff4592
+v15
+ 7b174f8
+ -fix SIMD mixer errors
+ -add im8
+ -remove unused code in img
+v14 img 1 and 24 bit
+ 97a20b7
+ fix 24 bit
+ add 1 bit
+v14
+ 719bcc3
+ remove mxs function.
+ make mixer into one layer only
+ update im24 to work with new version
+ remove rangecoder
+arm transform
+ 93b567c
+ fix detection
+ enable arm,dec in main conf
+runtime bounds
+ fe66d53
+ add runtime bounds check
+ enable rangecoder
+RC,vm
+ b63ac3a
+ add rangecoder, needs recompilation
+ in vm add static bounds check on src->asm compile
+correct text transform
+ 3ec6ed3
+ fix text transform
+Update test3i8.cfg
+ f842e38
+ works with v13
+Update conf.pxv
+ b16883d
+Image detection fix
+ 6eb0eff
+ -fix image detection, now reports width to compression model, fixes image compression
+ -more comments on 1 bit image model (test3img.cfg)
+v13
+ 31e5871
+ -not compatible with v12
+ -removed more c functions
+ -working examples are test3i24.cfg and test3img.cfg
+ Update paq8pxv.cpp
+v13
+ 892c777
+ -removed more functions in c
+ -not compatible with v12
+ -only fast default and im24 compression model.
+v12
+ 3bf922d
+ -remove memory functions
+ - alloc memory at runtime type name[size]={} means dynamic
+ -fix some problems in cfg files
+ -arm detect
+ -not compatible with v11
+more detect and transform
+ b6338c9
+ -detect gif
+ -encode/decode for text, static dict
+Update jpeg.cfg
+ 77c9374
+ v7
+Update conf.pxv
+ a5ee66e
+ -fix
+detect DEC Alpha
+ 779f85a
+ -DEC Alpha transform
+Update test3img.cfg
+ c718f98
+ smp was mixed wrong
+Update SIMD
+ c776569
+ more changes to SIMD code
+ fix compile errors on none SIMD code
+Change SIMD code
+ ecd2426
+ Change SIMD code for more speed
+Update paq8pxv.cpp
+ 2ff7726
+ -fix level 0 decompression
+Cleanup
+ b0b4df7
+ -code cleanup
+v11
+ 82d7f83
+ -cleanup
+ -fix jpeg cfg
+ -change test3d cfg, add exe cm
+v10
+ f1c4a6f
+ -add small model to archive, now all decompress info is in archive
+ -change cfg models
+ -remove matchModel, add to test3d.cfg simple model
+v9
+ 137b47a
+ -add conf and decode to archive
+ -change test3d.cfg
+v8
+ 4fcb1be
+ -enable recursion
+ -detect base64, decode and encode
+v7
+ -enable multithreading again
+ -detect files for bmp 1,8,24 bit images, text
+ -vm: free memory correctly, also in interpreted code allocated memory
+v6
+ -decode and encode support
+ -exe.dec and exe.enc
+v5
+ -use config file for detection, decoding, encoding and compression
+ -remove unused code
+ -change jpeg detection
+ -add exe detection
+v4
+ -jpeg cfg updated from paq8fthis4
+ -vm jit optimize array access and other code
+ -fix vm and jit compression differences
+ -vm is now signed (int,short, char), only << and >> are unsigned
+ -add jpeg detection as external code for vm, for testing
+ -change all config files
+Update jpeg.cfg
+ -compact code
+ -remove some comments
+ -fix mixer input
+ -add 2 context
+Update jpeg.cfg
+ +2 new context (paq7 model + 2 contexts from paq8a)
+ fix hash table lookup, now compression as expected.
+v3
+ -jpeg model cfg
+v2
+ -vm: global array with values
+ - fix some output info
+v1
+  update all base classes from PAQ8PXD_V62
+ - disable zlib recomrpession and detection
+ - some fixes in vm
+ - change cfg files
