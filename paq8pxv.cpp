@@ -1668,11 +1668,12 @@ struct StationaryMap {
   }
   void mix(BlockData& x,int m) {
     // update
-    U32 Count = min(min(Limit,0x3FF), ((*cp)&0x3FF)+1);
-    int Prediction = (*cp)>>10, Error = (x.y<<22)-Prediction;
-    Error = ((Error/8)*dt[Count])/1024;
-    Prediction = min(0x3FFFFF,max(0,Prediction+Error));
-    *cp = (Prediction<<10)|Count;
+    int Prediction,Error ;
+    U32 p0=cp[0];
+    int n=p0&1023, pr=p0>>13;  // count, prediction
+    p0+=(n<Limit);     
+    p0+=(((x.y<<19)-pr))*dt[n]&0xfffffc00;  
+    cp[0]=p0;
     // predict
     B+=(x.y && B>0);
     cp=&Data[Context+B];
@@ -2111,10 +2112,10 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
       assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[t.size()-1].bh[6][6]);
       assert(((long long)(cp[i])&63)>=15);
       int ns;
-      if (cms<39){ // 
+      //if (cms<39){ // 
           ns=nex(*cp[i], y1);
           if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
-      } else ns=nex(*cp[i], y1);
+     // } else ns=nex(*cp[i], y1);
       *cp[i]=ns;
     }
 
