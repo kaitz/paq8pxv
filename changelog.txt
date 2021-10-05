@@ -1,3 +1,5 @@
+pre13
+ Add config file command line option
 pre12
  Change StationaryMap,ContextMap
  Change jpeg.cfg/test3txt.cfg

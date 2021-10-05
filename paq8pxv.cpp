@@ -3403,14 +3403,14 @@ thread(void *arg) {
   return 0;
 }
 #endif
-
+String config;
 // read global config file conf.pxv
 void readConfigFile(FILE *fp){ 
     char str[60];
     int result;//, findNL;
     int ssize=-1,tsize=-1; // stream index
     /* opening file for reading */
-    if(fp == NULL) quit("Error opening conf.pxv file\n");
+    if(fp == NULL) printf("Error opening %s file\n",config.c_str()),quit();
     while (fgets (str, 60, fp)!=NULL){   
         // remove comment
         if (str[0]=='/' || str[0]=='\r' || str[0]=='\n') continue;
@@ -3641,7 +3641,7 @@ void CompressType(FILE *out){
     int fsz;
     int insize=ftell(out);
     // compress main config file
-    in=fopen("conf.pxv", "rb");
+    in=fopen(config.c_str(), "rb");
     fseek(in,0,SEEK_END);
     fsz=ftell(in); 
     fseek(in,0,SEEK_SET);
@@ -3823,6 +3823,7 @@ int getOption(int argc,char **argv) {
       else if (tmp[1]=='1') level=1;
       else if (tmp[1]=='b') doBounds=true;
       else if (tmp[1]=='r') doBoundsRun=true;
+      else if (tmp[1]=='c' && tmp[2]!=0) config=(const char*)&tmp[2],printf("Config: %s\n",config.c_str());
       else if (tmp[1]=='2') {
           level=2;
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
@@ -3869,9 +3870,10 @@ int main(int argc, char** argv) {
         argc=argc-args;
         argv=argv+args;
         // Print help message quick 
-        if (argc<2) {
+        if (argc<2 ) {
             printHelp();
         }
+        if (strlen(config.c_str())==0) config="conf.pxv";
         clock_t start_time;  // in ticks
 
         // precalculate tabeles
@@ -3939,7 +3941,7 @@ int main(int argc, char** argv) {
         }
         if (mode==COMPRESS){
            FILE *conf;
-           conf = fopen("conf.pxv" , "rb");
+           conf = fopen(config.c_str() , "rb");
            readConfigFile(conf);
            if ((defaultType=getUnknownType())==-1) quit("Default type not defined (type x detect -1)"); //
            createDetectVM();
