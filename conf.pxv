@@ -1,22 +1,22 @@
 // describe usable models
 stream 0
-model test3d.cfg
+model conf\test3d.cfg
 stream 1
-model jpeg.cfg
+model conf\jpeg.cfg
 stream 2
-model test3d.cfg
+model conf\test3d.cfg
 stream 3
-model test3img.cfg
+model conf\test3img.cfg
 stream 4
-model test3i8.cfg
+model conf\test3i8.cfg
 stream 5
-model test3i24.cfg
+model conf\test3i24.cfg
 stream 6
-model test3i4.cfg
+model conf\test3i4.cfg
 stream 7
-model test3txt.cfg
+model conf\test3txt.cfg
 stream 8
-model test3exe.cfg
+model conf\test3exe.cfg
 // set types
 // -1 (negative) means detect type is recursive
 // 0  its unknown data type
@@ -37,57 +37,57 @@ decode -1
 encode -1
 compress 0
 type 1				// data type 1
-detect jpeg.det		// detect data with jpeg.det
+detect conf\jpeg.det		// detect data with jpeg.det
 decode -1			// no decode
 encode -1			// no encode
 compress 1			// compress with model in stream 1
 type 3
-detect exe.det
-decode exe.dec
-encode exe.enc
+detect conf\exe.det
+decode conf\exe.dec
+encode conf\exe.enc
 compress 8
 type 4
-detect bmp8.det
+detect conf\bmp8.det
 decode -1
 encode -1
 compress 4
 type 5
-detect bmp1.det
+detect conf\bmp1.det
 decode -1
 encode -1
 compress 3
 type 6
-detect bmp24.det
-decode bmp24.dec
-encode bmp24.enc
+detect conf\bmp24.det
+decode conf\bmp24.dec
+encode conf\bmp24.enc
 compress 5
 type -1
-detect b64.det
-decode b64.dec
-encode b64.enc
+detect conf\b64.det
+decode conf\b64.dec
+encode conf\b64.enc
 compress 0
 type 7
-detect text.det
-decode text.dec
-encode text.enc
+detect conf\text.det
+decode conf\text.dec
+encode conf\text.enc
 compress 7
 type 8
-detect dec.det
-decode dec.dec
-encode dec.enc
+detect conf\dec.det
+decode conf\dec.dec
+encode conf\dec.enc
 compress 0
 type 9
-detect gif.det
+detect conf\gif.det
 decode -1
 encode -1
 compress 0
 type 10
-detect arm.det
-decode arm.dec
-encode arm.enc
+detect conf\arm.det
+decode conf\arm.dec
+encode conf\arm.enc
 compress 0
 type 11
-detect bmp4.det
+detect conf\bmp4.det
 decode -1
 encode -1
 compress 6

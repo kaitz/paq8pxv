@@ -2598,7 +2598,7 @@ void Encoder::flush() {
 //
 struct vStream {
     U32 stream;    //id for stream
-    char  model[16];     // model for stream, will be stored in archive if stream is used
+    char  model[256];     // model for stream, will be stored in archive if stream is used
     int size;      // size of above model
     U8  enabled;  // 1 if atleast one type uses it othewise 0
 };      
@@ -2607,11 +2607,11 @@ struct vType {
                    //  0 its unknown data type
                    // +1 its known data type
     U32 streamId;  //  id for stream
-    char detect[16]; // model for detection
+    char detect[256]; // model for detection
     int dsize;     // size of above model, -1 if no model
-    char decode[16]; // model for decode, will be stored in archive
+    char decode[256]; // model for decode, will be stored in archive
     int desize;    // size of above model, -1 if no model
-    char encode[16]; // model for encode
+    char encode[256]; // model for encode
     int ensize;    // size of above model, -1 if no model
     int used;
     int state;     // state of current detection
@@ -3406,12 +3406,12 @@ thread(void *arg) {
 String config;
 // read global config file conf.pxv
 void readConfigFile(FILE *fp){ 
-    char str[60];
+    char str[256];
     int result;//, findNL;
     int ssize=-1,tsize=-1; // stream index
     /* opening file for reading */
     if(fp == NULL) printf("Error opening %s file\n",config.c_str()),quit();
-    while (fgets (str, 60, fp)!=NULL){   
+    while (fgets (str, 256, fp)!=NULL){   
         // remove comment
         if (str[0]=='/' || str[0]=='\r' || str[0]=='\n') continue;
         char *ptr = strtok(str," ");
@@ -3438,7 +3438,7 @@ void readConfigFile(FILE *fp){
             ptr = strtok(NULL, " \t\n\r");
             if (ptr == NULL)  quit("bad config: model file name not found"); 
             int fsize=strlen(ptr);
-            if (  fsize >15 ||fsize==0) quit("bad config: model filename > 15 0");
+            if (  fsize >255 ||fsize==0) quit("bad config: model filename > 15 0");
             strcpy(vStreams[ssize].model,ptr);
            // printf("stream id=%d model=%s \n",vStreams[ssize].stream,vStreams[ssize].model);
             continue;
@@ -3460,7 +3460,7 @@ void readConfigFile(FILE *fp){
             ptr = strtok(NULL, " \t\n\r/");
             if (ptr == NULL)  quit("bad config:   file name not found"); 
             int fsize=strlen(ptr);
-            if (  fsize >15 ||fsize==0) quit("bad config:   filename > 15 0");
+            if (  fsize >255 ||fsize==0) quit("bad config:   filename > 15 0");
             int sid=atoi(ptr);
             if (sid==-1){
                 vTypes[tsize].dsize=sid;        // set decode -1
@@ -3476,7 +3476,7 @@ void readConfigFile(FILE *fp){
             ptr = strtok(NULL, " \t\n\r/");
             if (ptr == NULL)  quit("bad config:   file name not found"); 
             int fsize=strlen(ptr);
-            if (  fsize >15 ||fsize==0) quit("bad config:   filename > 15 0");
+            if (  fsize >255 ||fsize==0) quit("bad config:   filename > 15 0");
             int sid=atoi(ptr);
             if (sid==-1){
                 vTypes[tsize].ensize=sid;        // set decode -1
@@ -3493,7 +3493,7 @@ void readConfigFile(FILE *fp){
             ptr = strtok(NULL, " \t\n\r/");
             if (ptr == NULL)  quit("bad config:   file name not found"); 
             int fsize=strlen(ptr);
-            if (  fsize >15 ||fsize==0) quit("bad config:   filename > 15 0");
+            if (  fsize >255 ||fsize==0) quit("bad config:   filename > 15 0");
             int sid=atoi(ptr);
             if (sid==-1){
                 vTypes[tsize].desize=sid;        // set decode -1
@@ -3511,7 +3511,7 @@ void readConfigFile(FILE *fp){
             ptr = strtok(NULL, " \t\n\r/");
             if (ptr == NULL)  quit("bad config:   wrong stream id"); 
             int fsize=strlen(ptr);
-            if (  fsize >15 ||fsize==0 || ptr[0]>'9') quit("bad config:   compress parameter wrong");
+            if (  fsize >255 ||fsize==0 || ptr[0]>'9') quit("bad config:   compress parameter wrong");
             int sid=atoi(ptr);
             vTypes[tsize].streamId=sid;        // set type model for compression
            // printf("type id=%d stream id=%d\n",vTypes[tsize].type,vTypes[tsize].streamId);
@@ -3798,6 +3798,7 @@ printf("\n");
             "  -f                  full tune on all parameters, default=false\n"
             "  -b                  b - enable bounds check at compile, dafault=false\n"
             "  -r                  r - enable bounds check at runtime, dafault=false\n"
+            "  -c<file>            c - use config file. dafault=conf.pxv\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
             "  -l input            list archive\n");

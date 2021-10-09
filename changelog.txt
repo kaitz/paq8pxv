@@ -1,3 +1,5 @@
+pre14
+ Move config files to dir. This allows to use multiple config files based on input.
 pre13
  Add config file command line option
 pre12
