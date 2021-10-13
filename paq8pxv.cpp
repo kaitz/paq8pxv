@@ -3796,8 +3796,8 @@ printf("\n");
             "  -o<n>               n specifies percentage of tune, default=100%\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
-            "  -b                  b - enable bounds check at compile, dafault=false\n"
-            "  -r                  r - enable bounds check at runtime, dafault=false\n"
+            "  -bc                 bc - enable bounds check at compile, dafault=false\n"
+            "  -br                 br - enable bounds check at runtime, dafault=false\n"
             "  -c<file>            c - use config file. dafault=conf.pxv\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
@@ -3822,8 +3822,8 @@ int getOption(int argc,char **argv) {
       else if (tmp[1]=='f') doFullOpt=true;
       else if (tmp[1]=='0') level=0;
       else if (tmp[1]=='1') level=1;
-      else if (tmp[1]=='b') doBounds=true;
-      else if (tmp[1]=='r') doBoundsRun=true;
+      else if (tmp[1]=='b' && tmp[2]=='c' && tmp[3]==0) doBounds=true;
+      else if (tmp[1]=='b' && tmp[2]=='r' && tmp[3]==0) doBoundsRun=true;
       else if (tmp[1]=='c' && tmp[2]!=0) config=(const char*)&tmp[2],printf("Config: %s\n",config.c_str());
       else if (tmp[1]=='2') {
           level=2;
