@@ -124,14 +124,14 @@ void expr(int lev);
 void stmt();
 int dovm(int *ttt);
 void gen(int *n);
-#ifdef VMJIT
 int  dojit();
- #endif
 int detect(int c4,int pos);
 int decode(int info,int len);
 int encode(int info,int len);
 int block(int info1,int info2);
-int doupdate(int y, int c0, int bpos,U32 c4,int pos);
+int doupdate1(int y, int c0, int bpos,U32 c4,int pos);
+int doupdate2(int y, int c0, int bpos,U32 c4,int pos);
+
 void killvm( );
 void decompile();
 int getPrediction( );
@@ -1045,7 +1045,7 @@ int vmbound(int line){
     if (line!=0)printf("Bounds error line: %d\n",line);
     exit(-1);
 }
-#ifndef VMJIT
+
 int VM::dovm(int *ttt){
   if (!(pc = ttt)) { kprintf("main() not defined\n"); return -1; }
   pc0=pc;
@@ -1111,7 +1111,7 @@ int VM::dovm(int *ttt){
   }
 
 }
- #endif
+
  /*
  void VM::gen(int *n)
 {
@@ -1171,7 +1171,6 @@ int VM::dovm(int *ttt){
   else if (i != ';') { printf("%d: compiler error gen=%d\n", line, i); exit(-1); }
 }
 */
-#ifdef VMJIT
 
 int VM::dojit(){
   int u;
@@ -1402,13 +1401,15 @@ int VM::dojit(){
   jitReadonly(jitmem,poolsz); //make jit read/execute only
  return 0;
 }
-#endif
+
 int  VM::decode(int info,int len){
-#ifdef VMJIT
+if (doJIT){
+
   int (*jitmain)( int,int); // c4 vm pushes first argument first, unlike cdecl
   jitmain = reinterpret_cast< int(*)(  int,int) >(*(unsigned*)( iddecode[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
   return  jitmain(len,info);
-#else
+}else{
+
   // setup stack
   data =data0;
   bp=sp = (int *)((int)sp0 + poolsz);
@@ -1418,14 +1419,14 @@ int  VM::decode(int info,int len){
   *--sp = len; 
   *--sp = (int)t;
   return   dovm((int *)iddecode[Val]);
-#endif
+}
 }
 int  VM::encode(int info,int len){
-#ifdef VMJIT
+if (doJIT){
   int (*jitmain)(int,int); // c4 vm pushes first argument first, unlike cdecl
   jitmain = reinterpret_cast< int(*)( int,int) >(*(unsigned*)( idencode[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
   return  jitmain(len,info);
-#else
+}else{
   // setup stack
   data =data0;
   bp=sp = (int *)((int)sp0 + poolsz);
@@ -1435,15 +1436,15 @@ int  VM::encode(int info,int len){
    *--sp = len; 
   *--sp = (int)t;
   return   dovm((int *)idencode[Val]);
-#endif
+}
 }
 
 int  VM::detect(int c4,int pos){
-#ifdef VMJIT
+if (doJIT){
   int (*jitmain)(int,int); // c4 vm pushes first argument first, unlike cdecl
   jitmain = reinterpret_cast< int(*)( int,int) >(*(unsigned*)( iddetect[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
   return  jitmain(pos,c4);
-#else
+}else{
   // setup stack
   data =data0;
   bp=sp = (int *)((int)sp0 + poolsz);
@@ -1453,14 +1454,14 @@ int  VM::detect(int c4,int pos){
   *--sp = pos; 
   *--sp = (int)t;
   return   dovm((int *)iddetect[Val]);
-#endif
+}
 }
 int  VM::block(int info1,int info2){
-#ifdef VMJIT
+if (doJIT){
   int (*jitmain)(int,int); // c4 vm pushes first argument first, unlike cdecl
   jitmain = reinterpret_cast< int(*)( int,int) >(*(unsigned*)( idp[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
   return  jitmain(info2,info1);
-#else
+}else{
   // setup stack
   data =data0;
   bp=sp = (int *)((int)sp0 + poolsz);
@@ -1470,7 +1471,7 @@ int  VM::block(int info1,int info2){
   *--sp = info2; 
   *--sp = (int)t;
   return   dovm((int *)idp[Val]);
-#endif
+}
 }
 int VM::getPrediction( ){
     int p;
@@ -1584,13 +1585,7 @@ void VM::updateComponents(){
         }
     }
 }
-int VM::doupdate(int y,int c0, int bpos,U32 c4,int pos){
-#ifdef VMJIT
-  int (*jitmain)(int,U32,int,int,int); // c4 vm pushes first argument first, unlike cdecl
-  jitmain = reinterpret_cast< int(*)(int,U32,int,int,int) >(*(unsigned*)( idupdate[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
-    jitmain(pos,c4,bpos,c0,y);
-  return 0;
-#else
+int VM::doupdate1(int y,int c0, int bpos,U32 c4,int pos){
   // setup stack
   data =data0;
   bp=sp = (int *)((int)sp0 + poolsz);
@@ -1604,9 +1599,14 @@ int VM::doupdate(int y,int c0, int bpos,U32 c4,int pos){
   *--sp = (int)t;
      dovm((int *)idupdate[Val]);
      return 0;
-#endif
-    
 }
+int VM::doupdate2(int y,int c0, int bpos,U32 c4,int pos){
+  int (*jitmain)(int,U32,int,int,int); // c4 vm pushes first argument first, unlike cdecl
+  jitmain = reinterpret_cast< int(*)(int,U32,int,int,int) >(*(unsigned*)( idupdate[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
+    jitmain(pos,c4,bpos,c0,y);
+  return 0;
+}
+
 static   char cVar[] = "char else enum if int short return for sizeof while printf vms vmi vmx h2 read write exit void block update main detect decode encode";
   
 int VM::initvm() { 
@@ -1815,14 +1815,16 @@ int VM::initvm() {
        if (vmMode==VMDECODE && (iddecode[Val]==0 ||  idmain[Val]==0) ) quit("decode or main not defined");
        if (vmMode==VMCOMPRESS && (idp[Val]==0 || idupdate[Val]==0 || idmain[Val]==0) ) quit("block update or main not defined");
 int r=0;
-#ifdef VMJIT
+if (doJIT){
+
 if (dojit()!=0) return -1;
  // run jitted code
   int (*jitmain)(); // c4 vm pushes first argument first, unlike cdecl
   jitmain = reinterpret_cast< int(*)() >(*(unsigned*)(idmain[Val]) >> 8 | ((unsigned)jitmem & 0xff000000));
   r= jitmain();
+return r;
+}else{
 
-#else
  // setup stack
   bp=sp = (int *)((int)sp0 + poolsz);
   *--sp = EXIT; // call exit if main returns
@@ -1830,9 +1832,10 @@ if (dojit()!=0) return -1;
   t = sp;
   *--sp = (int)t;
 r= dovm((int *)idmain[Val]);
-#endif
-    //no code here, JIT kills this
 return r;
+}
+    //no code here, JIT kills this
+
 }
  
 #ifdef WINDOWS

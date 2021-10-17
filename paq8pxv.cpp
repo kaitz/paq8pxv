@@ -393,7 +393,6 @@ elements at a time.
 #define VERSION "17"
 #define PROGNAME "paq8pxv" VERSION  // Please change this if you change the program.
 #define MT                          // uncomment for multithreading, compression only
-#define VMJIT                       // uncomment to compile with x86 JIT
 #define ERRMSG                    // uncomment to show error messages if programm quits
 #define VMMSG                     // prints vm error messages and x86 asm to console
 
@@ -2434,7 +2433,7 @@ void Anneal(int maxruns) {
     Tune((maxruns*2)/5,0.005);
 }
 };
-
+bool doJIT=false;
 #include "vm.cpp"
 
 //////////////////////////// Predictor /////////////////////////
@@ -2449,7 +2448,9 @@ public:
  BlockData x; //maintains current global data block
  int pr;  
   VM vm;
-  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {setdebug(0); }
+  int mode;
+  int ( VM::*doupdate[2])(int, int, int, U32, int) = { vm.doupdate1,  vm.doupdate2};
+  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {setdebug(0); mode=(doJIT==true)?1:0;}
   int p()  {assert(pr>=0 && pr<4096); return pr;} 
   ~Predictor(){ }
   void set() {  vm.block(x.finfo,0);  }
@@ -2466,7 +2467,8 @@ public:
     x.bposshift=7-x.bpos;
     x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
     vm.updateComponents();
-    pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
+    //pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
+    pr=(vm.*doupdate[mode])(x.y,x.c0,x.bpos,x.c4,p());
     if (pr!=0) quit();
     //printf("%d",x.cInputs);
     pr=vm.getPrediction( );
@@ -3737,11 +3739,6 @@ void printHelp(){
 #ifdef            _MSC_VER 
             printf("Compiled %s, compiler Visual Studio version %d. ",__DATE__, _MSC_VER);
 #endif
-#ifdef VMJIT
-            printf("Compiled with VM x86 JIT.\n"); 
-#else
-            printf("Compiled with VM emulation.\n");
-#endif
 #ifdef MT
 printf("Multithreading enabled with %s. ",
 #ifdef PTHREAD
@@ -3798,6 +3795,7 @@ printf("\n");
             "  -f                  full tune on all parameters, default=false\n"
             "  -bc                 bc - enable bounds check at compile, dafault=false\n"
             "  -br                 br - enable bounds check at runtime, dafault=false\n"
+            "  -j                  j - do JIT, dafault=false\n"
             "  -c<file>            c - use config file. dafault=conf.pxv\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
@@ -3820,12 +3818,14 @@ int getOption(int argc,char **argv) {
       if (tmp[1]=='d') doExtract=true;
       else if (tmp[1]=='l') doList=true;
       else if (tmp[1]=='f') doFullOpt=true;
-      else if (tmp[1]=='0') level=0;
-      else if (tmp[1]=='1') level=1;
-      else if (tmp[1]=='b' && tmp[2]=='c' && tmp[3]==0) doBounds=true;
-      else if (tmp[1]=='b' && tmp[2]=='r' && tmp[3]==0) doBoundsRun=true;
+      else if (tmp[1]=='j') doJIT=true,printf("JIT: enabled\n");
+      else if (tmp[1]=='0') level=0,printf("Mode: transform\n");
+      else if (tmp[1]=='1') level=1,printf("Mode: compress\n");
+      else if (tmp[1]=='b' && tmp[2]=='c' && tmp[3]==0) doBounds=true,printf("Bounds: compile time=enabled\n");
+      else if (tmp[1]=='b' && tmp[2]=='r' && tmp[3]==0) doBoundsRun=true,printf("Bounds: runtime time=enabled\n");
       else if (tmp[1]=='c' && tmp[2]!=0) config=(const char*)&tmp[2],printf("Config: %s\n",config.c_str());
       else if (tmp[1]=='2') {
+          printf("Mode: tune\n");
           level=2;
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
           bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
@@ -3995,8 +3995,8 @@ int main(int argc, char** argv) {
             
             for (int i=0; i<12+4+2; i++) fputc(0,archive); //space for segment size in header +streams info
             
-            printf("Creating archive %s with %d file(s)...\n",
-            archiveName.c_str(), files);
+            printf("Creating archive: %s%s\n",
+            argv[1],"." PROGNAME);
         }
 
         // Decompress: open archive for reading and store file names and sizes
