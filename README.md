@@ -4,8 +4,12 @@ This is paq8 like compressor, witch uses config files for compression models, de
 Compression models and data decoding models will be saved into final archive, so that decompressor can use them when data is extracted.
 Also main config file (conf.pxv) is stored compressed. Main compression routine is stored uncompressed.
 
-paq8pxv uses virtual machine, which compiles c like code to bytecode at runtime and executes it.
-There is also x86 JIT version.
+paq8pxv uses virtual machine, which compiles c like code to bytecode at runtime and executes it. Command line option -j allows also to use x86 JIT version.
+
+Usage example:
+__paq8pxv.exe  -1 -t1 -j -bc -br -cconf.pxv Testfile__
+
+Testfile is compressed, 1 thread, using JIT mode, array bounds are tested at compile and runtime, config file is conf.pxv
 
 # Config files
 Main configuration is in conf.pxv file. 
