@@ -1,3 +1,6 @@
+pre16
+ Enable command line opition j for JIT mode.
+ Show most selected options at the start.
 pre15
  Fix command line options.
 pre14
