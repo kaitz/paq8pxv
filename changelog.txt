@@ -1,3 +1,6 @@
+pre17
+ Remove BH class, move it to RunContextMap
+ Cleanup.
 pre16
  Enable command line opition j for JIT mode.
  Show most selected options at the start.

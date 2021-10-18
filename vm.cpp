@@ -176,6 +176,9 @@ void VM::killvm( ){
     if ( sm>0 ) {
         for (int i=0;i<sm;i++)  smcA[i].Free();
     }
+    if ( rcm>0 ) {
+        for (int i=0;i<rcm;i++)  rcmA[i].Free();
+    }
     // free memory allocated by vmmalloc
     if (mindex){
 

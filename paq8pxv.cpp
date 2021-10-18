@@ -1393,14 +1393,14 @@ static int n0n1[256];
 
 
 struct StateMapContext {
-  int N;  // Number of contexts
+  int N;        // Number of contexts
   int cxt;      // Context of last prediction
   U32 *t;       // cxt -> prediction in high 22 bits, count in low 10 bits
   int pr;
   int mask;
   int limit; 
   Init(int n, int lim){ 
-    N=(n), cxt=(0), pr=(2048), mask=(n-1),limit=(lim);
+    N=n, cxt=0, pr=2048, mask=n-1,limit=lim;
     assert(ispowerof2(n));
     alloc(t,n);
     assert(limit>0 && limit<1024);
@@ -1459,51 +1459,7 @@ inline U32 hash1(U32 a, U32 b) {
 //   element is replaced.
 
 // 2 byte checksum with LRU replacement (except last 2 by priority)
-template <U32 B> class BH {
-  enum {M=8};  // search limit
-  Array<U8, 64> t; // elements
-  //Array<U8> tmp;
-  U8 tmp[B];
-  U32 n; // size-1
-public:
-  BH():t(0) {
-    //printf("BH %0.0f, i %d B %d power %d\n",(i*B)+0.0,i,B,(i&(i-1))==0);
-  //  assert(B>=2 && i>0 && (i&(i-1))==0); // size a power of 2?    
-  }
-  resize(U32 i){
-      t.resize(i*4);
-      n=(i-1) ;
-  }
-  U8* operator[](U32 i);
-};
 
-template <U32 B>
-inline  U8* BH<B>::operator[](U32 i) {
-  U16 chk=(i>>16^i)&0xffff;
-  i=i*M&n;
-  U8 *p;
-  U16 *cp;
-  int j;
-  for (j=0; j<M; ++j) {
-    p=&t[(i+j)*B];
-    cp=(U16*)p;
-    if (p[2]==0) {*cp=chk;break;}
-    if (*cp==chk) break;  // found
-  }
-  if (j==0) return p+1;  // front
-  //static U8 tmp[B];  // element to move to front
-  if (j==M) {
-    --j;
-    memset(&tmp, 0, B);
-    memmove(&tmp, &chk, 2);
-    if (M>2 && t[(i+j)*B+2]>t[(i+j-1)*B+2]) --j;
-  }
-  else memcpy(&tmp, cp, B);
-  memmove(&t[(i+1)*B], &t[i*B], j*B);
-  memcpy(&t[i*B], &tmp, B);
-  return &t[i*B+1];
-}
- 
 /////////////////////////// ContextMap /////////////////////////
 //
 // A ContextMap maps contexts to a bit histories and makes predictions
@@ -1543,12 +1499,18 @@ inline int clp(int z){
 // A RunContextMap maps a context into the next byte and a repeat
 // count up to M.  Size should be a power of 2.  Memory usage is 3M/4.
 struct RunContextMap {
-  BH<4> t;
+  enum {B=4,M=8}; 
+  U8 *t;   // hash t
+  U8 *ptr;
   U8* cp;
   short rc[512];
+  U8 tmp[B];
+  U32 n;
   Init(int m,int rcm_ml=8){ 
-    t.resize(m/4);
-    cp=t[0]+1;
+    alloc1(t,m,ptr,64);  
+    n=(m/B-1);
+    for (int r=0;r<B;r++) tmp[r]=0;
+    cp=&t[0]+1;
     for (int r=0;r<256;r++) {
         int c=ilog(r+1)*rcm_ml;
 	    rc[r+256]=clp(c);
@@ -1556,10 +1518,13 @@ struct RunContextMap {
      }
   
   }
+  Free(){
+    free(ptr);
+  }
   void set(U32 cx,int c4) {  // update count
     if (cp[0]==0 || cp[1]!=(U8)c4) cp[0]=1, cp[1]=(U8)c4;
     else if (cp[0]<255) ++cp[0];
-    cp=t[cx]+1;
+    cp=find(cx)+1;
   }
   int p(BlockData& x) {  // predict next bit
     int b=x.c0shift_bpos ^ (cp[1] >> x.bposshift);
@@ -1571,6 +1536,31 @@ struct RunContextMap {
   int mix(BlockData& x,int m) {  // return run length
     x.mxInputs[m].add(p(x));
     return cp[0]!=0;
+  }
+  
+  inline  U8* find(U32 i) {
+    U16 chk=(i>>16^i)&0xffff;
+    i=i*M&n;
+    U8 *p;
+    U16 *cp1;
+    int j;
+    for (j=0; j<M; ++j) {
+      p=&t[(i+j)*B];
+      cp1=(U16*)p;
+      if (p[2]==0) {*cp1=chk;break;}
+      if (*cp1==chk) break;  // found
+    }
+    if (j==0) return p+1;  // front
+    if (j==M) {
+      --j;
+      memset(&tmp, 0, B);
+      memmove(&tmp, &chk, 2);
+      if (M>2 && t[(i+j)*B+2]>t[(i+j-1)*B+2]) --j;
+    }
+    else memcpy(&tmp, cp1, B);
+    memmove(&t[(i+1)*B], &t[i*B], j*B);
+    memcpy(&t[i*B], &tmp, B);
+    return &t[i*B+1];
   }
 };
 
@@ -1641,17 +1631,16 @@ struct StationaryMap {
   U32 *Data;
   int Context, Mask, Stride, bCount, bTotal, B, N;
   U32 *cp;
-  int Multiplier ,  Divisor;
-  U16 Limit;
-  Init(int BitsOfContext, int InputBits = 8, int mul=8,int Rate = 0) {
-  Multiplier = mul,  Divisor = 32,  Limit = 1023;
-  N=((1ull<<BitsOfContext)*((1ull<<InputBits)-1));
-  Context=(0), 
-  Mask=((1<<BitsOfContext)-1), Stride=((1<<InputBits)-1), bCount=(0), bTotal=(InputBits), B=(0); 
+  int Multiplier;
+  Init(int BitsOfContext, int InputBits=8, int mul=8,int Rate=0) {
+    Multiplier=mul;
+    N=((1ull<<BitsOfContext)*((1ull<<InputBits)-1));
+    Context=0, Mask=(1<<BitsOfContext)-1, Stride=(1<<InputBits)-1, bCount=0, bTotal=InputBits, B=0; 
     assert(InputBits>0 && InputBits<=8);
     assert(BitsOfContext+InputBits<=24);
     alloc(Data,N);
-    Reset(Rate);
+    for (U32 i=0; i<N; ++i)
+      Data[i]=(0x7FF<<20)|min(1023,Rate);
     cp=&Data[0];
   }
   Free(){
@@ -1661,24 +1650,21 @@ struct StationaryMap {
     Context = (ctx&Mask)*Stride;
     bCount=B=0;
   }
-  void Reset( int Rate = 0 ){
-    for (U32 i=0; i<N; ++i)
-      Data[i]=(0x7FF<<20)|min(1023,Rate);
-  }
+
   void mix(BlockData& x,int m) {
     // update
-    int Prediction,Error ;
+    int Prediction;
     U32 p0=cp[0];
     int n=p0&1023, pr=p0>>13;  // count, prediction
-    p0+=(n<Limit);     
+    p0+=(n<1023);     
     p0+=(((x.y<<19)-pr))*dt[n]&0xfffffc00;  
     cp[0]=p0;
     // predict
     B+=(x.y && B>0);
     cp=&Data[Context+B];
     Prediction = (*cp)>>20;
-    x.mxInputs[m].add((stretch(Prediction)*Multiplier)/Divisor);//      1/4    8/32
-    x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(Divisor*2));//    1/8    8/64
+    x.mxInputs[m].add((stretch(Prediction)*Multiplier)/32);//      1/4    8/32
+    x.mxInputs[m].add(((Prediction-2048)*Multiplier)/(32*2));//    1/8    8/64
     bCount++; B+=B+1;
     if (bCount==bTotal)
       bCount=B=0;
@@ -1702,7 +1688,7 @@ struct MixMap1 {
   int p,i1,c1; 
 
   void Init( int m,int c ) {
-    p=2048,i1=(m),c1=(c);
+    p=2048,i1=m,c1=c;
   }
   int pr() {
     if (c1==1)return(stretch(p)>>1);
@@ -4068,13 +4054,12 @@ int main(int argc, char** argv) {
         if (mode==COMPRESS) {
             en=new Encoder(mode, archive,pp);
             int len=header_string.size();
-            printf("\nFile list (%d bytes)\n", len);
             assert(en->getMode()==COMPRESS);
             U64 start=en->size();
             en->compress(0); // block type 0
             en->compress(len>>24); en->compress(len>>16); en->compress(len>>8); en->compress(len); // block length
             for (int i=0; i<len; i++) en->compress(header_string[i]);
-            printf("Compressed from %d to %d bytes.\n",len,(U32)en->size()-start);
+            printf("File list compressed from %d to %d bytes.\n",len,(U32)en->size()-start);
         }
 
         // Deompress header
