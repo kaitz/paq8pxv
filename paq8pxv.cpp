@@ -1426,6 +1426,49 @@ struct StateMapContext {
   } 
 }; 
 
+struct APM2 {
+  int N;        // Number of contexts
+  int cxt;      // Context of last prediction
+  U32 *t;       // cxt -> prediction in high 22 bits, count in low 10 bits
+  int pr;
+  int mask;
+  int limit; 
+  int  cx;
+  int p1;
+  Init(int n, int lim,int d){ 
+    N=n*24, cxt=cx=0, pr=2048, mask=n-1,limit=255,p1=d;
+    //assert(ispowerof2(n));
+    alloc(t,N);
+    assert(limit>0 && limit<1024);
+    for (int i=0; i<N; ++i) {
+      int p=((i%24*2+1)*4096)/48-2048;
+      t[i]=(U32(squash(p))<<20)+6;
+   }
+  }
+  Free(){
+    free(t);
+  }
+  inline void update(int y) {    
+    assert(y==0 || y==1);
+    U32 *p=&t[cxt], p0=p[0];
+    int n=p0&1023, pr1=p0>>10;  // count, prediction
+    p0+=(n<limit);
+    p0+=(((y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
+    p[0]=p0;
+  }
+  // update bit y (0..1), predict next bit in context cx
+  int p(int pr,int y) {  
+    assert(cxt>=0 && cxt<N);
+    update(y);
+    pr=(stretch(pr)+2048)*23;
+    int wt=pr&0xfff;  // interpolation weight of next element
+    cx=cx*24+(pr>>12);
+    assert(cx>=0 && cx<N-1);
+    pr=(t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt>>19;
+    cxt=cx+(wt>>11);
+    return pr;
+  } 
+}; 
 //////////////////////////// hash //////////////////////////////
 
 // Hash 2-5 ints.
@@ -1784,25 +1827,26 @@ struct DynamicHSMap {
   U8 **cp;  
   U8 *t;
   U8 *ptr;
-  
+  int B,N;
   Init(int bits,int membits,int countOfContexts){
-    state=(0),limit=(1023),index=(0),count=(countOfContexts),
-    // for jpeg there is 3 bits -> 8
-    // for bmp4 there is 4 bits -> 16
-    hashElementCount=((1<<bits)), //+1 for checksum 
+    state=0,limit=1023,index=0,count=countOfContexts,
+    // for jpeg  there is 3 bits -> 8
+    // for bmp4  there is 4 bits -> 16
+    // for lpaq1 there is 4 bits -> 16
+    B=hashElementCount=((1<<bits)), //+1 for checksum 
     hashSearchLimit=(5),
     bitscount=(bits),
-    n=((1<<membits)-1);
-  
+    N=n=((1<<membits)-1);
+    // if (hashElementCount*hashSearchLimit>64) hashSearchLimit=64/hashElementCount,printf("DHS Search limit: %d\n",hashSearchLimit);
     alloc(cp,countOfContexts);
     alloc(pr,countOfContexts);
-    alloc1(t,(hashElementCount*(1<<membits)),ptr,32);  
+    alloc1(t,(hashElementCount*(1<<membits)),ptr,64);  
     alloc(sm,count);
     for (int i=0; i<count; i++) 
       sm[i].Init(256,limit);
     for (int i=0;i<count;i++)
       cp[i]=&t[0]+1;
-    /*   printf("hashElementCount %d\n",hashElementCount);
+    /* printf("hashElementCount %d\n",hashElementCount);
       printf("countOfContexts %d\n",countOfContexts);
       printf("bits %d\n",bits);
       printf("n %d\n",n);
@@ -1819,25 +1863,25 @@ struct DynamicHSMap {
     free(sm);
   }
 
-  void set(U32 cx,int y) {
-    if (index==0 && cp[count-1])  for ( int i=0; i<count; ++i) *cp[i]=nex( *cp[i],y);   //update state
+  int set(U32 cx,int y) {
+    int a;
+    if (index==0 && cp[count-1])  for (int i=0; i<count; ++i) *cp[i]=nex(*cp[i],y);   //update state
       if (cx>255){
         cp[index]=find(cx)+1;                                      // find new
         sm[index].set(*cp[index],y);
         pr[index]=sm[index].pr;
+        a=*cp[index]?1:0;
         index++;
         if (index==count) index=0;
+        return a;
       }else{
-        if (cx==0) {
-          index=0;
-          return;
-        }
-        for ( int i=0; i<count; ++i) {
-          cp[i]+=cx;
-          sm[i].set(*cp[i],y);                             // predict from new context
-          pr[i]=sm[i].pr;
-        }
-        index=0;
+        cp[index]+=cx;
+        sm[index].set(*cp[index],y);                             // predict from new context
+        pr[index]=sm[index].pr;
+        a=*cp[index]?1:0;
+        index++;
+        if (index==count) index=0;
+        return a;
       }      
   }
   inline int p() {
@@ -1849,7 +1893,10 @@ struct DynamicHSMap {
     return 0;
   }
   U8* find(U32 i) {
-    U8 chk=(i>>24^i>>12^i);
+    i*=123456791;
+    i=i<<16|i>>16;
+    i*=234567891;
+    U8 chk=(i>>24);
     i&=n;
     int bi=i, b=256;  // best replacement so far
     U8 *p;
@@ -2188,6 +2235,8 @@ struct VMParam {
   int vm_mixer_limit_ue[256];
   bool vm_apm[256];
   int vm_apm_limit[256];
+  bool vm_apm2[256];
+  int vm_apm2_limit[256];
   bool vm_smc[256];
   int vm_smc_limit[256];
   bool vm_ds[256];
@@ -2207,6 +2256,7 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
    for (int i=0;i<256;i++) vm_mixer_ue[i]=mue;  
    for (int i=0;i<256;i++) vm_apm[i]=apm;
+   for (int i=0;i<256;i++) vm_apm2[i]=false;
    for (int i=0;i<256;i++) vm_smc[i]=smc;
    for (int i=0;i<256;i++) vm_ds[i]=ds;
    for (int i=0;i<256;i++) vm_cm[i]=cm;
@@ -2227,7 +2277,7 @@ struct Parameter{
 class SimulatedAnnealing {
     VMParam *InitState;
     VMParam BestState,ActualState;
-    Parameter parameters[256*12];
+    Parameter parameters[256*13];
     int accepted,rejected;
     int current_best,tune_best,total_runs;
     double init_prob_accepted;
@@ -2435,8 +2485,13 @@ public:
  int pr;  
   VM vm;
   int mode;
-  int ( VM::*doupdate[2])(int, int, int, U32, int) = { vm.doupdate1,  vm.doupdate2};
-  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {setdebug(0); mode=(doJIT==true)?1:0;}
+  int ( VM::*doupdate[2])(int, int, int, U32, int) ;
+  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {
+    doupdate[0]=vm.doupdate1; // VM
+    doupdate[1]=vm.doupdate2;  //JIT
+    setdebug(0); 
+    mode=(doJIT==true)?1:0;
+  }
   int p()  {assert(pr>=0 && pr<4096); return pr;} 
   ~Predictor(){ }
   void set() {  vm.block(x.finfo,0);  }
@@ -2453,12 +2508,9 @@ public:
     x.bposshift=7-x.bpos;
     x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
     vm.updateComponents();
-    //pr=vm.doupdate(x.y,x.c0,x.bpos,x.c4,p());
     pr=(vm.*doupdate[mode])(x.y,x.c0,x.bpos,x.c4,p());
     if (pr!=0) quit();
-    //printf("%d",x.cInputs);
     pr=vm.getPrediction( );
-    //printf("%d",x.cInputs);
   }
 };
 //////////////////////////// Encoder ////////////////////////////
@@ -3142,7 +3194,7 @@ static char   pp[] ="int t[5]={};"
 " if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
 " for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
-"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0);"
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0);"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
 " vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
 

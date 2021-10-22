@@ -96,20 +96,21 @@ public:
     int totalPR;
     Array<int> mcomp;  //component list set in vmi
     Array<ContextMap *>cmC;
-    int smc, apm1, rcm, scm, cm, mx,st,av,ds,mm,dhs,sm,sk;
+    int smc, apm1, rcm, scm, cm, mx,st,av,ds,mm,dhs,sm,sk,apm2;
 
-    MixMap1 mmA[255];
-    Mixer1 mxA[255];
-    StaticMap stA[255];
-    DynamicSMap dsA[255];
-    DynamicHSMap dhsA[255];
-    APM1 apm1A[255];
-    StateMapContext smA[255];
-    AvgMap  avA[255];   
-    SmallStationaryContextMap scmA[255];    
-    StationaryMap smcA[255];    
-    RunContextMap rcmA[255];  
-    SkMap skA[255];  
+    MixMap1 mmA[256];
+    Mixer1 mxA[256];
+    StaticMap stA[256];
+    DynamicSMap dsA[256];
+    DynamicHSMap dhsA[256];
+    APM1 apm1A[256];
+    StateMapContext smA[256];
+    AvgMap  avA[256];   
+    SmallStationaryContextMap scmA[256];    
+    StationaryMap smcA[256];    
+    RunContextMap rcmA[256];  
+    SkMap skA[256];  
+    APM2 apm2A[256];
     int totalc;  //total number of components
     int currentc; //current component, used in vmi
     int initdone; //set to 1 after main exits
@@ -158,6 +159,9 @@ void VM::killvm( ){
     if ( apm1>0 ) {
         for (int i=0;i<apm1;i++) apm1A[i].Free();
     }
+    if ( apm2>0 ) {
+        for (int i=0;i<apm2;i++) apm2A[i].Free();
+    }
     if ( scm>0 ) {
         for (int i=0;i<scm;i++)  scmA[i].Free();
     }
@@ -187,7 +191,7 @@ void VM::killvm( ){
             //programChecker.free((U64)memSize[i]); // meaningless if MT enabled and thread count 1+ 
         }
     }
-    smc=apm1=rcm=scm=cm=mx=mm=st=av=ds=dhs=sm=sk=currentc=totalc=initdone=mindex=0;
+    smc=apm1=apm2=rcm=scm=cm=mx=mm=st=av=ds=dhs=sm=sk=currentc=totalc=initdone=mindex=0;
     if (sym) free(sym),sym=0;
     if (ast) free(ast),ast=0;
     if (text) free(text),text=0;
@@ -196,16 +200,16 @@ void VM::killvm( ){
   UnmapViewOfFile(jitmem);
 }
 //vms - set number of components
-void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i,int j,int k,int l,int m){
+void components(VM* v,int a,int b,int c,int d,int e,int f,int g,int h,int i,int j,int k,int l,int m,int o){
     if (v->initdone==1) {kprintf("VM vms error: vms allowed only in main\n ");quit();}
     if (v->totalc>0) {kprintf("VM vms error: vms allready called\n ");quit();}
-    v->smc=a, v->apm1=b,v->ds=c,v->av=d,v->scm=e, v->rcm=f,   v->cm=g, v->mx=h,v->st=i,v->mm=j,v->dhs=k,v->sm=l,v->sk=m;
-    v->totalc= a+b+c+d+e+f+g+h+i+j+h+l+m;
+    v->smc=a, v->apm1=b,v->ds=c,v->av=d,v->scm=e, v->rcm=f,   v->cm=g, v->mx=h,v->st=i,v->mm=j,v->dhs=k,v->sm=l,v->sk=m,v->apm2=o;
+    v->totalc= a+b+c+d+e+f+g+h+i+j+h+l+m+o;
     v->mcomp.resize(v->totalc); 
     if (v->totalc==0 && h>0) quit("No inputs for mixer defined VM\n");
 }
 //vmi - init components
-enum {vmSMC=1,vmAPM1,vmDS,vmAVG,vmSCM,vmRCM,vmCM,vmMX,vmST,vmMM,vmDHS,vmSM,vmSK};
+enum {vmSMC=1,vmAPM1,vmDS,vmAVG,vmSCM,vmRCM,vmCM,vmMX,vmST,vmMM,vmDHS,vmSM,vmSK,vmAPM2};
 #ifndef NDEBUG
 void printcomponent(int component){
 
@@ -213,6 +217,8 @@ switch (component) {
     case vmSMC: printf("SMC");
         break;  
     case vmAPM1: printf("APM");
+        break;
+        case vmAPM2: printf("APM2");
         break;
     case vmDS: printf("DS ");
         break;
@@ -250,7 +256,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     if (v->currentc>  v->totalc) {kprintf("VM vmi error: component %d not set %d - %d\n ",component,v->currentc, v->totalc);quit();}
     if (componentIndex>  255)  {kprintf("VM vmi error: componentIndex\n ");quit();}
     const int ii=componentIndex+1;
-    bool isInputs= (component==vmAPM1 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1));
+    bool isInputs= (component==vmAPM1 || component==vmAPM2 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1));
     if (indexOfInputs>=0 &&  v->x.cInputs <indexOfInputs && isInputs==false){// input sets for mixers
         v->x.cInputs++;
         v->x.mxInputs.resize(v->x.mxInputs.size()+1);
@@ -265,6 +271,8 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 if ( indexOfInputs>=0) v->x.mxInputs[indexOfInputs].ncount++;
         break; }
     case vmAPM1:{v->totalPR++; if (ii>v->apm1) {kprintf("VM vmi error: apm1(%d) defined %d, max %d\n",component,ii, v->apm1);quit();} 
+        break; }
+        case vmAPM2:{v->totalPR++; if (ii>v->apm2) {kprintf("VM vmi error: apm2(%d) defined %d, max %d\n",component,ii, v->apm2);quit();} 
         break; }
     case vmDS:{v->totalc=v->totalc+indexOfInputs-1;v->mcomp.resize(v->mcomp.size()+indexOfInputs); v->totalPR+=indexOfInputs; if (ii>v->ds) {kprintf("VM vmi error: ds(%d) defined %d, max %d\n",component,ii, v->ds);quit();}
           if (f<1) {kprintf("VM vmi error:ds(%d) memory bits must be larger then 0.",ii);quit();}
@@ -301,7 +309,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     }
 
     int prindex=0;
-    if (component==vmAPM1 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1) || component==vmMX)prindex=v->totalPR;
+    if (component==vmAPM1 || component==vmAPM2 || component==vmDS|| component==vmDHS || component==vmAVG || (component==vmST && indexOfInputs==-1)||(component==vmSMC && indexOfInputs==-1) || component==vmMX)prindex=v->totalPR;
 
     switch (component) {
     case vmSMC:{
@@ -328,6 +336,19 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
             }
         }
         v->apm1A[componentIndex].Init(f,apm_l,indexOfInputs);
+        break;
+    }
+    case vmAPM2: {   
+        int apm_l=d;          // limit
+        // If Autotune then ignore model parameters, first run is allways with model parameters.
+        if (v->parm){
+            if (v->parm->vm_apm2[componentIndex]){
+                if (v->parm->isactive==true) v->parm->vm_apm2_limit[componentIndex]=apm_l;
+                apm_l=v->parm->vm_apm2_limit[componentIndex];
+                //kprintf("%d:",apm_l);
+            }
+        }
+        v->apm2A[componentIndex].Init(f,apm_l,indexOfInputs);
         break;
     }
     case vmDS: {
@@ -438,7 +459,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         break;
     }
     int m=indexOfInputs;
-    if (component==vmAVG || component==vmAPM1) m=0;
+    if (component==vmAVG || component==vmAPM1|| component==vmAPM2) m=0;
     if (indexOfInputs==-1) m=0;
      if (component==vmDS || component==vmDHS  ) {m=0;
      for (int j=0;j< indexOfInputs;j++) v->mcomp[v->currentc++] =m+((prindex-indexOfInputs+j+1)<<24)+(componentIndex<<16)+(component<<8);
@@ -457,7 +478,8 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
 #endif 
 }
 //set context to component
-void setcomponent(VM* v,int c,int i, U32 f){
+int setcomponent(VM* v,int c,int i, U32 f){
+    int a=0;
     switch (c) {
         case vmSMC: {
              v->smA[i].set(f,v->x.y);
@@ -465,11 +487,14 @@ void setcomponent(VM* v,int c,int i, U32 f){
         case vmAPM1:{
              v->apm1A[i].cxt=(f);
              break;}
+        case vmAPM2:{
+             v->apm2A[i].cx=(f);
+             break;}
         case vmDS:{
              v->dsA[i].set(f,v->x.y);
              break;}
         case vmDHS:{
-             v->dhsA[i].set(f,v->x.y);
+             a=v->dhsA[i].set(f,v->x.y);
              break;}
         case vmRCM:{
              v->rcmA[i].set(f,v->x.c4);
@@ -498,6 +523,7 @@ void setcomponent(VM* v,int c,int i, U32 f){
              quit("VM vmx error\n");
              break;}
     }
+    return a;
 }
 //  i    size
 //  pos     -2  - Seek to pos
@@ -550,7 +576,7 @@ int writefile(VM* v,U8 *i,int size){
 VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),cmC(0),parm(p) {
     data=&data1[0];
     mod=m;
-    smc=apm1=rcm=scm=cm=mx=st=av=mm=ds=dhs=sm=sk=currentc=totalc=initdone=mindex=totalPR=0;
+    smc=apm1=apm2=rcm=scm=cm=mx=st=av=mm=ds=dhs=sm=sk=currentc=totalc=initdone=mindex=totalPR=0;
     debug=0;
     if (initvm()==-1) 
     exit(1);  //load cfg file, if error then exit
@@ -565,6 +591,7 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
       int maxSM=-1;
       int maxCMS=-1;
       int maxRCM1=-1;
+      int maxAPM2=-1;
     // if mixer is used parse all input arrays
     if(x.cInputs>=0 && x.cInputs<256&& idupdate[Val]){ 
         // init input arrays
@@ -594,6 +621,10 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
             if (compnr==vmAPM1){
                 int index=(mcomp[i]>>16)&0xff;
                 maxAPM=index;
+            }
+            if (compnr==vmAPM2){
+                int index=(mcomp[i]>>16)&0xff;
+                maxAPM2=index;
             }
             if (compnr==vmSMC){
                 int index=(mcomp[i]>>16)&0xff;
@@ -637,6 +668,9 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
         }
         for (int i=maxAPM;i<256;i++){
             parm->vm_apm[i]=false;
+        }
+        for (int i=maxAPM2;i<256;i++){
+            parm->vm_apm2[i]=false;
         }
         for (int i=maxSMC;i<256;i++){
             parm->vm_smc[i]=false;
@@ -795,7 +829,7 @@ void VM::expr(int lev){
              printf("VMS, VMI, VMX or H2 allowed only in (de)comprassion stage.");
              exit(-1);
          }
-    if (d[Val] == VMS ) {fc=10 +1+1+1+1;}
+    if (d[Val] == VMS ) {fc=10 +1+1+1+1+1;}
     else if (d[Val] ==VMI  ) {fc=6 ;}
     else if (d[Val] == VMX  ) {fc=4 ;}
     else if (d[Val] == H2  ) {fc=2 ;}
@@ -1100,9 +1134,9 @@ int VM::dovm(int *ttt){
     else if (i == MOD) a = *sp++ % a;
 
     else if (i == PRTF) { t = sp + pc[1]; a = printf((char *)t[-1], t[-2], t[-3], t[-4], t[-5], t[-6]); }
-    else if (i == VMS) a=0, components(this,sp[12],sp[11],sp[10],sp[9],sp[8],sp[7],sp[6], sp[5], sp[4], sp[3],sp[2], sp[1],*sp);
+    else if (i == VMS) a=0, components(this,sp[13],sp[12],sp[11],sp[10],sp[9],sp[8],sp[7],sp[6], sp[5], sp[4], sp[3],sp[2], sp[1],*sp);
     else if (i == VMI) a=0, initcomponent(this, sp[4], sp[3],sp[2], sp[1],*sp);
-    else if (i == VMX) a=0, setcomponent(this, sp[2], sp[1],*sp);
+    else if (i == VMX) a=setcomponent(this, sp[2], sp[1],*sp);
     else if (i == H2)  a = hash1((U32)sp[1], (U32)*sp);
     else if (i == VTHIS)  *--sp;  //ignore
     else if (i == BOUND) { /*printf("exit(%d) cycle = %d\n", *sp, cycle);*/ return vmbound(*sp); }
@@ -1488,7 +1522,7 @@ int VM::getPrediction( ){
                 if (j==inputIndex && (mcomp[i]>>24)==0 && (component==vmST|| component==vmSMC || component==vmRCM ||component==vmSCM || component==vmCM ||component==vmSM ||component==vmSK )) {
                     int componentIndex=mcomp[i]>>16;    // component index
                     switch (component) { // select component and mix
-                    case vmSMC: x.mxInputs[inputIndex].add(stretch(smA[componentIndex].pr));//smC[componentIndex]->mix(inputIndex);
+                    case vmSMC: x.mxInputs[inputIndex].add(stretch(smA[componentIndex].pr));
                         break;
                     case vmRCM: rcmA[componentIndex].mix(x,inputIndex);
                         break;
@@ -1526,6 +1560,10 @@ int VM::getPrediction( ){
             }  
             case vmAPM1: {
                 prSize[prindex]=apm1A[index].p(prSize[apm1A[index].p1],x.y);
+                break;
+            }
+            case vmAPM2: {
+                prSize[prindex]=apm2A[index].p(prSize[apm2A[index].p1],x.y);
                 break;
             }
             case vmDS: {

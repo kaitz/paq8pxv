@@ -1,0 +1,8 @@
+// describe usable models
+stream 0
+model lpaq1.cfg
+type 0
+detect -1
+decode -1
+encode -1
+compress 0

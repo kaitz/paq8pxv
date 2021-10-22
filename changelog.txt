@@ -1,3 +1,8 @@
+pre18
+ Add APM2 component.
+ Change DHS hash checksum calculation.
+ Update jpeg.cfg/test3i4.cfg to work with new DHS.
+ Add lpaq1 model.
 pre17
  Remove BH class, move it to RunContextMap
  Cleanup.
