@@ -76,7 +76,7 @@ int main() {
 }
 ```
 # Data detection, transform and compression
-
+## Main config
 Usage is definded in main configuration file conf.pxv
 
 |Type|Detect|Encode|Decode|Compress|Recursive|Description|
@@ -91,7 +91,17 @@ Usage is definded in main configuration file conf.pxv
 | arm| arm.det| arm.enc| arm.dec| test3d.cfg|n |arm executable code|
 | text| text.det| text.enc|text.dec | test3txt.cfg| n|text|
 | jpeg| jpeg.det| none| none| jpeg.cfg|n |jpeg image|
- 
+
+## lpaq1 config
+lpaq1.cfg is almost identical to [lpaq1.c](http://www.mattmahoney.net/dc/text.html#1440)
+
+Usage example: __paq8pxv.exe -1 -t1 -j -clpaq1.pxv file__
+
+|   |lpaq1.c|lpaq1.cfg|
+| --- | --- | --- | 
+| Time|123.39 sec| 476.20 sec| 
+| Compressed size|19755948|19790459 (JIT)|
+| Mem|1539 MB|1631 MB| 
 
 # General .cfg/.dec compression
 Main compression routine used when compressing .cfg/.dec files and main config file (conf.pxv).
@@ -150,6 +160,7 @@ int main(){
 |DynamicHashStateMap| DHS |11|yes|no|
 |StationaryMap| SM |12|no|yes|
 |SkMap| SK |13|no|yes|
+|APM2| APM2|14|yes|no|
 
 [See detailed info about components](components.md)
 
