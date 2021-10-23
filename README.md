@@ -99,8 +99,9 @@ Usage example: __paq8pxv.exe -1 -t1 -j -clpaq1.pxv file__
 
 |   |lpaq1.c|lpaq1.cfg|
 | --- | --- | --- | 
-| Time|123.39 sec| 476.20 sec| 
-| Compressed size|19755948|19790459 (JIT)|
+| Time enwik8|123.39 sec| 476.20 sec (JIT)| 
+| Compressed size enwik8|19755948|19790459|
+| Compressed size enwik9|164508919|164876243|
 | Mem|1539 MB|1631 MB| 
 
 # General .cfg/.dec compression
