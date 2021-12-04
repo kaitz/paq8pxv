@@ -91,3 +91,8 @@ detect conf\bmp4.det
 decode -1
 encode -1
 compress 6
+type 12
+detect conf\nes.det 
+decode -1
+encode -1
+compress 0

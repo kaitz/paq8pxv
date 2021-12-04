@@ -1,0 +1,79 @@
+// For NES detection
+int nesh;  // number of consecutive CALL/JMPs
+int nesp;    // offset of first CALL or JMP instruction
+int nese,nesc;   // offset of most recent CALL or JMP
+int buf0;
+int type,state,jstart,jend;
+enum {DEFAULT=1,NES}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    state=NONE,type=DEFAULT,jstart=jend=nesh=nesp= nese=nesc=buf0=0;
+}
+int detect(int c4,int i){
+    int p;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)     {p=jend;reset();return p;};
+        if (state==INFO)  return 0xffffffff;
+    }
+    if (i==RESET){
+        reset();
+        return 0xffffffff;
+    }
+    buf0=c4;
+    //detect header
+    // NES rom 
+    //The format of the header is as follows:
+    //0-3: Constant $4E $45 $53 $1A ("NES" followed by MS-DOS end-of-file)
+    //4: Size of PRG ROM in 16 KB units
+    //5: Size of CHR ROM in 8 KB units (Value 0 means the board uses CHR RAM)
+    //6: Flags 6
+    //7: Flags 7
+    //8: Size of PRG RAM in 8 KB units (Value 0 infers 8 KB for compatibility; see PRG RAM circuit)
+    //9: Flags 9
+    //10: Flags 10 (unofficial)
+    //11-15: Zero filled
+    if (buf0==0x4E45531A  ) nesh=i,nesp=0;
+    if (nesh) {
+      p=(i-nesh);
+      if (p==1) nesp=buf0&0xff; //count of pages*0x3FFF
+      else if (p==2) nesc=buf0&0xff; //count of CHR*0x1FFF
+      else if (p==6 && ((buf0&0xfe)!=0) )nesh=0; // flags 9
+      else if (p==11 && (buf0!=0) )nesh=0;
+      else if (p==12) {
+        if (nesp>0 && nesp<129) {
+            jstart=nesh-3+16;
+            nese=nesp*0x3FFF;//+nesc*0x1FFF ;
+            jend=nesh+nese-1;
+        }else
+        nesh=0;
+      }
+      else if (nese && i==jend) {
+            type=NES;
+            state=START;
+            //printf("DETECT: NES start %d\n",jstart);
+            return state;
+        }
+    }
+    //if (type==NES && state==START) {
+    //      state=INFO;
+    //      return state;
+    //}
+    if (type==NES && state==START){
+        state=END;
+        type=DEFAULT;
+        nesh=0;
+        //printf("DETECT: NES end %d\n",jend);
+        return state;
+    }
+    return NONE;
+}
+
+int main() {
+    state=NONE,type=DEFAULT;
+}

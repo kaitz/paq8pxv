@@ -779,6 +779,7 @@ public:
     int finfo;
     int bposshift;
     int c0shift_bpos;
+    int flags;
     struct Inputs{
         int ncount;     // mixer input count
         //int wcount;     // mixer weights count
@@ -787,7 +788,7 @@ public:
     } ;
     Array<Inputs> mxInputs; // array of inputs
     int cInputs;
-BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),mxInputs(0),cInputs(-1),bposshift(0),c0shift_bpos(0) {
+BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),bposshift(0),c0shift_bpos(0),flags(0),mxInputs(0),cInputs(-1) {
     }
 ~BlockData(){ }
 };
@@ -1173,7 +1174,7 @@ struct APM1 {
   int rate,cxt;
   int p1; // pr select index
   
-  Init(int n,int r,int d){ 
+  void Init(int n,int r,int d){ 
     index=0,  mask=(n-1),rate=(r),cxt=(0),p1=(d);
     assert(ispowerof2(n));
     alloc(t,n*33);
@@ -1181,7 +1182,7 @@ struct APM1 {
       for (int j=0; j<33; ++j)
         t[i*33+j] = i==0 ? squash((j-16)*128)*16 : t[j];
   }
-  Free(){
+  void Free(){
     free(t);
   } 
   int p(int pr,int y) {
@@ -1207,6 +1208,7 @@ struct Mixer1 {
   int shift1; 
   int elim;
   int uperr;
+  int err;
 #if defined(__AVX2__)
  int dot_product (const short* const t, const short* const w, int n) {
   assert(n == ((n + 15) & -16));
@@ -1348,7 +1350,7 @@ void train(short *t, short *w, int n, int err) {
 
   // Adjust weights to minimize coding cost of last prediction
   void update(int y) {
-      int err=((y<<12)-pr)*uperr/4;
+       err=((y<<12)-pr)*uperr/4;
       if (err>32767)
           err=32767;
       if (err<-32768)
@@ -1368,12 +1370,15 @@ void train(short *t, short *w, int n, int err) {
     alloc1(wx,(N*M)+32,ptr,32);
     tx=mn; 
   }
-  
-  Init(int m,  int s,int e,int ue){
-    M=m,  cxt=0, shift1=s,elim=e,uperr=ue;
+  void swit(int a,int b, int c){
+      shift1=a,elim=b,uperr=c;
+  //printf("new %d %d %d\n",shift1,elim,uperr);
+  }
+  void Init(int m,  U32 s,U32 e,U32 ue){
+    M=m,  cxt=0, shift1=s,elim=e,uperr=ue;err=0;
     pr=2048; //initial p=0.5
   }
-  Free(){
+  void Free(){
     free(ptr);
   }
 };
@@ -1399,7 +1404,7 @@ struct StateMapContext {
   int pr;
   int mask;
   int limit; 
-  Init(int n, int lim){ 
+  void Init(int n, int lim){ 
     N=n, cxt=0, pr=2048, mask=n-1,limit=lim;
     assert(ispowerof2(n));
     alloc(t,n);
@@ -1407,7 +1412,7 @@ struct StateMapContext {
     for (int i=0; i<N; ++i)
       t[i]=1<<31; 
   }
-  Free(){
+  void Free(){
     free(t);
   }
   inline void update(int y) {    
@@ -1424,6 +1429,11 @@ struct StateMapContext {
     update(y);
     pr=t[cxt=(c&mask)]>>20;
   } 
+  void print(){
+      for (int i=0;i<N;i++){
+          printf("%d\n",t[i]>>20);
+      }
+  }
 }; 
 
 struct APM2 {
@@ -1435,17 +1445,18 @@ struct APM2 {
   int limit; 
   int  cx;
   int p1;
-  Init(int n, int lim,int d){ 
-    N=n*24, cxt=cx=0, pr=2048, mask=n-1,limit=255,p1=d;
+  int step;
+  void Init(int n, int s,int d){ 
+    N=n*24, cxt=cx=0, pr=2048, mask=n-1,limit=255,p1=d,step=s&0xff;
     //assert(ispowerof2(n));
     alloc(t,N);
     assert(limit>0 && limit<1024);
     for (int i=0; i<N; ++i) {
-      int p=((i%24*2+1)*4096)/48-2048;
-      t[i]=(U32(squash(p))<<20)+6;
+      int p=((i%step*2+1)*4096)/(step*2)-2048;
+      t[i]=(U32(squash(p))<<20)+(s>>8);
    }
   }
-  Free(){
+  void Free(){
     free(t);
   }
   inline void update(int y) {    
@@ -1459,16 +1470,122 @@ struct APM2 {
   // update bit y (0..1), predict next bit in context cx
   int p(int pr,int y) {  
     assert(cxt>=0 && cxt<N);
+    cx=cx&mask;
     update(y);
-    pr=(stretch(pr)+2048)*23;
+    pr=(stretch(pr)+2048)*(step-1);
     int wt=pr&0xfff;  // interpolation weight of next element
-    cx=cx*24+(pr>>12);
+    cx=cx*step+(pr>>12);
     assert(cx>=0 && cx<N-1);
     pr=(t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt>>19;
     cxt=cx+(wt>>11);
     return pr;
   } 
-}; 
+};
+ 
+// based on https://encode.su/downloads/fpaq0p-sb_sh_full.rar
+struct TAPM {
+  U16 *t;    
+  int cxt;
+  int pr,pr1;
+  int b1,b2,b3;
+  U16 tab[4096][2];
+  int fp_i0,fp_i1,fp_i2,fp_i3,fp_i4,fp_mw1,fp_mw2,fp_wb1;
+  int C(int i) {
+    int j=  (i<trim(fp_i0+fp_i1+fp_i2+fp_i3+fp_i4))
+          + (i<trim(fp_i0+fp_i1+fp_i2+fp_i3))
+          + (i<trim(fp_i0+fp_i1+fp_i2))
+          + (i<trim(fp_i0+fp_i1) )
+          + (i<trim(fp_i0) );
+    return j;
+  }
+  void Init(int n0, int n1,int n2,int n3,int n4,int w1,int w2,int wb1){ 
+      int i;
+      fp_i0=n0;fp_i1=n1;fp_i2=n2;fp_i3=n3;fp_i4=n4;fp_mw1=w1;fp_mw2=w2;fp_wb1=wb1;
+      pr=2048;
+      pr1=2048;cxt=1;b1=0;b2=0;
+      alloc(t,0x1000000);
+      for(i=0; i<4096; i++ ) {
+          const int SCALElog=12;
+          const int SCALE=1<<SCALElog;
+
+          int sp1=fp_wb1+C(i);
+          int wr1=SCALE/sp1;
+          int mw1=trim(fp_mw1);
+          int pr1=i*(SCALE-wr1)+mw1*wr1;
+          tab[i][0]=__max(1, pr1>>SCALElog);
+
+          int sp2=fp_wb1+C(4096-i);
+          int wr2=SCALE/sp2;
+          int mw2=4096-trim(fp_mw2);
+          int pr2=i*(SCALE-wr2)+mw2*wr2;
+          tab[i][1]=__min(4095, pr2>>SCALElog);
+        }
+        for (int i=0; i<0x1000000; ++i)
+            t[i]=2048;
+  }
+  void Free(){
+    free(t);
+  }
+  void update(int y) {    
+    t[b1+cxt]=tab[ t[b1+cxt] ][y];
+    if ((cxt+=cxt+y)>=256)
+      cxt=1,b1=b3;
+  }
+  int set(U32 cxt0, int y0) {  
+      b3=(cxt0<<8)&0xffffff;
+  } 
+  int p(int y) {  
+    update(y);
+    pr=t[b1+cxt];    
+    return pr;
+  } 
+  int trim(int x) { return __max(1,__min(4095,x)); }
+};  
+
+// unaligned (sparse)
+// used with ERR
+struct UAS {
+  U8 *t; 
+  U8 *p;    
+  int cxt;
+  int pr;
+  U32 bits,mask;
+  int skip,noskip,rate;
+  void Init(int b, int m,bool dm,int r){ 
+    bits=b,mask=m;rate=r;
+    pr=2048;  
+    cxt=skip=noskip=0;
+    U32 tsize=1<<bits;
+    if (dm==false) mask=(tsize-1);
+   // printf("%d,%x",bits,mask);
+    //if ((m+1)!=tsize) mask=(tsize-1),printf("%d,%x",bits,mask);
+    if (mask>=tsize) printf("UAS mask to large\n"),quit();
+    alloc(t,tsize);
+    memset(t, 0x80u, tsize);
+    p=t;
+  }
+  void Free(){
+    //  printf("Skip total yes=%d, no=%d\n",skip,noskip);
+    free(t);
+  }
+  void update(int y) {    
+    *p+=((-y&256)-*p+16)>>rate;
+  }
+  int set(int f,int y,int bpos,int fla) {cxt=(2*cxt+y)&mask;
+    if ((f>>8)&255==255)
+    update(y);
+    if ((f&255)==255){
+        //noskip++;
+        p=&t[cxt];
+        pr=squash(16*(*p)-2048);
+    }else {
+        pr=2048;
+        //skip++;
+    }
+    return pr;
+  } 
+ 
+};  
 //////////////////////////// hash //////////////////////////////
 
 // Hash 2-5 ints.
@@ -1549,7 +1666,7 @@ struct RunContextMap {
   short rc[512];
   U8 tmp[B];
   U32 n;
-  Init(int m,int rcm_ml=8){ 
+  void Init(int m,int rcm_ml=8){ 
     alloc1(t,m,ptr,64);  
     n=(m/B-1);
     for (int r=0;r<B;r++) tmp[r]=0;
@@ -1561,7 +1678,7 @@ struct RunContextMap {
      }
   
   }
-  Free(){
+  void Free(){
     free(ptr);
   }
   void set(U32 cx,int c4) {  // update count
@@ -1624,18 +1741,18 @@ struct SmallStationaryContextMap {
   int Context, Mask, Stride, bCount, bTotal, B,N;
   U16 *cp;
 
-  Init(int BitsOfContext,  int InputBits = 8)     {
+  void Init(int BitsOfContext,  int InputBits = 8)     {
    // assert(BitsOfContext<=16);
     assert(InputBits>0 && InputBits<=8);
     Context=0, Mask=((1<<BitsOfContext)-1), 
     Stride=((1<<InputBits)-1), bCount=(0), bTotal=(InputBits), B=(0)  ;
     N=(1ull<<BitsOfContext)*((1ull<<InputBits)-1);
     alloc(Data,N);
-    for (U32 i=0; i<N; ++i)
+    for (int i=0; i<N; ++i)
       Data[i]=0x7FFF;
     cp=&Data[0];
   }
-  Free(){
+  void Free(){
     free(Data);
   }
   void set(U32 ctx) {
@@ -1675,18 +1792,18 @@ struct StationaryMap {
   int Context, Mask, Stride, bCount, bTotal, B, N;
   U32 *cp;
   int Multiplier;
-  Init(int BitsOfContext, int InputBits=8, int mul=8,int Rate=0) {
+  void Init(int BitsOfContext, int InputBits=8, int mul=8,int Rate=0) {
     Multiplier=mul;
     N=((1ull<<BitsOfContext)*((1ull<<InputBits)-1));
     Context=0, Mask=(1<<BitsOfContext)-1, Stride=(1<<InputBits)-1, bCount=0, bTotal=InputBits, B=0; 
     assert(InputBits>0 && InputBits<=8);
     assert(BitsOfContext+InputBits<=24);
     alloc(Data,N);
-    for (U32 i=0; i<N; ++i)
+    for (int i=0; i<N; ++i)
       Data[i]=(0x7FF<<20)|min(1023,Rate);
     cp=&Data[0];
   }
-  Free(){
+  void Free(){
     free(Data);
   }
   void set(U32 ctx) {
@@ -1716,7 +1833,7 @@ struct StationaryMap {
 
 struct SkMap {
   int pr;
-  Init() {
+  void Init() {
     pr=0;
   }
   void set(int ctx) {
@@ -1741,25 +1858,86 @@ struct MixMap1 {
   }
 };
 
+
 struct StaticMap {
   int pr;
   int pr1;
-
-  Init(int m){
+  int g;
+  void Init(int m,int x){
+    g=x;
     if (m>255 || m<0) printf("StaticMap must be 0..255\n"),quit();
     pr=((m-128)*16),pr1=(m*16);
   }
+  void set(int ctx) {
+    if (g==-1) pr1=ctx;
+    else pr=clp(ctx);
+  }
 };
 
+int nextPOTwo(unsigned int x) {
+  return 1 << sizeof(x)*8 - __builtin_clz(x);
+}
+int upow(U32 x) {
+  return sizeof(x)*8-__builtin_clz(x);
+}
+// default is m1+m2>>1
+// when m1 or m2 > 1 get next largest power and use it to scale down
+// sum of m1 and m2 must be power of 2
 struct AvgMap {
   int pr;
   int p1,p2; // index to prediction array
-  
-  Init(int a,int b){
+  int m1,m2,m3,m4; // proportions 
+  int n1,n2,n3,n4;
+  int ms,ad; // scale and add before scale
+  int s1;
+  void Init(int a,int b,int c,int d){
     pr=0,p1=a,p2=b;
+    if (c) m1=c&255,m2=(c>>8)&255,m3=(c>>16)&255,m4=(c>>24)&255,ms=(c>>16)&255;
+    else     m1=m2=ms=1,m3=m4=0;
+     if (d) n1=d&255,n2=(d>>8)&255,n3=(d>>16)&255,n4=(d>>24)&255 ;
+    ms=m1+m2+m3+m4;
+    ad=1;//(m1+m2);
   }
-  inline int average(int a,int b){
-      return pr=(a+b+1)>>1;
+  void set(int a){
+      s1=a;
+  }
+  inline int average(int *prs){
+      if (s1 && m3) return pr=(prs[p1]*m1+prs[p1+1]*m2+prs[p1+2]*m3+prs[p1+3]*m4+ad)/ms;
+      else if (s1==0 && m3) return pr=(prs[p1]*n1+prs[p1+1]*n2+prs[p1+2]*n3+prs[p1+3]*n4+ad)/ms;
+      return pr=(prs[p1]*m1+prs[p2]*m2+ad)/ms;
+  }
+};
+
+// mix with weight w
+struct LmxMap {
+  int pr;
+  int p1,p2; // index to prediction array
+  int w;
+  void Init(int a,int b,int c){
+    pr=0,p1=a,p2=b;
+    w=c;
+  }
+  void set(int a){
+  }
+  inline int average(int *prs){
+      return pr=prs[p1]+(((prs[p2]-prs[p1])*w)>>12);
+  }
+};
+
+// map +-4095 to 0,1,3 with user provided ranges e1,e2
+struct ErrMap {
+  int cx;
+  int e1,e2;
+  
+  void Init(int a,int b){
+    cx=0,e1=a,e2=b;
+  }
+  inline int q(){
+    int v=0;
+    if (cx<0) cx=-cx;
+    if (e1 && cx>e1) v=1;
+    if (e2 && cx>e2) v=3;
+    return v;
   }
 };
 
@@ -1773,8 +1951,8 @@ struct DynamicSMap {
   U8 *CxtState;
   int index;
   int count;
- 
-  Init(int m,int lim,int c){
+  int *nn;
+  void Init(int m,int lim,int c,int *nn1){nn=nn1;
     state=0, mask=(1<<m)-1,limit=lim,index=0,count=c;
     alloc(cxt,c);
     alloc(pr,c);
@@ -1783,19 +1961,22 @@ struct DynamicSMap {
     for (int i=0; i<count; i++) 
       sm[i].Init(256,lim);
   }
-  Free(){
+  void Free(){
     free(cxt);
     free(pr);
     free(CxtState);
     for (int i=0; i<count; i++) {
+       //if(count==1)sm[i].print();
        sm[i].Free();
     }
     free(sm);
     
   }
-
+  int next(int i, int y){
+      return nn[256 * y + i];
+  }
   void set(U32 cx,int y) {
-    CxtState[cxt[index]]=nex(CxtState[cxt[index]],y);       // update state
+    CxtState[cxt[index]]=next(CxtState[cxt[index]],y);       // update state
     cxt[index]=(cx)&mask;                                     // get new context
     sm[index].set(CxtState[cxt[index]],y);    // predict from new context
     pr[index]=sm[index].pr;
@@ -1811,6 +1992,50 @@ struct DynamicSMap {
     return 0;
   }
 };
+
+static const int st0[256][2]={
+{1,  2},{  3,  5},{  4,  6},{  7, 10},{  8, 12},{  9, 13},{ 11, 14}, // 0
+{ 15, 19},{ 16, 23},{ 17, 24},{ 18, 25},{ 20, 27},{ 21, 28},{ 22, 29}, // 7
+{ 26, 30},{ 31, 33},{ 32, 35},{ 32, 35},{ 32, 35},{ 32, 35},{ 34, 37}, // 14
+{ 34, 37},{ 34, 37},{ 34, 37},{ 34, 37},{ 34, 37},{ 36, 39},{ 36, 39}, // 21
+{ 36, 39},{ 36, 39},{ 38, 40},{ 41, 43},{ 42, 45},{ 42, 45},{ 44, 47}, // 28
+{ 44, 47},{ 46, 49},{ 46, 49},{ 48, 51},{ 48, 51},{ 50, 52},{ 53, 43}, // 35
+{ 54, 57},{ 54, 57},{ 56, 59},{ 56, 59},{ 58, 61},{ 58, 61},{ 60, 63}, // 42
+{ 60, 63},{ 62, 65},{ 62, 65},{ 50, 66},{ 67, 55},{ 68, 57},{ 68, 57}, // 49
+{ 70, 73},{ 70, 73},{ 72, 75},{ 72, 75},{ 74, 77},{ 74, 77},{ 76, 79}, // 56
+{ 76, 79},{ 62, 81},{ 62, 81},{ 64, 82},{ 83, 69},{ 84, 71},{ 84, 71}, // 63
+{ 86, 73},{ 86, 73},{ 44, 59},{ 44, 59},{ 58, 61},{ 58, 61},{ 60, 49}, // 70
+{ 60, 49},{ 76, 89},{ 76, 89},{ 78, 91},{ 78, 91},{ 80, 92},{ 93, 69}, // 77
+{ 94, 87},{ 94, 87},{ 96, 45},{ 96, 45},{ 48, 99},{ 48, 99},{ 88,101}, // 84
+{ 88,101},{ 80,102},{103, 69},{104, 87},{104, 87},{106, 57},{106, 57}, // 91
+{ 62,109},{ 62,109},{ 88,111},{ 88,111},{ 80,112},{113, 85},{114, 87}, // 98
+{114, 87},{116, 57},{116, 57},{ 62,119},{ 62,119},{ 88,121},{ 88,121}, // 105
+{ 90,122},{123, 85},{124, 97},{124, 97},{126, 57},{126, 57},{ 62,129}, // 112
+{ 62,129},{ 98,131},{ 98,131},{ 90,132},{133, 85},{134, 97},{134, 97}, // 119
+{136, 57},{136, 57},{ 62,139},{ 62,139},{ 98,141},{ 98,141},{ 90,142}, // 126
+{143, 95},{144, 97},{144, 97},{ 68, 57},{ 68, 57},{ 62, 81},{ 62, 81}, // 133
+{ 98,147},{ 98,147},{100,148},{149, 95},{150,107},{150,107},{108,151}, // 140
+{108,151},{100,152},{153, 95},{154,107},{108,155},{100,156},{157, 95}, // 147
+{158,107},{108,159},{100,160},{161,105},{162,107},{108,163},{110,164}, // 154
+{165,105},{166,117},{118,167},{110,168},{169,105},{170,117},{118,171}, // 161
+{110,172},{173,105},{174,117},{118,175},{110,176},{177,105},{178,117}, // 168
+{118,179},{110,180},{181,115},{182,117},{118,183},{120,184},{185,115}, // 175
+{186,127},{128,187},{120,188},{189,115},{190,127},{128,191},{120,192}, // 182
+{193,115},{194,127},{128,195},{120,196},{197,115},{198,127},{128,199}, // 189
+{120,200},{201,115},{202,127},{128,203},{120,204},{205,115},{206,127}, // 196
+{128,207},{120,208},{209,125},{210,127},{128,211},{130,212},{213,125}, // 203
+{214,137},{138,215},{130,216},{217,125},{218,137},{138,219},{130,220}, // 210
+{221,125},{222,137},{138,223},{130,224},{225,125},{226,137},{138,227}, // 217
+{130,228},{229,125},{230,137},{138,231},{130,232},{233,125},{234,137}, // 224
+{138,235},{130,236},{237,125},{238,137},{138,239},{130,240},{241,125}, // 231
+{242,137},{138,243},{130,244},{245,135},{246,137},{138,247},{140,248}, // 238
+{249,135},{250, 69},{ 80,251},{140,252},{249,135},{250, 69},{ 80,251}, // 245
+{140,252},{  0,  0},{  0,  0},{  0,  0}  // 252
+
+}; 
+
+int nn2[512*2]={  };
+ 
 
 #define ispowerof2(x) ((x&(x-1))==0)
 struct DynamicHSMap {
@@ -1828,7 +2053,8 @@ struct DynamicHSMap {
   U8 *t;
   U8 *ptr;
   int B,N;
-  Init(int bits,int membits,int countOfContexts){
+  int *nn;
+  void Init(int bits,int membits,int countOfContexts,int *nn1){nn=nn1;
     state=0,limit=1023,index=0,count=countOfContexts,
     // for jpeg  there is 3 bits -> 8
     // for bmp4  there is 4 bits -> 16
@@ -1836,24 +2062,24 @@ struct DynamicHSMap {
     B=hashElementCount=((1<<bits)), //+1 for checksum 
     hashSearchLimit=(5),
     bitscount=(bits),
-    N=n=((1<<membits)-1);
+    N=n=((1<<(membits&255))-1);
     // if (hashElementCount*hashSearchLimit>64) hashSearchLimit=64/hashElementCount,printf("DHS Search limit: %d\n",hashSearchLimit);
     alloc(cp,countOfContexts);
     alloc(pr,countOfContexts);
-    alloc1(t,(hashElementCount*(1<<membits)),ptr,64);  
+    alloc1(t,(hashElementCount*(1<<(membits&255))),ptr,64);  
     alloc(sm,count);
     for (int i=0; i<count; i++) 
       sm[i].Init(256,limit);
     for (int i=0;i<count;i++)
       cp[i]=&t[0]+1;
-    /* printf("hashElementCount %d\n",hashElementCount);
+   /*  printf("hashElementCount %d\n",hashElementCount);
       printf("countOfContexts %d\n",countOfContexts);
       printf("bits %d\n",bits);
       printf("n %d\n",n);
       //printf("t.size %d\n",t.size());
-      printf("membits %d %d %d\n",membits,1<<membits,hashElementCount*(1<<membits));*/
+      printf("membits %d %d %d\n",(membits&255),1<<(membits&255),hashElementCount*(1<<membits));*/
   }
-  Free(){
+  void Free(){
     free(cp);
     free(pr);
     free(ptr);
@@ -1862,10 +2088,13 @@ struct DynamicHSMap {
     }
     free(sm);
   }
-
-  int set(U32 cx,int y) {
+  int next(int i, int y,int t){
+      return nn[256 * y + i+t];
+  }
+  
+  int set(U32 cx,int y,int b) {
     int a;
-    if (index==0 && cp[count-1])  for (int i=0; i<count; ++i) *cp[i]=nex(*cp[i],y);   //update state
+    if (index==0 && cp[count-1])   {for (int i=0; i<count; ++i) *cp[i]=next(*cp[i],y,0);  } //update
       if (cx>255){
         cp[index]=find(cx)+1;                                      // find new
         sm[index].set(*cp[index],y);
@@ -1911,6 +2140,7 @@ struct DynamicHSMap {
     p[0]=chk;
   return p;
 }
+ 
 };
 /*
 class IndirectMap {
@@ -2080,7 +2310,7 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c&255),  t(m>>6), cp(C), 
   for (int i=0;i<4096;i++) {
     for (int s=0;s<256;s++) {
         int  s01=n0n1[s];
-        int  sp0=(s01<2)?4095:0;
+        //int  sp0=(s01<2)?4095:0;
         int   ii=((s01&2)<<11)+i;
         st1[ii]=clp(sc(cms*stretch(i)));
         }
@@ -2144,10 +2374,8 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
       assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[t.size()-1].bh[6][6]);
       assert(((long long)(cp[i])&63)>=15);
       int ns;
-      //if (cms<39){ // 
           ns=nex(*cp[i], y1);
           if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
-     // } else ns=nex(*cp[i], y1);
       *cp[i]=ns;
     }
 
@@ -2222,9 +2450,10 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out);
 bool doFullOpt=false;
 bool doBounds=false;
 bool doBoundsRun=false;
+bool doDebugInfo=false;
 double randfloat(){return (double(rand())+0.5)/double(RAND_MAX+1);};
 int randint(int min,int max){return (rand()%(max-min+1))+min;};
-
+int vm_uas_mask_max[256];
 // Parameters for VM components
 struct VMParam {
   bool vm_mixer[256];
@@ -2249,6 +2478,32 @@ struct VMParam {
   int vm_sm_limit[256];
   bool vm_rcm[256];
   int vm_rcm_limit[256];
+  bool vm_avg[256];
+  int vm_avg_limit0[256];
+  int vm_avg_limit1[256];
+  bool vm_err[256];
+  int vm_err_limit[256];
+  bool vm_err1[256];
+  int vm_err1_limit[256];
+  bool vm_nn[512*2];
+  int vm_nn_limit[512*2];
+  bool vm_tapm[256];
+  int vm_tapm_limit0[256];
+  int vm_tapm_limit1[256];
+  int vm_tapm_limit2[256];
+  int vm_tapm_limit3[256];
+  int vm_tapm_limit4[256];
+  int vm_tapm_limitw1[256];
+  int vm_tapm_limitw2[256];
+  int vm_tapm_limitwb1[256];
+  bool vm_uas[256];
+  bool vm_uasm[256];
+  int vm_uas_mask[256];
+  int vm_uas_bits[256];
+  bool vm_uasr[256];
+  int vm_uas_rate[256];
+  bool vm_lmx[256];
+  int vm_lmx_w[256];
   bool isactive;
   void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm){
    isactive=true;
@@ -2263,6 +2518,21 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_cms[i]=cms;
    for (int i=0;i<256;i++) vm_sm[i]=sm;
    for (int i=0;i<256;i++) vm_rcm[i]=rcm;
+   // no command line select
+   for (int i=0;i<256;i++) vm_avg[i]=false;
+   for (int i=0;i<256;i++) vm_err[i]=false;
+   for (int i=0;i<256;i++) vm_err1[i]=false;
+       for (int i=0;i<256;i++) vm_nn[i]=false;
+   for (int i=256;i<512;i++) vm_nn[i]=false;
+      for (int i=512;i<512+256;i++) vm_nn[i]=false;
+   for (int i=512+256;i<512+512;i++) vm_nn[i]=false;
+    for (int i=0;i<256;i++) vm_nn_limit[i]= (st0[i][0]);
+   for (int i=256;i<512;i++) vm_nn_limit[i]=(st0[i-256][1]);
+  for (int i=0;i<256;i++) vm_tapm[i]=false;
+   for (int i=0;i<256;i++) vm_uas[i]=false;
+    for (int i=0;i<256;i++) vm_uasm[i]=false;//kmask
+     for (int i=0;i<256;i++) vm_uasr[i]=false;
+       for (int i=0;i<256;i++) vm_lmx[i]=false;
   }
 };
 
@@ -2272,12 +2542,13 @@ VMParam *parm2[256]; // stream parameters for tuning
 struct Parameter{
   int *param;
   int min,max;
+  int t;
 };
 
 class SimulatedAnnealing {
     VMParam *InitState;
     VMParam BestState,ActualState;
-    Parameter parameters[256*13];
+    Parameter parameters[256*19];
     int accepted,rejected;
     int current_best,tune_best,total_runs;
     double init_prob_accepted;
@@ -2293,6 +2564,8 @@ SimulatedAnnealing(VMParam *parmin,double init_prob,double cooling,int fraction,
 :InitState(parmin),init_prob_accepted(init_prob),cooling_rate(cooling), streamid(sid),in(n),full_search(full){
    maxbytes=in_size;
    if (fraction<100) maxbytes=int(double(in_size)*(double(fraction)/100.0)+0.5);
+    for (int i=0;i<256;i++) nn2[i]= (st0[i][0]);
+   for (int i=256;i<512;i++) nn2[i]=(st0[i-256][1]);
 }
 void StoreBestState(VMParam *Dst) {
   CopyState(Dst,&BestState);
@@ -2318,63 +2591,168 @@ void CopyState(VMParam *Dst,VMParam *Src) {
 int CreateVector(VMParam *Param,Parameter *parameters) {
   int n=0;
   for (int i=0;i<256;i++)
-   if (Param->vm_mixer[i]) {
+   if (Param->vm_mixer[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_mixer_limit[i];
     parameters[n].min=0;parameters[n].max=32768;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_mixer_ml[i]) {
+   if (Param->vm_mixer_ml[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_mixer_limit_ml[i];
     parameters[n].min=1;parameters[n].max=255;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_mixer_ue[i]) {
+   if (Param->vm_mixer_ue[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_mixer_limit_ue[i];
     parameters[n].min=1;parameters[n].max=112;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_apm[i]) {
+   if (Param->vm_apm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_apm_limit[i];
     parameters[n].min=1;parameters[n].max=16;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_smc[i]) {
+   if (Param->vm_smc[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_smc_limit[i];
     parameters[n].min=1;parameters[n].max=1023;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_ds[i]) {
+   if (Param->vm_ds[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_ds_limit[i];
     parameters[n].min=1;parameters[n].max=1023;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_cm[i]) {
+   if (Param->vm_cm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_cm_limit[i];
     parameters[n].min=0;parameters[n].max=30;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_cms[i]) {
+   if (Param->vm_cms[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_cms_limit[i];
     parameters[n].min=1;parameters[n].max=60;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_sm[i]) {
+   if (Param->vm_sm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_sm_limit[i];
     parameters[n].min=1;parameters[n].max=32;
     n++;
   }
   for (int i=0;i<256;i++)
-   if (Param->vm_rcm[i]) {
+   if (Param->vm_rcm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_rcm_limit[i];
     parameters[n].min=1;parameters[n].max=30;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_avg[i]) {parameters[n].t=0;
+    parameters[n].param=&Param->vm_avg_limit0[i];
+    parameters[n].min=1;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_avg[i]) {parameters[n].t=0;
+    parameters[n].param=&Param->vm_avg_limit1[i];
+    parameters[n].min=1;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_lmx[i]) {parameters[n].t=0;
+    parameters[n].param=&Param->vm_lmx_w[i];
+    parameters[n].min=1;parameters[n].max=4095;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_err[i]) {
+    parameters[n].param=&Param->vm_err_limit[i];
+    parameters[n].min=31;parameters[n].max=2047;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_err1[i]) {
+    parameters[n].param=&Param->vm_err1_limit[i];
+    
+    parameters[n].min=2047;parameters[n].max=4095;
+    n++;
+  }
+    for (int i=0;i<512*2;i++)
+   if (Param->vm_nn[i]) {
+    parameters[n].param=&Param->vm_nn_limit[i];
+    parameters[n].min=0;parameters[n].max=255;
+    n++;
+  };
+  //
+   for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limit0[i];
+    parameters[n].min=0;parameters[n].max=2048+1024;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limit1[i];
+    parameters[n].min=0;parameters[n].max=2048+1024;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limit2[i];
+    parameters[n].min=0;parameters[n].max=2048+1024;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limit3[i];
+    parameters[n].min=0;parameters[n].max=2048+1024;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limit4[i];
+    parameters[n].min=0;parameters[n].max=2048+1024;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limitw1[i];
+    parameters[n].min=1;parameters[n].max=70*2;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limitw2[i];
+    parameters[n].min=1;parameters[n].max=70*2;
+    n++;
+  }
+   for (int i=0;i<256;i++)
+   if (Param->vm_tapm[i]) {
+    parameters[n].param=&Param->vm_tapm_limitwb1[i];
+    parameters[n].min=1;parameters[n].max=70*2;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_uasm[i]) {
+    parameters[n].param=&Param->vm_uas_mask[i];
+    parameters[n].min=1;parameters[n].max=vm_uas_mask_max[i];// (1<<19)-1;
+    //printf("Set max mask %d=%d\n",n,vm_uas_mask_max[i]);
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_uas[i]) {
+    parameters[n].param=&Param->vm_uas_bits[i];
+    parameters[n].min=1;parameters[n].max=24;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_uasr[i]) {
+    parameters[n].param=&Param->vm_uas_rate[i];
+    parameters[n].min=1;parameters[n].max=18;
     n++;
   }
   return n;
@@ -2384,9 +2762,10 @@ void ChangeParameter(int idx,double radius) {
    int *p=parameters[idx].param;
    int min_param=parameters[idx].min;
    int max_param=parameters[idx].max;
-
+//if (idx==0 && parameters[1].max<19) *p=max_param=(1<<parameters[1].max)-1,printf("new %d\n",max_param);
    int r=(int)(radius*double(max_param-min_param)+0.5);
    *p = randint(max(min_param,*p-r),min(max_param,*p+r));
+   //printf("RND: %d %d, min %d max %d\n",r,*p,min_param,max_param);
 }
 
 void CreateProposal(VMParam *Param, double radius) {
@@ -2398,14 +2777,15 @@ void CreateProposal(VMParam *Param, double radius) {
 }
 
 void Init() {
-  srand(time(0));
+    U32 ti=time(0);
+  srand(ti);
   current_best = GetEnergy(InitState);
   InitState->isactive=false;
   tune_best=current_best;
   CopyState(&BestState,InitState);
   total_runs=0;
   sum_deltaError=temperature=0.0;
-  printf(" SA InitState: %i bytes cooling rate=%0.5f\n",current_best,cooling_rate);
+  printf(" SA InitState: %i bytes cooling rate=%0.5f, seed %d\n",current_best,cooling_rate,ti);
 }
 
 void Tune(int maxruns, double radius) {
@@ -2449,7 +2829,7 @@ void Tune(int maxruns, double radius) {
      double rate=accepted+rejected>0?double(accepted)/double(accepted+rejected):0.0;
      printf("[%i] [rate: %4.1f%%], temperature: %0.9f\r",total_runs,rate*100.0,temperature);
 
-     if (proposal<current_best) {
+     if ((proposal+2)<current_best) {
        CopyState(&BestState,&NewState);
        current_best=proposal;
        printf("\n best: %i (radius: %0.5f)\n",current_best,radius);
@@ -2471,6 +2851,12 @@ void Anneal(int maxruns) {
 };
 bool doJIT=false;
 #include "vm.cpp"
+const char *bit_rep[16] = {
+    [ 0] = "0000", [ 1] = "0001", [ 2] = "0010", [ 3] = "0011",
+    [ 4] = "0100", [ 5] = "0101", [ 6] = "0110", [ 7] = "0111",
+    [ 8] = "1000", [ 9] = "1001", [10] = "1010", [11] = "1011",
+    [12] = "1100", [13] = "1101", [14] = "1110", [15] = "1111",
+};
 
 //////////////////////////// Predictor /////////////////////////
 // A Predictor estimates the probability that the next bit of
@@ -2484,13 +2870,39 @@ public:
  BlockData x; //maintains current global data block
  int pr;  
   VM vm;
-  int mode;
-  int ( VM::*doupdate[2])(int, int, int, U32, int) ;
-  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {
-    doupdate[0]=vm.doupdate1; // VM
-    doupdate[1]=vm.doupdate2;  //JIT
+ // int mode;
+  U8 kCmFlagCrap[256];
+  U8 errorsum,errorhist,flags,errorsum_flt1,errorsum_flt2;
+  int ( VM::*doupdate)(int, int, int, U32, int) ;
+  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p),errorsum(0),errorhist(0),flags(0),errorsum_flt1(0),errorsum_flt2(0) {
+    //[0]=vm.doupdate1; // VM
+    //doupdate[1]=vm.doupdate2;  //JIT
     setdebug(0); 
-    mode=(doJIT==true)?1:0;
+    if(doJIT==true)
+    doupdate=vm.doupdate2;
+    else doupdate=vm.doupdate1;
+  /*  for( int i = 0; i<256; i++) {
+    int a = 8 * (i >> 4);
+    int b = 8 * (i & 0xF);
+    kCmFlagCrap[i] = 
+      2 * (a > 0x32 && b > 0x50 || a > 0x46) | 
+      4 * (a <= 0x59 || b <= 0x4F) |
+      8 * (a > 0x64 || b > 0x5A) |
+     16 * (a <= 0x3F || b <= 0x37) |
+     32 * (a <= 0x37 || b <= 0x2F) | 
+     64 * (a <= 0x1F && b <= 0x11) |
+    128 * (a <= 0x17 && b <= 0xD);
+    printf("%d(%c),",kCmFlagCrap[i],i );
+     flags=(kCmFlagCrap[i]>>4)<<4;
+    if( flags & 0x2 ) printf("UALGN o17,");
+      if( flags & 0x4 ) printf("word,");
+      if( flags & 0x10 ) printf("APM o4,");
+      if( flags & 0x20 ) printf("o6,");
+      if( flags & 0x40 ) printf("o10,");
+      if( flags & 0x80 ) printf("o24,");
+      if( (flags & 0x40)==0 ) printf("APM o1o3,");
+      printf("\n");
+  }*/
   }
   int p()  {assert(pr>=0 && pr<4096); return pr;} 
   ~Predictor(){ }
@@ -2507,10 +2919,40 @@ public:
     x.bpos=(x.bpos+1)&7;
     x.bposshift=7-x.bpos;
     x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
-    vm.updateComponents();
-    pr=(vm.*doupdate[mode])(x.y,x.c0,x.bpos,x.c4,p());
+   // dodo();
+    vm.updateComponents(x.blpos);
+    pr=(vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
     if (pr!=0) quit();
     pr=vm.getPrediction( );
+  }
+  void dodo(){
+        // entropy filter
+         int  error = 4095 * x.y - p();
+  U32 error_abs = abs(error);
+  errorsum += error_abs >> 7;
+  //errorhist = errorhist*2 + (error_abs>1280);
+  if( x.bpos==0 ) {
+    //if( cmb_result<=31 ) {
+      // enable submodels based on overall prediction errors
+      errorsum = min(errorsum, 127);
+      errorsum_flt1 = (3 * errorsum_flt1 + errorsum) >> 2;
+      errorsum_flt2 = (3 * errorsum_flt2 + 2 + errorsum_flt1) >> 2;
+      x.flags=x.flags<<8;
+      x.flags+= kCmFlagCrap[16*(errorsum_flt1>>3) + (errorsum_flt2>>3)];
+      flags=x.flags&255;
+     /* U8 byt=x.c4&255; if (byt<32) byt=32;
+      printf("%s%s %c %4d %3d %3d %3d -> ",bit_rep[flags >> 4], bit_rep[flags & 0x0F],byt,error_abs,errorsum,errorsum_flt1,errorsum_flt2);
+      if( flags & 0x2 ) printf("UALGN o17,");
+      if( flags & 0x4 ) printf("word,");
+      if( flags & 0x10 ) printf("APM o4,");
+      if( flags & 0x20 ) printf("o6,");
+      if( flags & 0x40 ) printf("o10,");
+      if( flags & 0x80 ) printf("o24,");
+      if( (flags & 0x40)==0 ) printf("APM o1o3,");
+      printf("\n");*/
+   // }
+    errorsum = 0;
+  }//else printf("           %4d %3d \n",error_abs,errorsum);
   }
 };
 //////////////////////////// Encoder ////////////////////////////
@@ -2835,7 +3277,7 @@ uint64_t decode_file(FILE *in, int size, FILE *out,int info, FMode mode, uint64_
     vmDecode[type]->inFile=in;
     int jst=vmDecode[type]->decode(info,size);
     if (mode==FCOMPARE ){
-       int outsize=ftell(e);
+       //int outsize=ftell(e);
        fseek (e ,0 ,SEEK_SET);
        for (int i=0; i<jst; i++) {
            if ( fgetc(e)!=getc(out) && !diffFound) diffFound=i;   
@@ -3194,9 +3636,9 @@ static char   pp[] ="int t[5]={};"
 " if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
 " for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
-"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0);"
-" vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1);"
-" vmi(AVG,1,0,2,3); vmi(AVG,2,0,4,5); vmi(APM1,0,256,7,6);}";
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0);"
+" vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1*256);"
+" vmi(AVG,1,0,0,2+3*256); vmi(AVG,2,0,0,4+5*256); vmi(APM1,0,256,7,6);}";
 
 //
 // Autotune main
@@ -3221,7 +3663,7 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     // print out best parameters
     if (parm2[streamid]->vm_mixer[0]==true) printf("\nmixer update limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit[i]);
-    if (parm2[streamid]->vm_mixer_ml[0]==true) printf("\nmixer mul limit:\n");
+    if (parm2[streamid]->vm_mixer_ml[0]==true) printf("\nmixer shift limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer_ml[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit_ml[i]);
     if (parm2[streamid]->vm_mixer_ue[0]==true) printf("\nmixer update error limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer_ue[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit_ue[i]);
@@ -3237,8 +3679,41 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%d, ",parm2[streamid]->vm_cms_limit[i]);
     if (parm2[streamid]->vm_sm[0]==true) printf("\nsm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_sm[i]==true) printf("%d, ",parm2[streamid]->vm_sm_limit[i]);
-    if (parm2[streamid]->vm_sm[0]==true) printf("\nrcm limit:\n");
+    if (parm2[streamid]->vm_rcm[0]==true) printf("\nrcm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_rcm[i]==true) printf("%d, ",parm2[streamid]->vm_rcm_limit[i]);
+    if (parm2[streamid]->vm_avg[0]==true) printf("\navg limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_avg[i]==true) printf("%d %d, ",parm2[streamid]->vm_avg_limit0[i],parm2[streamid]->vm_avg_limit1[i]);
+    if (parm2[streamid]->vm_err[0]==true) printf("\nerr ranges:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_err[i]==true) printf("%d, ",parm2[streamid]->vm_err_limit[i]);
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_err[i]==true) printf("%d, ",parm2[streamid]->vm_err1_limit[i]);
+    if (parm2[streamid]->vm_uas[0]==true) printf("\nuas ranges:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_uas[i]==true) printf("%d, ",parm2[streamid]->vm_uas_bits[i]);
+    if (parm2[streamid]->vm_tapm[0]==true) printf("\ntapm limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_tapm[i]==true) printf(
+    "%d+(%d<<16),%d|(%d<<12)|(%d<<24) ,%d+(%d<<16)+(%d<<24)\n"
+    ,parm2[streamid]->vm_tapm_limit0[i],
+    parm2[streamid]->vm_tapm_limit1[i],
+    parm2[streamid]->vm_tapm_limit2[i],
+    parm2[streamid]->vm_tapm_limit3[i],parm2[streamid]->vm_tapm_limitwb1[i],
+    parm2[streamid]->vm_tapm_limit4[i],
+    parm2[streamid]->vm_tapm_limitw1[i],
+    parm2[streamid]->vm_tapm_limitw2[i]);  
+    if (parm2[streamid]->vm_lmx[0]==true) printf("\nlmx w:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_lmx[i]==true) printf("%d, ",parm2[streamid]->vm_lmx_w[i]);
+     if (parm2[streamid]->vm_nn[0]==true){
+      printf("\nstate table:\n");
+    for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("{%d,%d},",parm2[streamid]->vm_nn_limit[i],parm2[streamid]->vm_nn_limit[i+256]);
+    printf("\n");
+    for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("{%d,%d},",parm2[streamid]->vm_nn_limit[i+512],parm2[streamid]->vm_nn_limit[i+256+512]);
+    printf("\n");
+    //for (int i=0;i<512;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%c",parm2[streamid]->vm_nn_limit[i]);
+    //printf("\n");
+    //for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i][0]-parm2[streamid]->vm_nn_limit[i]);
+    //for (int i=256;i<512;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i-256][1]-parm2[streamid]->vm_nn_limit[i]);
+    // printf("\n");
+    //for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i][0]-parm2[streamid]->vm_nn_limit[i+512]);
+    //for (int i=256;i<512;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i-256][1]-parm2[streamid]->vm_nn_limit[i+512]);
+    }
     printf("\n\n");
 } 
 
@@ -3834,6 +4309,7 @@ printf("\n");
             "  -bc                 bc - enable bounds check at compile, dafault=false\n"
             "  -br                 br - enable bounds check at runtime, dafault=false\n"
             "  -j                  j - do JIT, dafault=false\n"
+            "  -i                  i - show cfg component info, default=false\n"
             "  -c<file>            c - use config file. dafault=conf.pxv\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
@@ -3856,9 +4332,10 @@ int getOption(int argc,char **argv) {
       if (tmp[1]=='d') doExtract=true;
       else if (tmp[1]=='l') doList=true;
       else if (tmp[1]=='f') doFullOpt=true;
+      else if (tmp[1]=='i') doDebugInfo=true;
       else if (tmp[1]=='j') doJIT=true,printf("JIT: enabled\n");
       else if (tmp[1]=='0') level=0,printf("Mode: transform\n");
-      else if (tmp[1]=='1') level=1,printf("Mode: compress\n");
+      else if (tmp[1]=='1') level=1;
       else if (tmp[1]=='b' && tmp[2]=='c' && tmp[3]==0) doBounds=true,printf("Bounds: compile time=enabled\n");
       else if (tmp[1]=='b' && tmp[2]=='r' && tmp[3]==0) doBoundsRun=true,printf("Bounds: runtime time=enabled\n");
       else if (tmp[1]=='c' && tmp[2]!=0) config=(const char*)&tmp[2],printf("Config: %s\n",config.c_str());
@@ -3914,6 +4391,8 @@ int main(int argc, char** argv) {
         }
         if (strlen(config.c_str())==0) config="conf.pxv";
         clock_t start_time;  // in ticks
+        for (int i=0;i<256;i++)   nn2[i]=nex(i,0);//st0[i][0];
+        for (int i=256;i<512;i++) nn2[i]=nex(i-256,1);//st0[i-256][1];
 
         // precalculate tabeles
         for (int i=0; i<1024; ++i)
@@ -3978,6 +4457,8 @@ int main(int argc, char** argv) {
                 archiveName+=PROGNAME;
             }
         }
+        if (mode==COMPRESS)printf("Mode: compress\n");
+        else if (mode==DECOMPRESS)printf("Mode: decompress\n");
         if (mode==COMPRESS){
            FILE *conf;
            conf = fopen(config.c_str() , "rb");

@@ -1,3 +1,8 @@
+pre19
+ Add ERR,TAMP,UAS,LMX component
+ Change lpaq1 config. Add sparse/indirect context, UAS and LMX
+ -i option for some debug info
+ nes rom detect
 pre18
  Add APM2 component.
  Change DHS hash checksum calculation.
