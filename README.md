@@ -11,6 +11,24 @@ __paq8pxv.exe  -1 -t1 -j -bc -br -cconf.pxv Testfile__
 
 Testfile is compressed, 1 thread, using JIT mode, array bounds are tested at compile and runtime, config file is conf.pxv
 
+# Contents
+[Config files](#config-files)
+* [Example detection conf](#example-detection-conf)
+
+[Data detection, transform and compression](#data-detection-transform-and-compression)
+* [Main config](#main-config)
+* [lpaq1 config](#lpaq1-config)
+
+[General .cfg/.dec compression](#general-cfgdec-compression)
+
+[Components](#components)
+
+[Forum](#forum)
+
+[History](#history)
+
+[Testing results](#testing-results)
+
 # Config files
 Main configuration is in conf.pxv file. 
 * .det files are used for detecting some type of data
