@@ -229,7 +229,7 @@ const char* cNames[]={
 void printcomponent(int component){
     printf("%s",cNames[component-1]);
 }
-//incremental mixer parameters
+//incremental mixer parameters - test
 int mxparm[10][3]={
 {8,172,28},
 {7,167,28},
@@ -434,19 +434,11 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 //kprintf("%d ",ds_l);
             }
         }
-        int *n;
-        n=&nn2[0];
-        if (v->parm ){
-                n=&v->parm->vm_nn_limit[0];
-        }
+        int *n=&nn2[0];
         v->dsA[componentIndex].Init(f,ds_l,indexOfInputs,n);
         break; }
     case vmDHS: {
-        int *n;
-        n=&nn2[0];
-        if (v->parm ){
-                n=&v->parm->vm_nn_limit[0];
-        }
+        int *n=&nn2[0];
         v->dhsA[componentIndex].Init(f,d,indexOfInputs,n);
         break; }
     case vmRCM: {    
@@ -481,7 +473,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 avg_l1=v->parm->vm_avg_limit1[componentIndex];
                 if (avg_l0==avg_l1 && avg_l0>1) avg_l0++,v->parm->vm_avg_limit0[componentIndex]=avg_l0;
                 U32 f0;
-                if (ispowerof2(avg_l0+avg_l1)) {
+                if (ispowerof2((avg_l0+avg_l1))) {
                 }
                 else {
                 f0= nextPOTwo(avg_l0+avg_l1) ;
@@ -785,7 +777,7 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
         }
     }
     for (int i=0;i<totalc;i++){
-            int prindex=mcomp[i]>>24;
+            //int prindex=mcomp[i]>>24;
             int compnr=(mcomp[i]>>8)&0xff;
             if (compnr==vmAPM1){
                 int index=(mcomp[i]>>16)&0xff;

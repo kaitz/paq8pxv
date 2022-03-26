@@ -1572,7 +1572,7 @@ struct UAS {
     *p+=((-y&256)-*p+16)>>rate;
   }
   int set(int f,int y,int bpos,int fla) {cxt=(2*cxt+y)&mask;
-    if ((f>>8)&255==255)
+    if (((f>>8)&255)==255)
     update(y);
     if ((f&255)==255){
         //noskip++;
@@ -1993,49 +1993,7 @@ struct DynamicSMap {
   }
 };
 
-static const int st0[256][2]={
-{1,  2},{  3,  5},{  4,  6},{  7, 10},{  8, 12},{  9, 13},{ 11, 14}, // 0
-{ 15, 19},{ 16, 23},{ 17, 24},{ 18, 25},{ 20, 27},{ 21, 28},{ 22, 29}, // 7
-{ 26, 30},{ 31, 33},{ 32, 35},{ 32, 35},{ 32, 35},{ 32, 35},{ 34, 37}, // 14
-{ 34, 37},{ 34, 37},{ 34, 37},{ 34, 37},{ 34, 37},{ 36, 39},{ 36, 39}, // 21
-{ 36, 39},{ 36, 39},{ 38, 40},{ 41, 43},{ 42, 45},{ 42, 45},{ 44, 47}, // 28
-{ 44, 47},{ 46, 49},{ 46, 49},{ 48, 51},{ 48, 51},{ 50, 52},{ 53, 43}, // 35
-{ 54, 57},{ 54, 57},{ 56, 59},{ 56, 59},{ 58, 61},{ 58, 61},{ 60, 63}, // 42
-{ 60, 63},{ 62, 65},{ 62, 65},{ 50, 66},{ 67, 55},{ 68, 57},{ 68, 57}, // 49
-{ 70, 73},{ 70, 73},{ 72, 75},{ 72, 75},{ 74, 77},{ 74, 77},{ 76, 79}, // 56
-{ 76, 79},{ 62, 81},{ 62, 81},{ 64, 82},{ 83, 69},{ 84, 71},{ 84, 71}, // 63
-{ 86, 73},{ 86, 73},{ 44, 59},{ 44, 59},{ 58, 61},{ 58, 61},{ 60, 49}, // 70
-{ 60, 49},{ 76, 89},{ 76, 89},{ 78, 91},{ 78, 91},{ 80, 92},{ 93, 69}, // 77
-{ 94, 87},{ 94, 87},{ 96, 45},{ 96, 45},{ 48, 99},{ 48, 99},{ 88,101}, // 84
-{ 88,101},{ 80,102},{103, 69},{104, 87},{104, 87},{106, 57},{106, 57}, // 91
-{ 62,109},{ 62,109},{ 88,111},{ 88,111},{ 80,112},{113, 85},{114, 87}, // 98
-{114, 87},{116, 57},{116, 57},{ 62,119},{ 62,119},{ 88,121},{ 88,121}, // 105
-{ 90,122},{123, 85},{124, 97},{124, 97},{126, 57},{126, 57},{ 62,129}, // 112
-{ 62,129},{ 98,131},{ 98,131},{ 90,132},{133, 85},{134, 97},{134, 97}, // 119
-{136, 57},{136, 57},{ 62,139},{ 62,139},{ 98,141},{ 98,141},{ 90,142}, // 126
-{143, 95},{144, 97},{144, 97},{ 68, 57},{ 68, 57},{ 62, 81},{ 62, 81}, // 133
-{ 98,147},{ 98,147},{100,148},{149, 95},{150,107},{150,107},{108,151}, // 140
-{108,151},{100,152},{153, 95},{154,107},{108,155},{100,156},{157, 95}, // 147
-{158,107},{108,159},{100,160},{161,105},{162,107},{108,163},{110,164}, // 154
-{165,105},{166,117},{118,167},{110,168},{169,105},{170,117},{118,171}, // 161
-{110,172},{173,105},{174,117},{118,175},{110,176},{177,105},{178,117}, // 168
-{118,179},{110,180},{181,115},{182,117},{118,183},{120,184},{185,115}, // 175
-{186,127},{128,187},{120,188},{189,115},{190,127},{128,191},{120,192}, // 182
-{193,115},{194,127},{128,195},{120,196},{197,115},{198,127},{128,199}, // 189
-{120,200},{201,115},{202,127},{128,203},{120,204},{205,115},{206,127}, // 196
-{128,207},{120,208},{209,125},{210,127},{128,211},{130,212},{213,125}, // 203
-{214,137},{138,215},{130,216},{217,125},{218,137},{138,219},{130,220}, // 210
-{221,125},{222,137},{138,223},{130,224},{225,125},{226,137},{138,227}, // 217
-{130,228},{229,125},{230,137},{138,231},{130,232},{233,125},{234,137}, // 224
-{138,235},{130,236},{237,125},{238,137},{138,239},{130,240},{241,125}, // 231
-{242,137},{138,243},{130,244},{245,135},{246,137},{138,247},{140,248}, // 238
-{249,135},{250, 69},{ 80,251},{140,252},{249,135},{250, 69},{ 80,251}, // 245
-{140,252},{  0,  0},{  0,  0},{  0,  0}  // 252
-
-}; 
-
 int nn2[512*2]={  };
- 
 
 #define ispowerof2(x) ((x&(x-1))==0)
 struct DynamicHSMap {
@@ -2485,8 +2443,6 @@ struct VMParam {
   int vm_err_limit[256];
   bool vm_err1[256];
   int vm_err1_limit[256];
-  bool vm_nn[512*2];
-  int vm_nn_limit[512*2];
   bool vm_tapm[256];
   int vm_tapm_limit0[256];
   int vm_tapm_limit1[256];
@@ -2505,7 +2461,7 @@ struct VMParam {
   bool vm_lmx[256];
   int vm_lmx_w[256];
   bool isactive;
-  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm){
+  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas){
    isactive=true;
    for (int i=0;i<256;i++) vm_mixer[i]=m; 
    for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
@@ -2518,21 +2474,15 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_cms[i]=cms;
    for (int i=0;i<256;i++) vm_sm[i]=sm;
    for (int i=0;i<256;i++) vm_rcm[i]=rcm;
+   for (int i=0;i<256;i++) vm_tapm[i]=tapm;
+   for (int i=0;i<256;i++) vm_err[i]=err;
+   for (int i=0;i<256;i++) vm_err1[i]=err;
+   for (int i=0;i<256;i++) vm_uas[i]=uas;
    // no command line select
-   for (int i=0;i<256;i++) vm_avg[i]=false;
-   for (int i=0;i<256;i++) vm_err[i]=false;
-   for (int i=0;i<256;i++) vm_err1[i]=false;
-       for (int i=0;i<256;i++) vm_nn[i]=false;
-   for (int i=256;i<512;i++) vm_nn[i]=false;
-      for (int i=512;i<512+256;i++) vm_nn[i]=false;
-   for (int i=512+256;i<512+512;i++) vm_nn[i]=false;
-    for (int i=0;i<256;i++) vm_nn_limit[i]= (st0[i][0]);
-   for (int i=256;i<512;i++) vm_nn_limit[i]=(st0[i-256][1]);
-  for (int i=0;i<256;i++) vm_tapm[i]=false;
-   for (int i=0;i<256;i++) vm_uas[i]=false;
-    for (int i=0;i<256;i++) vm_uasm[i]=false;//kmask
-     for (int i=0;i<256;i++) vm_uasr[i]=false;
-       for (int i=0;i<256;i++) vm_lmx[i]=false;
+   for (int i=0;i<256;i++) vm_avg[i]=false;   
+   for (int i=0;i<256;i++) vm_uasm[i]=false;//kmask
+   for (int i=0;i<256;i++) vm_uasr[i]=false;
+   for (int i=0;i<256;i++) vm_lmx[i]=false;
   }
 };
 
@@ -2564,9 +2514,7 @@ SimulatedAnnealing(VMParam *parmin,double init_prob,double cooling,int fraction,
 :InitState(parmin),init_prob_accepted(init_prob),cooling_rate(cooling), streamid(sid),in(n),full_search(full){
    maxbytes=in_size;
    if (fraction<100) maxbytes=int(double(in_size)*(double(fraction)/100.0)+0.5);
-    for (int i=0;i<256;i++) nn2[i]= (st0[i][0]);
-   for (int i=256;i<512;i++) nn2[i]=(st0[i-256][1]);
-}
+} 
 void StoreBestState(VMParam *Dst) {
   CopyState(Dst,&BestState);
 };
@@ -2681,14 +2629,7 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     parameters[n].min=2047;parameters[n].max=4095;
     n++;
   }
-    for (int i=0;i<512*2;i++)
-   if (Param->vm_nn[i]) {
-    parameters[n].param=&Param->vm_nn_limit[i];
-    parameters[n].min=0;parameters[n].max=255;
-    n++;
-  };
-  //
-   for (int i=0;i<256;i++)
+  for (int i=0;i<256;i++)
    if (Param->vm_tapm[i]) {
     parameters[n].param=&Param->vm_tapm_limit0[i];
     parameters[n].min=0;parameters[n].max=2048+1024;
@@ -2851,12 +2792,6 @@ void Anneal(int maxruns) {
 };
 bool doJIT=false;
 #include "vm.cpp"
-const char *bit_rep[16] = {
-    [ 0] = "0000", [ 1] = "0001", [ 2] = "0010", [ 3] = "0011",
-    [ 4] = "0100", [ 5] = "0101", [ 6] = "0110", [ 7] = "0111",
-    [ 8] = "1000", [ 9] = "1001", [10] = "1010", [11] = "1011",
-    [12] = "1100", [13] = "1101", [14] = "1110", [15] = "1111",
-};
 
 //////////////////////////// Predictor /////////////////////////
 // A Predictor estimates the probability that the next bit of
@@ -2870,39 +2805,12 @@ public:
  BlockData x; //maintains current global data block
  int pr;  
   VM vm;
- // int mode;
-  U8 kCmFlagCrap[256];
-  U8 errorsum,errorhist,flags,errorsum_flt1,errorsum_flt2;
   int ( VM::*doupdate)(int, int, int, U32, int) ;
-  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p),errorsum(0),errorhist(0),flags(0),errorsum_flt1(0),errorsum_flt2(0) {
-    //[0]=vm.doupdate1; // VM
-    //doupdate[1]=vm.doupdate2;  //JIT
+  Predictor(char *m, VMParam *p): pr(2048),vm(m,x,VMCOMPRESS,p) {
     setdebug(0); 
     if(doJIT==true)
-    doupdate=vm.doupdate2;
-    else doupdate=vm.doupdate1;
-  /*  for( int i = 0; i<256; i++) {
-    int a = 8 * (i >> 4);
-    int b = 8 * (i & 0xF);
-    kCmFlagCrap[i] = 
-      2 * (a > 0x32 && b > 0x50 || a > 0x46) | 
-      4 * (a <= 0x59 || b <= 0x4F) |
-      8 * (a > 0x64 || b > 0x5A) |
-     16 * (a <= 0x3F || b <= 0x37) |
-     32 * (a <= 0x37 || b <= 0x2F) | 
-     64 * (a <= 0x1F && b <= 0x11) |
-    128 * (a <= 0x17 && b <= 0xD);
-    printf("%d(%c),",kCmFlagCrap[i],i );
-     flags=(kCmFlagCrap[i]>>4)<<4;
-    if( flags & 0x2 ) printf("UALGN o17,");
-      if( flags & 0x4 ) printf("word,");
-      if( flags & 0x10 ) printf("APM o4,");
-      if( flags & 0x20 ) printf("o6,");
-      if( flags & 0x40 ) printf("o10,");
-      if( flags & 0x80 ) printf("o24,");
-      if( (flags & 0x40)==0 ) printf("APM o1o3,");
-      printf("\n");
-  }*/
+    doupdate=vm.doupdate2;      // JIT
+    else doupdate=vm.doupdate1; // VM
   }
   int p()  {assert(pr>=0 && pr<4096); return pr;} 
   ~Predictor(){ }
@@ -2919,40 +2827,10 @@ public:
     x.bpos=(x.bpos+1)&7;
     x.bposshift=7-x.bpos;
     x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
-   // dodo();
     vm.updateComponents(x.blpos);
     pr=(vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
     if (pr!=0) quit();
     pr=vm.getPrediction( );
-  }
-  void dodo(){
-        // entropy filter
-         int  error = 4095 * x.y - p();
-  U32 error_abs = abs(error);
-  errorsum += error_abs >> 7;
-  //errorhist = errorhist*2 + (error_abs>1280);
-  if( x.bpos==0 ) {
-    //if( cmb_result<=31 ) {
-      // enable submodels based on overall prediction errors
-      errorsum = min(errorsum, 127);
-      errorsum_flt1 = (3 * errorsum_flt1 + errorsum) >> 2;
-      errorsum_flt2 = (3 * errorsum_flt2 + 2 + errorsum_flt1) >> 2;
-      x.flags=x.flags<<8;
-      x.flags+= kCmFlagCrap[16*(errorsum_flt1>>3) + (errorsum_flt2>>3)];
-      flags=x.flags&255;
-     /* U8 byt=x.c4&255; if (byt<32) byt=32;
-      printf("%s%s %c %4d %3d %3d %3d -> ",bit_rep[flags >> 4], bit_rep[flags & 0x0F],byt,error_abs,errorsum,errorsum_flt1,errorsum_flt2);
-      if( flags & 0x2 ) printf("UALGN o17,");
-      if( flags & 0x4 ) printf("word,");
-      if( flags & 0x10 ) printf("APM o4,");
-      if( flags & 0x20 ) printf("o6,");
-      if( flags & 0x40 ) printf("o10,");
-      if( flags & 0x80 ) printf("o24,");
-      if( (flags & 0x40)==0 ) printf("APM o1o3,");
-      printf("\n");*/
-   // }
-    errorsum = 0;
-  }//else printf("           %4d %3d \n",error_abs,errorsum);
   }
 };
 //////////////////////////// Encoder ////////////////////////////
@@ -3228,7 +3106,7 @@ typedef enum {FDECOMPRESS, FCOMPARE, FDISCARD} FMode;
 void encode_file(FILE* in, FILE* out, int len, int info,int type) {
     //set in and out file for vm read/write
     assert(vTypes[type].ensize!=-1);
-    vmEncode[type]->inpos=ftell(in);//->curpos();
+    vmEncode[type]->inpos=ftell(in);
     vmEncode[type]->inFile=in;
     vmEncode[type]->outFile=out;
     //encode file
@@ -3251,7 +3129,7 @@ uint64_t decode_file(Encoder& en, int size, FILE *out,int info, FMode mode, uint
     vmDecode[type]->inFile=d;
     int jst=vmDecode[type]->decode(info,size);
     if (mode==FCOMPARE ){
-       int outsize=ftell(e);
+       //int outsize=ftell(e);
        fseek (e ,0 , SEEK_SET);
        for (int i=0; i<jst; i++) {
            if (fgetc(e)!=fgetc(out) && !diffFound) diffFound=i;   
@@ -3328,8 +3206,7 @@ void transform_encode_block(int type, FILE*in, U64 len, Encoder &en, int info, i
     //encode data if type has encode defined
     if (vTypes[type].type!=defaultType && vTypes[type].ensize!=-1 ) { // skip if encode data is missing
         U64 diffFound=0;
-        FILE* tmp;
-        tmp=tmpfile2();
+        FILE* tmp=tmpfile2();
         encode_file(in, tmp, int(len), info==-1?(U32)begin:info,type);
         const U64 tmpsize=  ftell(tmp);
         int tfail=0;
@@ -3439,8 +3316,7 @@ void DetectRecursive(FILE*in, U64 n, Encoder &en, char *blstr, int it=0, U64 s1=
 // <type> <size> and call encode_X to convert to type X.
 // Test transform and compress.
 void DetectStreams(const char* filename, U64 filesize) {
-  FILE *tmp;
-  tmp=tmpfile2();
+  FILE *tmp=tmpfile2();
   Encoder en(COMPRESS, tmp,0);
   assert(en.getMode()==COMPRESS);
   assert(filename && filename[0]);
@@ -3468,8 +3344,7 @@ U64 decompressStreamRecursive(FILE*out, U64 size, Encoder& en, FMode mode, int i
         if (vTypes[type].type>=defaultType && vTypes[type].desize!=-1) {
             len=decode_file(en, int(len), out, info, mode, diffFound,type);
         } else if (vTypes[type].type<defaultType) {
-            FILE  *tmp;
-            tmp = tmpfile2();
+            FILE *tmp=tmpfile2();
             decompressStreamRecursive(tmp, len, en, FDECOMPRESS, it+1, s1+i, s2-len);
             fseek (tmp ,0 ,SEEK_SET);
             len=decode_file(tmp, int(len), out, info, mode, diffFound,type);
@@ -3500,8 +3375,7 @@ U64 decompressStreamRecursive(FILE*out, U64 size, Encoder& en, FMode mode, int i
 void DecodeStreams(const char* filename, U64 filesize) {
   FMode mode=FDECOMPRESS;
   assert(filename && filename[0]);
-  FILE  *tmp;
-  tmp = tmpfile2();
+  FILE *tmp=tmpfile2();
   Encoder en(COMPRESS, tmp,0);
   // Test if output file exists.  If so, then compare.
   FILE *f = fopen (filename,"rb+");
@@ -3683,14 +3557,16 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_rcm[i]==true) printf("%d, ",parm2[streamid]->vm_rcm_limit[i]);
     if (parm2[streamid]->vm_avg[0]==true) printf("\navg limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_avg[i]==true) printf("%d %d, ",parm2[streamid]->vm_avg_limit0[i],parm2[streamid]->vm_avg_limit1[i]);
-    if (parm2[streamid]->vm_err[0]==true) printf("\nerr ranges:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_err[i]==true) printf("%d, ",parm2[streamid]->vm_err_limit[i]);
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_err[i]==true) printf("%d, ",parm2[streamid]->vm_err1_limit[i]);
+    if (parm2[streamid]->vm_err[0]==true) printf("\nerr ranges:\n low {");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_err[i]==true) printf("%d, ",parm2[streamid]->vm_err_limit[i]);if (parm2[streamid]->vm_err[0]==true) printf("\b\b}\nhigh {");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_err[i]==true) printf("%d, ",parm2[streamid]->vm_err1_limit[i]);if (parm2[streamid]->vm_err[0]==true) printf("\b\b}");
     if (parm2[streamid]->vm_uas[0]==true) printf("\nuas ranges:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_uas[i]==true) printf("%d, ",parm2[streamid]->vm_uas_bits[i]);
+    if (parm2[streamid]->vm_uasm[0]==true) printf("\nuas mask:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_uasm[i]==true) printf("%d, ",parm2[streamid]->vm_uas_mask[i]);
     if (parm2[streamid]->vm_tapm[0]==true) printf("\ntapm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_tapm[i]==true) printf(
-    "%d+(%d<<16),%d|(%d<<12)|(%d<<24) ,%d+(%d<<16)+(%d<<24)\n"
+    "%d+(%d<<16),%d|(%d<<12)|(%d<<24),%d+(%d<<16)+(%d<<24)\n"
     ,parm2[streamid]->vm_tapm_limit0[i],
     parm2[streamid]->vm_tapm_limit1[i],
     parm2[streamid]->vm_tapm_limit2[i],
@@ -3700,20 +3576,6 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     parm2[streamid]->vm_tapm_limitw2[i]);  
     if (parm2[streamid]->vm_lmx[0]==true) printf("\nlmx w:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_lmx[i]==true) printf("%d, ",parm2[streamid]->vm_lmx_w[i]);
-     if (parm2[streamid]->vm_nn[0]==true){
-      printf("\nstate table:\n");
-    for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("{%d,%d},",parm2[streamid]->vm_nn_limit[i],parm2[streamid]->vm_nn_limit[i+256]);
-    printf("\n");
-    for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("{%d,%d},",parm2[streamid]->vm_nn_limit[i+512],parm2[streamid]->vm_nn_limit[i+256+512]);
-    printf("\n");
-    //for (int i=0;i<512;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%c",parm2[streamid]->vm_nn_limit[i]);
-    //printf("\n");
-    //for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i][0]-parm2[streamid]->vm_nn_limit[i]);
-    //for (int i=256;i<512;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i-256][1]-parm2[streamid]->vm_nn_limit[i]);
-    // printf("\n");
-    //for (int i=0;i<256;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i][0]-parm2[streamid]->vm_nn_limit[i+512]);
-    //for (int i=256;i<512;i++) /*if (parm2[streamid]->vm_nn[i]==true)*/ printf("%d, ", st0[i-256][1]-parm2[streamid]->vm_nn_limit[i+512]);
-    }
     printf("\n\n");
 } 
 
@@ -3727,22 +3589,17 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
     U64 datasegmentlen=0;
     int datasegmentpos=0;
     int datasegmentinfo=0;
-    U32 currentpos;
     int modelSize=0;
     int modelSizeCompressed=0;
-    currentpos= ftell(out);
     U8 *p;
     datasegmentsize=size;
     // datastreams
-    FILE *moin;
-    moin=0; 
     p=0;
     if (level>0){
-        moin=fopen(vStreams[i].model, "rb");
-        if(moin){
-            
-            FILE *modelo;//open tmp file for compressed config file
-            modelo=tmpfile2();
+        FILE *moin=fopen(vStreams[i].model, "rb");
+        if(moin!=NULL){            
+            FILE *modelo=tmpfile2();//open tmp file for compressed config file
+            if(modelo==NULL) quit("compressStream temp file fail.");
             Encoder* enm;
             enm=new Encoder(COMPRESS, modelo,pp);
             enm->predictor->set();
@@ -4302,7 +4159,10 @@ printf("\n");
             "                      m - cm run mul, default=4\n"
             "                      n - sm limit\n"
             "                      o - cm sm rate, default=32\n"
-            "                      p - rcm mul, default=8\n"            
+            "                      p - rcm mul, default=8\n"
+            "                      q - tapm, default=false\n"
+            "                      r - err, default=false\n"
+            "                      s - uas, default=false\n"
             "  -o<n>               n specifies percentage of tune, default=100%\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
@@ -4344,7 +4204,8 @@ int getOption(int argc,char **argv) {
           level=2;
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
           bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
-          bool cms=false; bool rcm=false;
+          bool cms=false; bool rcm=false; bool tapm=false; bool err=false;
+          bool uas=false;
           if (tmp[2]=='t')    m=true; else if (tmp[2]=='f')    m=false; else printHelp();
           if (tmp[3]=='t')   ml=true; else if (tmp[3]=='f')   ml=false; else printHelp();
           if (tmp[4]=='t')  apm=true; else if (tmp[4]=='f')  apm=false; else printHelp();
@@ -4355,9 +4216,12 @@ int getOption(int argc,char **argv) {
           if (tmp[9]=='t')   sm=true; else if (tmp[9]=='f')   sm=false; else printHelp();
           if (tmp[10]=='t') cms=true; else if (tmp[10]=='f') cms=false; else printHelp();
           if (tmp[11]=='t') rcm=true; else if (tmp[11]=='f') rcm=false; else printHelp();
-          if (tmp[12]!=0) printHelp();
+          if (tmp[12]=='t') tapm=true; else if (tmp[12]=='f') tapm=false; else printHelp();
+          if (tmp[13]=='t') err=true; else if (tmp[13]=='f') err=false; else printHelp();
+          if (tmp[14]=='t') uas=true; else if (tmp[14]=='f') uas=false; else printHelp();
+          if (tmp[15]!=0) printHelp();
           // set stream parms active
-          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm);
+          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas);
       }
 #ifdef MT
       else if (tmp[1]=='t') {
