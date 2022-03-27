@@ -1,3 +1,6 @@
+models
+ Update jpeg model, add prediction error as apm parameter
+ Fix some models AVG parameters
 pre21
  Cleanup
  Add UAS, ERR, TAPM command line parameters for option -2
