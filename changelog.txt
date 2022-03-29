@@ -1,3 +1,5 @@
+bmp24
+ Fix bmp24 detection.
 models
  Update jpeg model, add prediction error as apm parameter
  Fix some models AVG parameters
