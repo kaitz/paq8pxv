@@ -1,3 +1,7 @@
+pre21
+ Add LMX tune command line option
+ In CM component make another mixer input tunable
+ Tune text, exe, im24 model parameters
 bmp24
  Fix bmp24 detection.
 models

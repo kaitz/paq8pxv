@@ -514,7 +514,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 if (v->parm->isactive==true ) v->parm->vm_err1_limit[componentIndex]=e1_l,v->parm->vm_err1[componentIndex]=e1_l?true:false;
                 e1_l=v->parm->vm_err1_limit[componentIndex];
            }
-            //printf("Err low %d high %d\n",e_l,e1_l);
+           // printf("Err low %d high %d\n",e_l,e1_l);
         }
        
         v->emA[componentIndex].Init(e_l,e1_l);
@@ -525,6 +525,8 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         if (cm_l==0) cm_l=4;
         int cms_l=(d>>16)&255;          // sm rate
         if (cms_l==0) cms_l=32;
+        int cms2_l=(U32(d)>>24)&255;          // sm2 rate
+        if (cms2_l==0) cms2_l=12;
         // If Autotune then ignore model parameters, first run is allways with model parameters.
         if (v->parm){
             if (v->parm->vm_cm[componentIndex]){
@@ -537,8 +539,13 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 cms_l=v->parm->vm_cms_limit[componentIndex];
                 //kprintf("%d ",cms_l);
             }
+            if (v->parm->vm_cms2[componentIndex]){
+                if (v->parm->isactive==true) v->parm->vm_cms2_limit[componentIndex]=cms2_l;
+                cms2_l=v->parm->vm_cms2_limit[componentIndex];
+                //kprintf("%d ",cms2_l);
+            }
         }
-        v->cmC[componentIndex] = (ContextMap*)new ContextMap(f<=0?4096:f*4096,(d&255)+(cm_l<<8)+(cms_l<<16),v->x);
+        v->cmC[componentIndex] = (ContextMap*)new ContextMap(f<=0?4096:f*4096,(d&255)|(cm_l<<8)|(cms_l<<16)|(cms2_l<<24),v->x);
         break;}
     case vmMX: {
         // read model info
@@ -875,6 +882,9 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
         }
         if (parm->vm_cms[0]==true) for (int i=maxCMS;i<256;i++){
             parm->vm_cms[i]=false;
+        }
+        if (parm->vm_cms2[0]==true) for (int i=maxCMS;i<256;i++){
+            parm->vm_cms2[i]=false;
         }
         for (int i=maxRCM1;i<256;i++){
             parm->vm_rcm[i]=false;

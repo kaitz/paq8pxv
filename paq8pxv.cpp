@@ -2210,6 +2210,7 @@ class ContextMap {
   BlockData& x;
   short rc1[512];
   short st1[8192];
+  short st2[4096];
   int cms;
   int mix1(int m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
@@ -2247,7 +2248,7 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c&255),  t(m>>6), cp(C), 
     cxt(C), runp(C), cn(0),result(0),x(bd) {
   int cmul=(c>>8)&255;
   cms=(c>>16)&255;
-
+int cms2=(U32(c)>>24)&255;
   assert(m>=64 && (m&m-1)==0);  // power of 2?
   assert(sizeof(E)==64);
   alloc(sm,C);
@@ -2273,6 +2274,17 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c&255),  t(m>>6), cp(C), 
         st1[ii]=clp(sc(cms*stretch(i)));
         }
     }
+    
+    for (int i=0;i<4096;i++) {
+            st2[i]=clp(sc(cms2*(i - 2048)));
+            /*for (int s=0;s<256;s++) {
+                int  s01=n0n1[s];
+                int  sp0=(s01<2)?4095:0;
+                int   ii=((s01&2)<<11)+i;
+                st8[ii] =clp(sc(8*(i-sp0)));
+                st32[ii]=clp(sc(32*stretch(i)));
+            }*/
+        } 
 }
 
 ContextMap::~ContextMap() {
@@ -2307,7 +2319,7 @@ inline int ContextMap::mix2(BlockData& x, int m, int s, StateMapContext& sm) {
     return 0;
   }else{
     x.mxInputs[m].add(st1[p1]>>(int(s <= 2)));
-    x.mxInputs[m].add(st12[p1]);
+    x.mxInputs[m].add(st2[p1]);
     const int  n01=n0n1[s];
     if (n01){
         x.mxInputs[m].add(st8[(n01&4096)+p1]);
@@ -2432,6 +2444,8 @@ struct VMParam {
   int vm_cm_limit[256];
   bool vm_cms[256];
   int vm_cms_limit[256];
+  bool vm_cms2[256];
+  int vm_cms2_limit[256];
   bool vm_sm[256];
   int vm_sm_limit[256];
   bool vm_rcm[256];
@@ -2461,7 +2475,7 @@ struct VMParam {
   bool vm_lmx[256];
   int vm_lmx_w[256];
   bool isactive;
-  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas){
+  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx){
    isactive=true;
    for (int i=0;i<256;i++) vm_mixer[i]=m; 
    for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
@@ -2472,17 +2486,18 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_ds[i]=ds;
    for (int i=0;i<256;i++) vm_cm[i]=cm;
    for (int i=0;i<256;i++) vm_cms[i]=cms;
+   for (int i=0;i<256;i++) vm_cms2[i]=cms;
    for (int i=0;i<256;i++) vm_sm[i]=sm;
    for (int i=0;i<256;i++) vm_rcm[i]=rcm;
    for (int i=0;i<256;i++) vm_tapm[i]=tapm;
    for (int i=0;i<256;i++) vm_err[i]=err;
    for (int i=0;i<256;i++) vm_err1[i]=err;
    for (int i=0;i<256;i++) vm_uas[i]=uas;
+   for (int i=0;i<256;i++) vm_lmx[i]=lmx;
    // no command line select
    for (int i=0;i<256;i++) vm_avg[i]=false;   
    for (int i=0;i<256;i++) vm_uasm[i]=false;//kmask
-   for (int i=0;i<256;i++) vm_uasr[i]=false;
-   for (int i=0;i<256;i++) vm_lmx[i]=false;
+   for (int i=0;i<256;i++) vm_uasr[i]=false;   
   }
 };
 
@@ -2498,7 +2513,7 @@ struct Parameter{
 class SimulatedAnnealing {
     VMParam *InitState;
     VMParam BestState,ActualState;
-    Parameter parameters[256*19];
+    Parameter parameters[256*22];
     int accepted,rejected;
     int current_best,tune_best,total_runs;
     double init_prob_accepted;
@@ -2589,6 +2604,12 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
   for (int i=0;i<256;i++)
    if (Param->vm_sm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_sm_limit[i];
+    parameters[n].min=1;parameters[n].max=32;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_cms2[i]) {parameters[n].t=0;
+    parameters[n].param=&Param->vm_cms2_limit[i];
     parameters[n].min=1;parameters[n].max=32;
     n++;
   }
@@ -3551,6 +3572,8 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cm[i]==true) printf("%d, ",parm2[streamid]->vm_cm_limit[i]);
     if (parm2[streamid]->vm_cms[0]==true) printf("\ncms rate:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%d, ",parm2[streamid]->vm_cms_limit[i]);
+    if (parm2[streamid]->vm_cms2[0]==true) printf("\ncms2 rate:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms2[i]==true) printf("%d, ",parm2[streamid]->vm_cms2_limit[i]);
     if (parm2[streamid]->vm_sm[0]==true) printf("\nsm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_sm[i]==true) printf("%d, ",parm2[streamid]->vm_sm_limit[i]);
     if (parm2[streamid]->vm_rcm[0]==true) printf("\nrcm limit:\n");
@@ -4163,6 +4186,7 @@ printf("\n");
             "                      q - tapm, default=false\n"
             "                      r - err, default=false\n"
             "                      s - uas, default=false\n"
+            "                      t - lmx, default=false\n"
             "  -o<n>               n specifies percentage of tune, default=100%\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
@@ -4205,7 +4229,7 @@ int getOption(int argc,char **argv) {
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
           bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
           bool cms=false; bool rcm=false; bool tapm=false; bool err=false;
-          bool uas=false;
+          bool uas=false; bool lmx=false;
           if (tmp[2]=='t')    m=true; else if (tmp[2]=='f')    m=false; else printHelp();
           if (tmp[3]=='t')   ml=true; else if (tmp[3]=='f')   ml=false; else printHelp();
           if (tmp[4]=='t')  apm=true; else if (tmp[4]=='f')  apm=false; else printHelp();
@@ -4219,9 +4243,10 @@ int getOption(int argc,char **argv) {
           if (tmp[12]=='t') tapm=true; else if (tmp[12]=='f') tapm=false; else printHelp();
           if (tmp[13]=='t') err=true; else if (tmp[13]=='f') err=false; else printHelp();
           if (tmp[14]=='t') uas=true; else if (tmp[14]=='f') uas=false; else printHelp();
-          if (tmp[15]!=0) printHelp();
+          if (tmp[15]=='t') lmx=true; else if (tmp[15]=='f') lmx=false; else printHelp();
+          if (tmp[16]!=0) printHelp();
           // set stream parms active
-          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas);
+          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx);
       }
 #ifdef MT
       else if (tmp[1]=='t') {
