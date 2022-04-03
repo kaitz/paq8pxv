@@ -180,6 +180,11 @@ int main(){
 |StationaryMap| SM |12|no|yes|
 |SkMap| SK |13|no|yes|
 |APM2| APM2|14|yes|no|
+|ERR| ERR|15|yes|no|
+|TAPM| TAPM|16|yes|no|
+|UAS| UAS|17|yes|no|
+|LMX| LMX|18|yes|no|
+
 
 [See detailed info about components](components.md)
 
