@@ -156,9 +156,12 @@ vmi(RCM,0,1024,0,0);
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
 // third parameter is memory*4096, must be power of two
-// forth parameter is count of contexts
+// forth parameter is count of contexts x, run mul y, mixer prediction mul z and w. y,z,w parameters are tunable.
 // fifth parameter is predictionIndex
-vmi(CM,0,32*4096,1,0);
+
+//main
+//
+vmi(CM,0,32*4096,x+y*0x100+z*0x10000+w*0x1000000,0);
 ```
 ### MX
 ```c
@@ -272,7 +275,7 @@ vmx(SK, 0,val);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is x and y, where x is first input and y is second input in range 0...4095
+// third parameter is x and y, where x is first input and y is second input in range 0...4095. x and y parameters is tunable.
 // forth parameter is nil
 // fifth parameter is nil
 // output: based on input tresholds output values are 1 or 3. 
@@ -295,9 +298,9 @@ a=vmx(ERR, 0,val);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is parameters
-// forth parameter is parameters
-// fifth parameter is parameters
+// third parameter is parameters, tunable
+// forth parameter is parameters, tunable
+// fifth parameter is parameters, tunable
 
 //main
 // creates TAPM
@@ -314,7 +317,7 @@ vmx(TAPM, 0,val);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is x, input size in bits
+// third parameter is x, input size in bits. x parameter is tunable.
 // forth parameter is y, input mask - ignored
 // fifth parameter is z, update rate, dafault 5
 // output: prediction when last 8 bits of val are set, otherwise prediction is 2048
@@ -343,7 +346,7 @@ vmx(UAS, 0,val);
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
 // third parameter is x and y, where x is first input and y is second input 
-// forth parameter is weight z, if z==0 default value is 2048
+// forth parameter is weight z, if z==0 default value is 2048. z parameter is tunable.
 // fifth parameter is nil
 // output: x+(((z-x)*w)>>12);
 
