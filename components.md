@@ -15,6 +15,10 @@
 |DynamicHashStateMap| [DHS](#dhs) |11|yes|no|
 |StationaryMap| [SM](#sm) |12|no|yes|
 |SkMap| [SK](#sk) |13|no|yes|
+|ERR| [ERR](#err)|15|yes|no|
+|TAPM| [TAPM](#tapm)|16|yes|no|
+|UAS| [UAS](#uas)|17|yes|no|
+|LMX| [LMX](#lmx)|18|yes|no|
 # Functions used to set up components
 ## vms - component counts
 vms(countOfSMC,countOfAPM1,countOfDS,...);
@@ -260,4 +264,93 @@ vmi(SK,0,0,0,0);
 // update
 // set SK value to be added to mixer, range -2047..2047
 vmx(SK, 0,val);
+```
+
+### ERR
+```c
+// Create ERR component (0)
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is x and y, where x is first input and y is second input in range 0...4095
+// forth parameter is nil
+// fifth parameter is nil
+// output: based on input tresholds output values are 1 or 3. 
+//         1 - val>x (for low)
+//         3 - val>y (for high)
+
+//main
+// creates SM
+vmi(ERR,0,x+(y<<16),0,0);
+
+// update
+// set ERR value
+val=y?pr^4095:pr;
+a=vmx(ERR, 0,val);
+```
+
+### TAPM
+```c
+// Create TAPM component (0)
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is parameters
+// forth parameter is parameters
+// fifth parameter is parameters
+
+//main
+// creates TAPM
+vmi(TAPM,0,0,0,0);
+
+// update
+// set TAPM value
+vmx(TAPM, 0,val);
+```
+
+### UAS
+```c
+// Create UAS component (0) - unaligned sparse
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is x, input size in bits
+// forth parameter is y, input mask - ignored
+// fifth parameter is z, update rate, dafault 5
+// output: prediction when last 8 bits of val are set, otherwise prediction is 2048
+
+//main
+// creates UAS
+vmi(UAS,0,x,y,z);
+for (i=0;i<8;i++) vmi(ERR,i,e_low[i]+(e_high[i]<<16),0,0);
+
+// update
+// set UAS value, where val is shifted output of component ERR outputs
+val=y?pr^4095:pr;
+a=vmx(ERR, bpos,val); // ERR component for every bit pos
+erra=(erra<<1)|(a&1);
+if (bpos==0){ 
+    val=erra;
+}
+
+vmx(UAS, 0,val);
+```
+
+### LMX
+```c
+// Create LMX component (0)
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is x and y, where x is first input and y is second input 
+// forth parameter is weight z, if z==0 default value is 2048
+// fifth parameter is nil
+// output: x+(((z-x)*w)>>12);
+
+//main
+// creates LMX
+vmi(LMX,0,x+y*256,z,0);
+
+// update
+// :none
 ```
