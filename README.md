@@ -184,6 +184,7 @@ int main(){
 |TAPM| TAPM|16|yes|no|
 |UAS| UAS|17|yes|no|
 |LMX| LMX|18|yes|no|
+|STA| STA|19|yes|no|
 
 
 [See detailed info about components](components.md)
