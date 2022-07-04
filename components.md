@@ -19,6 +19,7 @@
 |TAPM| [TAPM](#tapm)|16|yes|no|
 |UAS| [UAS](#uas)|17|yes|no|
 |LMX| [LMX](#lmx)|18|yes|no|
+|STA| [STA](#sta)|19|no|no|
 # Functions used to set up components
 ## vms - component counts
 vms(countOfSMC,countOfAPM1,countOfDS,...);
@@ -353,6 +354,25 @@ vmx(UAS, 0,val);
 //main
 // creates LMX
 vmi(LMX,0,x+y*256,z,0);
+
+// update
+// :none
+```
+
+### STA
+```c
+// Create STA component (0)
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is u and v (in range 1-63)
+// forth parameter is w and x (in range 1-63)
+// fifth parameter is y and z (in range 1-63)
+// output: generates statetable;
+
+//main
+// creates STA
+vmi(STA,0,u+v*0x10000,w+x*0x10000,y+z*0x10000);
 
 // update
 // :none
