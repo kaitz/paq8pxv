@@ -112,10 +112,10 @@ vmi(APM1,0,0x1000,7,0);   //  pr[1]=apm(pr[0])
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// fifth parameter is 
-vmi(DS,0,0,1,2);
+// third parameter is number of memory bits x in lower 16 bits, and statetable index y in upper 16 bits
+// forth parameter is limit for statetable, default 1023
+// fifth parameter is number of contexts N
+vmi(DS,0,x+y*0x10000,1023,N);
 ```
 ### AVG
 ```c
@@ -123,10 +123,10 @@ vmi(DS,0,0,1,2);
 // Calculate average and output prediction - pr[3]=(pr[1]+pr[2]+1)>>1
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third not used, set 0
-// forth parameter is index into pr[] array
-// fifth parameter is index into pr[] array
-vmi(AVG,0,0,1,2);
+// third parameter is average parameters x and y where pr[next]=(pr[z]*x+pr[w]*y+1)>>(x+y)
+// forth not used, set 0
+// fifth parameter is index into pr[] array as z and w
+vmi(AVG,0,x+y*256,0,z+w*256);
 ```
 ### SCM
 ```c
@@ -156,8 +156,8 @@ vmi(RCM,0,1024,0,0);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is memory*4096, must be power of two
-// forth parameter is count of contexts x, run mul y, mixer prediction mul z and w. y,z,w parameters are tunable.
+// third parameter is memory*4096 in lower 24 bits (must be power of two), and statetable index in upper 8 bits
+// forth parameter is count of contexts x, run mul y (default 4), mixer prediction mul z (default 32) and w (dafault 12). y,z,w parameters are tunable.
 // fifth parameter is predictionIndex
 
 //main
@@ -215,7 +215,7 @@ vmi(MM,0,0,1,2);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is input bits
+// third parameter is input bits in lower 16 bits, and statetable index in upper 16 bits
 // forth parameter is memory bits, memory usage is ((1<<bits)*(1<<memory))
 // fifth parameter is number of contexts
 
@@ -243,10 +243,10 @@ vmx(DHS,0,j);
 
 //main
 // creates SM
-vmi(DHS,0,16,3,0);
+vmi(SM,0,16,3,0);
 
 // update
-// set DHS contexts at the start of state update
+// set SM contexts at the start of state update
 vmx(SM, 0,val);
 
 
@@ -364,11 +364,12 @@ vmi(LMX,0,x+y*256,z,0);
 // Create STA component (0)
 // 
 // first parameter is component ID
-// second parameter is component index upto number defined in vms
+// second parameter is component index upto number defined in vms.
 // third parameter is u and v (in range 1-63)
 // forth parameter is w and x (in range 1-63)
-// fifth parameter is y and z (in range 1-63)
+// fifth parameter is y and z (y range 1-63) (z range 1-32) 
 // output: generates statetable;
+//         if parameters==0 use default values as 42,41,13,6,5,16
 
 //main
 // creates STA

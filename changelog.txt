@@ -1,3 +1,7 @@
+pre22
+ Add STA component for statetable generation (tunable)
+ Use STA in DS,DHS,CM component if selected.
+ In CM component add another mix without RND state select
 pre21
  Add LMX tune command line option
  In CM component make another mixer input tunable

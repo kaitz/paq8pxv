@@ -36,7 +36,7 @@ int detect(int c4,int i) {
         if (state==INFO)  return info;
     }
     if (i==RESET) {
-        //reset();
+        reset();
         return 0xffffffff;
     }
     buf1=(buf1<<8)|(buf0>>24);

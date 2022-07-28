@@ -766,6 +766,10 @@ Segment segment; //for file segments type size info(if not -1)
  int streamCount;
 FILE **filestreams;
 const int datatypecount=39+1+1+1;
+bool doFullOpt=false;
+bool doBounds=false;
+bool doBoundsRun=false;
+bool doDebugInfo=false;
 
 // Contain all global data usable between models
 class BlockData {
@@ -779,7 +783,6 @@ public:
     int finfo;
     int bposshift;
     int c0shift_bpos;
-    int flags;
     struct Inputs{
         int ncount;     // mixer input count
         //int wcount;     // mixer weights count
@@ -788,7 +791,7 @@ public:
     } ;
     Array<Inputs> mxInputs; // array of inputs
     int cInputs;
-BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),bposshift(0),c0shift_bpos(0),flags(0),mxInputs(0),cInputs(-1) {
+BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),bposshift(0),c0shift_bpos(0),mxInputs(0),cInputs(-1) {
     }
 ~BlockData(){ }
 };
@@ -831,7 +834,7 @@ Ilog::Ilog(): t(65536) {
 // Also, when a bit is observed and the count of the opposite bit is large,
 // then part of this count is discarded to favor newer data over old.
 
-#if 1 // change to #if 0 to generate this table at run time (4% slower)
+#if 0 // change to #if 0 to generate this table at run time (4% slower)
 static const U8 State_table[256][4]={
   {  1,  2, 0, 0},{  3,  5, 1, 0},{  4,  6, 0, 1},{  7, 10, 2, 0}, // 0-3
   {  8, 12, 1, 1},{  9, 13, 1, 1},{ 11, 14, 0, 2},{ 15, 19, 3, 0}, // 4-7
@@ -906,20 +909,25 @@ static const U8 State_table[256][4]={
 #else
 
 class StateTable {
-  Array<U8> ns;  // state*4 -> next state if 0, if 1, n0, n1
+  //Array<U8> ns;  // state*4 -> next state if 0, if 1, n0, n1
   enum {B=5, N=64}; // sizes of b, t
-  static const int b[B];  // x -> max y, y -> max x
-  static U8 t[N][N][2];  // x,y -> state number, number of states
+  int b[6];  // x -> max y, y -> max x
+  //static U8 t[N][N][2];  // x,y -> state number, number of states
+  U8 ns[1024]; // state*4 -> next state if 0, if 1, n0, n1
+  //  int bound[6];
+  U8 t[N][N][2];
   int num_states(int x, int y);  // compute t[x][y][1]
   void discount(int& x);  // set new value of x after 1 or y after 0
   void next_state(int& x, int& y, int b);  // new (x,y) after bit b
+  void generate();  // compute t[x][y][1]
 public:
-  int operator()(int state, int sel) {return ns[state*4+sel];}
-  StateTable();
-} nex;
+  int next(int state, int sel) {return ns[state*4+sel];}
+  StateTable(int s0,int s1,int s2,int s3,int s4,int s5);
+  void Init(int s0,int s1,int s2,int s3,int s4,int s5);
+} ;
 
-const int StateTable::b[B]={42,41,13,6,5};  // x -> max y, y -> max x
-U8 StateTable::t[N][N][2];
+//const int StateTable::b[B]={42,41,13,6,5};  // x -> max y, y -> max x
+//U8 StateTable::t[N][N][2];
 
 int StateTable::num_states(int x, int y) {
   if (x<y) return num_states(y, x);
@@ -936,7 +944,7 @@ int StateTable::num_states(int x, int y) {
   // States 31-255 represent a 0,1 count and possibly the last bit
   // if the state is reachable by either a 0 or 1.
   else
-    return 1+(y>0 && x+y<16);
+    return 1+(y>0 && x+y<b[5]);
 }
 
 // New value of count x if the opposite bit is observed
@@ -968,8 +976,9 @@ void StateTable::next_state(int& x, int& y, int b) {
 }
 
 // Initialize next state table ns[state*4] -> next if 0, next if 1, x, y
-StateTable::StateTable(): ns(1024) {
-
+void StateTable::generate() {
+    memset(ns, 0, sizeof(ns));
+    memset(t, 0, sizeof(t));
   // Assign states
   int state=0;
   for (int i=0; i<256; ++i) {
@@ -1031,6 +1040,22 @@ StateTable::StateTable(): ns(1024) {
     }
   }
 //  printf("%d states\n", state); exit(0);  // uncomment to print table above
+}
+// Initialize next state table ns[state*4] -> next if 0, next if 1, n0, n1
+StateTable::StateTable(int s0,int s1,int s2,int s3,int s4,int s5) {
+    b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;
+    generate();
+
+}
+// Initialize next state table ns[state*4] -> next if 0, next if 1, n0, n1
+void StateTable::Init(int s0,int s1,int s2,int s3,int s4,int s5) {
+    b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;
+    generate();
+    /*
+    printf("Statetable:\n");
+    for (int i=0;i<256;i++) printf("{%d,%d,%d,%d},",next(i,0),next(i,1),next(i,2),next(i,3));
+    printf("\n");
+*/
 }
 
 #endif
@@ -1370,15 +1395,22 @@ void train(short *t, short *w, int n, int err) {
     alloc1(wx,(N*M)+32,ptr,32);
     tx=mn; 
   }
-  void swit(int a,int b, int c){
-      shift1=a,elim=b,uperr=c;
-  //printf("new %d %d %d\n",shift1,elim,uperr);
-  }
   void Init(int m,  U32 s,U32 e,U32 ue){
     M=m,  cxt=0, shift1=s,elim=e,uperr=ue;err=0;
     pr=2048; //initial p=0.5
   }
   void Free(){
+      
+  // print N weights averaged over context
+ /* printf("Mixer(%d,%d): ", N, M);
+  for (int i=0; i<N; ++i) {
+    int w=0;
+    for (int j=0; j<M; ++j)
+      w+=wx[j*N+i];//,printf("%d ",wx[j*N+i]);;
+    printf("%d ", w/M);
+  }
+  printf("\n");*/
+
     free(ptr);
   }
 };
@@ -1394,8 +1426,6 @@ void train(short *t, short *w, int n, int err) {
 //     prediction.  Larger values are better for stationary sources.
 
 static int dt[1024];  // i -> 16K/(i+i+3)
-static int n0n1[256];
-
 
 struct StateMapContext {
   int N;        // Number of contexts
@@ -1404,13 +1434,25 @@ struct StateMapContext {
   int pr;
   int mask;
   int limit; 
-  void Init(int n, int lim){ 
+  U8 *nn;
+  int next(int i, int y){
+      return nn[256 * y + i];
+  }
+  void Init(int n, int lim,U8 *nn1){nn=nn1;
     N=n, cxt=0, pr=2048, mask=n-1,limit=lim;
     assert(ispowerof2(n));
     alloc(t,n);
     assert(limit>0 && limit<1024);
-    for (int i=0; i<N; ++i)
-      t[i]=1<<31; 
+    if (N==256){
+        for (int i=0; i<N; ++i){
+            U32 n0=next(i, 2)*3+1;
+            U32 n1=next(i, 3)*3+1;
+            t[i]=((n1<<20) / (n0+n1)) << 12;
+        }
+    }else{
+        for (int i=0; i<N; ++i)
+            t[i]=1<<31;
+    }
   }
   void Free(){
     free(t);
@@ -1420,7 +1462,7 @@ struct StateMapContext {
     U32 *p=&t[cxt], p0=p[0];
     int n=p0&1023, pr1=p0>>10;  // count, prediction
     p0+=(n<limit);
-    p0+=(((y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
+    p0+=((((y<<22)-pr1)/*+127*/)>>3)*dt[n]&0xfffffc00;
     p[0]=p0;
   }
   // update bit y (0..1), predict next bit in context cx
@@ -1435,6 +1477,7 @@ struct StateMapContext {
       }
   }
 }; 
+
 
 struct APM2 {
   int N;        // Number of contexts
@@ -1501,12 +1544,14 @@ struct TAPM {
   void Init(int n0, int n1,int n2,int n3,int n4,int w1,int w2,int wb1){ 
       int i;
       fp_i0=n0;fp_i1=n1;fp_i2=n2;fp_i3=n3;fp_i4=n4;fp_mw1=w1;fp_mw2=w2;fp_wb1=wb1;
-      pr=2048;
-      pr1=2048;cxt=1;b1=0;b2=0;
+      cxt=1;b1=0;b2=0;
       alloc(t,0x1000000);
-      for(i=0; i<4096; i++ ) {
-          const int SCALElog=12;
-          const int SCALE=1<<SCALElog;
+      const int SCALElog=12;
+      const int SCALE=1<<SCALElog;
+      const int SCALE1=SCALE-1;
+      pr=SCALE>>1;
+      pr1=SCALE>>1;
+      for(i=0; i<SCALE; i++ ) {         
 
           int sp1=fp_wb1+C(i);
           int wr1=SCALE/sp1;
@@ -1514,14 +1559,14 @@ struct TAPM {
           int pr1=i*(SCALE-wr1)+mw1*wr1;
           tab[i][0]=__max(1, pr1>>SCALElog);
 
-          int sp2=fp_wb1+C(4096-i);
+          int sp2=fp_wb1+C(SCALE-i);
           int wr2=SCALE/sp2;
-          int mw2=4096-trim(fp_mw2);
+          int mw2=SCALE-trim(fp_mw2);
           int pr2=i*(SCALE-wr2)+mw2*wr2;
-          tab[i][1]=__min(4095, pr2>>SCALElog);
+          tab[i][1]=__min(SCALE1, pr2>>SCALElog);
         }
         for (int i=0; i<0x1000000; ++i)
-            t[i]=2048;
+            t[i]=SCALE>>1;
   }
   void Free(){
     free(t);
@@ -1531,7 +1576,7 @@ struct TAPM {
     if ((cxt+=cxt+y)>=256)
       cxt=1,b1=b3;
   }
-  int set(U32 cxt0, int y0) {  
+  void set(U32 cxt0, int y0) {  
       b3=(cxt0<<8)&0xffffff;
   } 
   int p(int y) {  
@@ -1546,15 +1591,15 @@ struct TAPM {
 // used with ERR
 struct UAS {
   U8 *t; 
-  U8 *p;    
+  U8 *p0;    
   int cxt;
   int pr;
   U32 bits,mask;
-  int skip,noskip,rate;
+  int skip,noskip,rate,f1,f0;
   void Init(int b, int m,bool dm,int r){ 
     bits=b,mask=m;rate=r;
     pr=2048;  
-    cxt=skip=noskip=0;
+    cxt=skip=noskip=f0=0;
     U32 tsize=1<<bits;
     if (dm==false) mask=(tsize-1);
    // printf("%d,%x",bits,mask);
@@ -1562,24 +1607,31 @@ struct UAS {
     if (mask>=tsize) printf("UAS mask to large\n"),quit();
     alloc(t,tsize);
     memset(t, 0x80u, tsize);
-    p=t;
+    p0=t;
   }
   void Free(){
-    //  printf("Skip total yes=%d, no=%d\n",skip,noskip);
+    //if (doDebugInfo==true) 
+    //printf("UAS Skip total yes=%d, no=%d \n",skip,noskip);
     free(t);
   }
   void update(int y) {    
-    *p+=((-y&256)-*p+16)>>rate;
+    *p0+=((-y&256)-*p0+16)>>rate;
   }
-  int set(int f,int y,int bpos,int fla) {cxt=(2*cxt+y)&mask;
-    if (((f>>8)&255)==255)
+  void set(int f) {
+      f1=f0,f0=f&15;
+  } 
+  int p(int y) {
+    cxt=(2*cxt+y)&mask;
+    if (f1>6)
     update(y);
-    if ((f&255)==255){
+    if (f0>6){
+        //if (doDebugInfo==true) 
         //noskip++;
-        p=&t[cxt];
-        pr=squash(16*(*p)-2048);
+        p0=&t[cxt];
+        pr=squash(16*(*p0)-2048);
     }else {
         pr=2048;
+        //if (doDebugInfo==true) 
         //skip++;
     }
     return pr;
@@ -1875,7 +1927,7 @@ struct StaticMap {
 };
 
 int nextPOTwo(unsigned int x) {
-  return 1 << sizeof(x)*8 - __builtin_clz(x);
+  return 1 << (sizeof(x)*8 - __builtin_clz(x));
 }
 int upow(U32 x) {
   return sizeof(x)*8-__builtin_clz(x);
@@ -1951,15 +2003,20 @@ struct DynamicSMap {
   U8 *CxtState;
   int index;
   int count;
-  int *nn;
-  void Init(int m,int lim,int c,int *nn1){nn=nn1;
+  U8 *nn;
+  short *nnpre;
+  //Random rnd;
+  void Init(int m,int lim,int c,U8 *nn1){nn=nn1;
     state=0, mask=(1<<m)-1,limit=lim,index=0,count=c;
     alloc(cxt,c);
     alloc(pr,c);
     alloc(CxtState,(mask+1));
     alloc(sm,c);
+    alloc(nnpre,256);
     for (int i=0; i<count; i++) 
-      sm[i].Init(256,lim);
+      sm[i].Init(256,lim,nn1);
+    for (int i=0; i<256; i++) 
+      nnpre[i]=pre(i);
   }
   void Free(){
     free(cxt);
@@ -1970,16 +2027,23 @@ struct DynamicSMap {
        sm[i].Free();
     }
     free(sm);
-    
+    free(nnpre);
   }
-  int next(int i, int y){
-      return nn[256 * y + i];
+  int pre(int state) {  // initial probability of 1 * 2^23
+    assert(state>=0 && state<256);
+    return ((next(state,3)*2+1)<<11)/(next(state,2)+next(state,3)+1);
+  }
+  U8 next(int i, int y){
+      U8 s=nn[256 * y + i];
+      //if (s>=204 && rnd() << ((452-s)>>3)) s-=4;  // probabilistic increment
+      return s;
   }
   void set(U32 cx,int y) {
     CxtState[cxt[index]]=next(CxtState[cxt[index]],y);       // update state
     cxt[index]=(cx)&mask;                                     // get new context
     sm[index].set(CxtState[cxt[index]],y);    // predict from new context
     pr[index]=sm[index].pr;
+    //pr[index]=nnpre[CxtState[cxt[index]]];
     index++;
     if (index==count) index=0;
   }
@@ -1993,7 +2057,7 @@ struct DynamicSMap {
   }
 };
 
-int nn2[512*2]={  };
+
 
 #define ispowerof2(x) ((x&(x-1))==0)
 struct DynamicHSMap {
@@ -2011,14 +2075,15 @@ struct DynamicHSMap {
   U8 *t;
   U8 *ptr;
   int B,N;
-  int *nn;
-  void Init(int bits,int membits,int countOfContexts,int *nn1){nn=nn1;
+  U8 *nn;
+  int replaced,tsize;
+  void Init(int bits,int membits,int countOfContexts,U8 *nn1){nn=nn1;
     state=0,limit=1023,index=0,count=countOfContexts,
     // for jpeg  there is 3 bits -> 8
     // for bmp4  there is 4 bits -> 16
     // for lpaq1 there is 4 bits -> 16
     B=hashElementCount=((1<<bits)), //+1 for checksum 
-    hashSearchLimit=(5),
+    hashSearchLimit=(4),
     bitscount=(bits),
     N=n=((1<<(membits&255))-1);
     // if (hashElementCount*hashSearchLimit>64) hashSearchLimit=64/hashElementCount,printf("DHS Search limit: %d\n",hashSearchLimit);
@@ -2027,7 +2092,7 @@ struct DynamicHSMap {
     alloc1(t,(hashElementCount*(1<<(membits&255))),ptr,64);  
     alloc(sm,count);
     for (int i=0; i<count; i++) 
-      sm[i].Init(256,limit);
+      sm[i].Init(256,limit,nn1);
     for (int i=0;i<count;i++)
       cp[i]=&t[0]+1;
    /*  printf("hashElementCount %d\n",hashElementCount);
@@ -2036,23 +2101,34 @@ struct DynamicHSMap {
       printf("n %d\n",n);
       //printf("t.size %d\n",t.size());
       printf("membits %d %d %d\n",(membits&255),1<<(membits&255),hashElementCount*(1<<membits));*/
+      tsize=hashElementCount*(1<<membits);
+      replaced=0;
   }
   void Free(){
+      
+  /*int empty=0, once=0;
+  for (int i=1; i<tsize; i+=B) {
+    if (t[i]==0) ++empty;
+    else if (t[i]<2) ++once;
+  }
+  printf("BH<%d> %d empty, %d once, %d replaced of %d\n", B,
+    empty, once, replaced, tsize/B);*/
     free(cp);
     free(pr);
     free(ptr);
     for (int i=0; i<count; i++) {
        sm[i].Free();
     }
+    
     free(sm);
   }
-  int next(int i, int y,int t){
-      return nn[256 * y + i+t];
+  U8 next(U8 i, int y){
+      return nn[256 * y + i];
   }
   
-  int set(U32 cx,int y,int b) {
+  int set(U32 cx,const int y) {
     int a;
-    if (index==0 && cp[count-1])   {for (int i=0; i<count; ++i) *cp[i]=next(*cp[i],y,0);  } //update
+    if (index==0 && cp[count-1])   {for (int i=0; i<count; ++i) *cp[i]=next(*cp[i],y);  } //update
       if (cx>255){
         cp[index]=find(cx)+1;                                      // find new
         sm[index].set(*cp[index],y);
@@ -2093,6 +2169,7 @@ struct DynamicHSMap {
       else if (p[1]==0) return p[0]=chk, p;  // empty
       else if (p[1]<b) b=p[1], bi=i^j;  // best replacement so far
     }
+    //++replaced;
     p=&t[bi*hashElementCount];  // replacement element
     memset(p, 0, hashElementCount);
     p[0]=chk;
@@ -2177,9 +2254,6 @@ public:
 #else
 #define MALIGN 16
 #endif
-short st32[8192];
-short st12[4096];
-short st8[8192]; 
 inline int sc(int p){
     if (p>0) return p>>7;
     return (p+127)>>7;// p+((1<<s)-1);
@@ -2211,19 +2285,29 @@ class ContextMap {
   short rc1[512];
   short st1[8192];
   short st2[4096];
+  short st32[8192];
+  short st8[8192]; 
   int cms;
+  bool dRND;
+  U8 *nn;
+  short *nn01;
   int mix1(int m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
-   int next(int i, int y);
+  int next(int i, int y){
+      return nn[256 * y + i];
+  }
 public:
-  ContextMap(U64 m, int c ,BlockData& bd);  // m = memory in bytes, a power of 2, C = c
+  ContextMap(U64 m, int c ,BlockData& bd,int s3,U8 *nn1,short *nn2);  // m = memory in bytes, a power of 2, C = c
   ~ContextMap();
   void set(U32 cx, int next=-1);   // set next whole byte context to cx
     // if next is 0 then set order does not matter
   int mix(int m) {return mix1(m,  x.c0,  x.bpos, (U8) x.c4,  x.y);}
   int get() {return result;}
   int inputs();
-  int mix2(BlockData& x, int m, int s, StateMapContext& sm);
+  int mix3(BlockData& x, int m, int s, StateMapContext& sm);
+  int mix4(BlockData& x, int m, int s, StateMapContext& sm);
+  int (ContextMap::*mix2)(BlockData& , int , int , StateMapContext& );
+  
 };
 
  
@@ -2244,51 +2328,63 @@ inline U8* ContextMap::E::get(U16 ch) {
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-ContextMap::ContextMap(U64 m, int c, BlockData& bd): C(c&255),  t(m>>6), cp(C), cp0(C),
+ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2): C(c&255),  t(m>>6), cp(C), cp0(C),
     cxt(C), runp(C), cn(0),result(0),x(bd) {
-  int cmul=(c>>8)&255;
-  cms=(c>>16)&255;
-int cms2=(U32(c)>>24)&255;
-  assert(m>=64 && (m&m-1)==0);  // power of 2?
-  assert(sizeof(E)==64);
-  alloc(sm,C);
-  for (int i=0; i<C; i++) 
-      sm[i].Init(256,1023);
-  for (int i=0; i<C; ++i) {
-    cp0[i]=cp[i]=&t[0].bh[0][0];
-    runp[i]=cp[i]+3;
-  }
-  for (int rc=0;rc<256;rc++) {
-    //int c=ilog(rc+1)<<(2+(~rc&1));
-    int c=ilog(rc+1);
-    c=c<<(2+(~rc&1));
-    c=c*cmul/4;
-    rc1[rc+256]=clp(c);
-    rc1[rc]=clp(-c);
-  } 
-  for (int i=0;i<4096;i++) {
-    for (int s=0;s<256;s++) {
-        int  s01=n0n1[s];
-        //int  sp0=(s01<2)?4095:0;
-        int   ii=((s01&2)<<11)+i;
-        st1[ii]=clp(sc(cms*stretch(i)));
-        }
+    nn=nn1;                       // statetable
+    nn01=nn2;                     
+    dRND=true;                    // do random state transision
+    int cmul=(c>>8)&255;          // run context mul value
+    cms=(c>>16)&255;              // mix prediction mul value
+    int cms2=(U32(c)>>24)&255;
+    assert(m>=64 && (m&m-1)==0);  // power of 2?
+    assert(sizeof(E)==64);
+    alloc(sm,C);
+    for (int i=0; i<C; i++) 
+        sm[i].Init(256,1023,nn1);
+    for (int i=0; i<C; ++i) {
+        cp0[i]=cp[i]=&t[0].bh[0][0];
+        runp[i]=cp[i]+3;
     }
     
+    // precalc int c=ilog(rc+1)<<(2+(~rc&1));
+    for (int rc=0;rc<256;rc++) {
+        int c=ilog(rc+1);
+        c=c<<(2+(~rc&1));
+        c=c*cmul/4;
+        if (cmul==1) c=0;
+        rc1[rc+256]=clp(c);
+        rc1[rc]=clp(-c);
+    } 
     for (int i=0;i<4096;i++) {
-            st2[i]=clp(sc(cms2*(i - 2048)));
-            /*for (int s=0;s<256;s++) {
-                int  s01=n0n1[s];
-                int  sp0=(s01<2)?4095:0;
-                int   ii=((s01&2)<<11)+i;
-                st8[ii] =clp(sc(8*(i-sp0)));
-                st32[ii]=clp(sc(32*stretch(i)));
-            }*/
-        } 
+        for (int s=0;s<256;s++) {
+            int  s01=nn01[s];
+            if (s01==4096) s01=2;
+            //int  sp0=(s01<2)?4095:0;
+            int   ii=((s01&2)<<11)+i;
+            st1[ii]=clp(sc(cms*stretch(i)));
+        }
+    }
+                
+    // precalc mix2 mixer inputs
+    for (int i=0;i<4096;i++) {
+        st2[i]=clp(sc(12*(i - 2048)));
+        if (cms2<8) st2[i]=0;
+        for (int s=0;s<256;s++) {
+            int  s01=nn01[s]; if (s01==4096) s01=2;
+            int  sp0=(s01<2)?4095:0;
+            int   ii=((s01&2)<<11)+i;
+            st8[ii] =clp(sc(8*(i-sp0)));
+            st32[ii]=clp(sc(32*stretch(i)));
+        }
+    } 
+
+    mix2=mix3;
+    // if second prediction falls off change to mix4
+    if (cms2<8) mix2=mix4,dRND=false;
 }
 
 ContextMap::~ContextMap() {
-  for (int i=0; i<C; i++) {
+    for (int i=0; i<C; i++) {
        sm[i].Free();
     }
     free(sm);
@@ -2298,7 +2394,7 @@ ContextMap::~ContextMap() {
 inline void ContextMap::set(U32 cx, int next) {
   int i=cn++;
   //i&=next;
- //assert(i>=0 && i<C);
+  //assert(i>=0 && i<C);
   cx=cx*987654323+i;  // permute (don't hash) cx to spread the distribution
   cx=cx<<16|cx>>16;
   cxt[i]=cx*123456791+i;
@@ -2306,7 +2402,7 @@ inline void ContextMap::set(U32 cx, int next) {
 // Predict to mixer m from bit history state s, using sm to map s to
 // a probability.
 
-inline int ContextMap::mix2(BlockData& x, int m, int s, StateMapContext& sm) {
+inline int ContextMap::mix3(BlockData& x, int m, int s, StateMapContext& sm) {
   sm.set(s,x.y);
   int p1=sm.pr;
   const int c=4;
@@ -2320,7 +2416,33 @@ inline int ContextMap::mix2(BlockData& x, int m, int s, StateMapContext& sm) {
   }else{
     x.mxInputs[m].add(st1[p1]>>(int(s <= 2)));
     x.mxInputs[m].add(st2[p1]);
-    const int  n01=n0n1[s];
+    const int  n01=nn01[s];
+    if (n01){
+        x.mxInputs[m].add(st8[(n01&4096)+p1]);
+        x.mxInputs[m].add(st32[(n01&4096)+p1]);
+    }else {
+        x.mxInputs[m].add(0);
+        x.mxInputs[m].add(0);
+    }
+    x.mxInputs[m].add(0);
+    return 1;
+  }
+}
+inline int ContextMap::mix4(BlockData& x, int m, int s, StateMapContext& sm) {
+  sm.set(s,x.y);
+  int p1=sm.pr;
+  const int c=4;
+  if (s==0){
+    x.mxInputs[m].add(0); 
+    //x.mxInputs[m].add(0);
+    x.mxInputs[m].add(0);
+    x.mxInputs[m].add(0);
+    x.mxInputs[m].add(c*16);
+    return 0;
+  }else{
+    x.mxInputs[m].add(st1[p1]>>(int(s <= 2)));
+    //x.mxInputs[m].add(st2[p1]);
+    const int  n01=nn01[s];
     if (n01){
         x.mxInputs[m].add(st8[(n01&4096)+p1]);
         x.mxInputs[m].add(st32[(n01&4096)+p1]);
@@ -2344,8 +2466,8 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
       assert(cp[i]>=&t[0].bh[0][0] && cp[i]<=&t[t.size()-1].bh[6][6]);
       assert(((long long)(cp[i])&63)>=15);
       int ns;
-          ns=nex(*cp[i], y1);
-          if (ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
+          ns=next(*cp[i], y1);
+          if (dRND==true && ns>=204 && rnd() << ((452-ns)>>3)) ns-=4;  // probabilistic increment
       *cp[i]=ns;
     }
 
@@ -2393,8 +2515,8 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     int s = 0;
     if (cp[i]) s = *cp[i];
     if (s>0) result++;
-    mix2(x,m, s, sm[i]);
-
+    (this->*mix2)(x,m, s, sm[i]);
+//(vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
     // predict from last byte in context
     int b=x.c0shift_bpos ^ (runp[i][1] >> x.bposshift);
     if (b<=1) {
@@ -2414,13 +2536,10 @@ int ContextMap::inputs() {
 
 //
 // Autotune component parameters
-//
+U32 cseed=0;
 
 void compressStream(int streamid,U64 size, FILE* in, FILE* out);
-bool doFullOpt=false;
-bool doBounds=false;
-bool doBoundsRun=false;
-bool doDebugInfo=false;
+
 double randfloat(){return (double(rand())+0.5)/double(RAND_MAX+1);};
 int randint(int min,int max){return (rand()%(max-min+1))+min;};
 int vm_uas_mask_max[256];
@@ -2446,6 +2565,8 @@ struct VMParam {
   int vm_cms_limit[256];
   bool vm_cms2[256];
   int vm_cms2_limit[256];
+  bool vm_cms3[256];
+  int vm_cms3_limit[256];
   bool vm_sm[256];
   int vm_sm_limit[256];
   bool vm_rcm[256];
@@ -2474,8 +2595,15 @@ struct VMParam {
   int vm_uas_rate[256];
   bool vm_lmx[256];
   int vm_lmx_w[256];
+  bool vm_nnst[256];
+  int vm_nnst_limit0[256];
+  int vm_nnst_limit1[256];
+  int vm_nnst_limit2[256];
+  int vm_nnst_limit3[256];
+  int vm_nnst_limit4[256];
+  int vm_nnst_limit5[256];
   bool isactive;
-  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx){
+  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx, bool sta){
    isactive=true;
    for (int i=0;i<256;i++) vm_mixer[i]=m; 
    for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
@@ -2487,6 +2615,7 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_cm[i]=cm;
    for (int i=0;i<256;i++) vm_cms[i]=cms;
    for (int i=0;i<256;i++) vm_cms2[i]=cms;
+   for (int i=0;i<256;i++) vm_cms3[i]=false;
    for (int i=0;i<256;i++) vm_sm[i]=sm;
    for (int i=0;i<256;i++) vm_rcm[i]=rcm;
    for (int i=0;i<256;i++) vm_tapm[i]=tapm;
@@ -2494,10 +2623,12 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_err1[i]=err;
    for (int i=0;i<256;i++) vm_uas[i]=uas;
    for (int i=0;i<256;i++) vm_lmx[i]=lmx;
+   for (int i=0;i<256;i++) vm_nnst[i]=sta;
    // no command line select
    for (int i=0;i<256;i++) vm_avg[i]=false;   
    for (int i=0;i<256;i++) vm_uasm[i]=false;//kmask
    for (int i=0;i<256;i++) vm_uasr[i]=false;   
+
   }
 };
 
@@ -2513,7 +2644,7 @@ struct Parameter{
 class SimulatedAnnealing {
     VMParam *InitState;
     VMParam BestState,ActualState;
-    Parameter parameters[256*22];
+    Parameter parameters[256*29];
     int accepted,rejected;
     int current_best,tune_best,total_runs;
     double init_prob_accepted;
@@ -2523,6 +2654,8 @@ class SimulatedAnnealing {
     int streamid;
     FILE* in;
     bool full_search;
+    int ctime; 
+    int btime;
 public:
 
 SimulatedAnnealing(VMParam *parmin,double init_prob,double cooling,int fraction,int in_size,int sid, FILE* n, bool full)
@@ -2537,11 +2670,15 @@ int GetBest() {
   return current_best;
 };
 int GetEnergy(VMParam *Param) {
+  clock_t start;
+
   uint32_t size=0;
   parm2[streamid]=Param;
   FILE *tmp=tmpfile2();
   fseek(in, 0, SEEK_SET);  
+  start=clock();
   compressStream(streamid, maxbytes,  in, tmp);
+  ctime=((double)(((double) (clock()-start))/CLOCKS_PER_SEC)*10);
   size=(U32)ftell(tmp);
   fclose(tmp);
   return size;
@@ -2553,6 +2690,42 @@ void CopyState(VMParam *Dst,VMParam *Src) {
 
 int CreateVector(VMParam *Param,Parameter *parameters) {
   int n=0;
+  for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit0[i];
+    parameters[n].min=0;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit1[i];
+    parameters[n].min=0;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit2[i];
+    parameters[n].min=0;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit3[i];
+    parameters[n].min=0;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit4[i];
+    parameters[n].min=0;parameters[n].max=63;
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit5[i];
+    parameters[n].min=3;parameters[n].max=32;
+    n++;
+  }
   for (int i=0;i<256;i++)
    if (Param->vm_mixer[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_mixer_limit[i];
@@ -2613,6 +2786,12 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     parameters[n].min=1;parameters[n].max=32;
     n++;
   }
+    for (int i=0;i<256;i++)
+   if (Param->vm_cms3[i]) {parameters[n].t=0;
+    parameters[n].param=&Param->vm_cms3_limit[i];
+    parameters[n].min=1;parameters[n].max=60;
+    n++;
+  }
   for (int i=0;i<256;i++)
    if (Param->vm_rcm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_rcm_limit[i];
@@ -2640,14 +2819,14 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
   for (int i=0;i<256;i++)
    if (Param->vm_err[i]) {
     parameters[n].param=&Param->vm_err_limit[i];
-    parameters[n].min=31;parameters[n].max=2047;
+    parameters[n].min=1;parameters[n].max=2047;
     n++;
   }
   for (int i=0;i<256;i++)
    if (Param->vm_err1[i]) {
     parameters[n].param=&Param->vm_err1_limit[i];
     
-    parameters[n].min=2047;parameters[n].max=4095;
+    parameters[n].min=2047;parameters[n].max=4094;
     n++;
   }
   for (int i=0;i<256;i++)
@@ -2724,30 +2903,29 @@ void ChangeParameter(int idx,double radius) {
    int *p=parameters[idx].param;
    int min_param=parameters[idx].min;
    int max_param=parameters[idx].max;
-//if (idx==0 && parameters[1].max<19) *p=max_param=(1<<parameters[1].max)-1,printf("new %d\n",max_param);
    int r=(int)(radius*double(max_param-min_param)+0.5);
    *p = randint(max(min_param,*p-r),min(max_param,*p+r));
-   //printf("RND: %d %d, min %d max %d\n",r,*p,min_param,max_param);
 }
 
 void CreateProposal(VMParam *Param, double radius) {
   int dim=CreateVector(Param,parameters);
   if (dim<1) return;
-
- if (full_search) for (int i=0;i<dim;i++) ChangeParameter(i,radius);
- else ChangeParameter(randint(0,dim-1),radius);
+  if (full_search) for (int i=0;i<dim;i++) ChangeParameter(i,radius);
+  else ChangeParameter(randint(0,dim-1),radius);
 }
 
 void Init() {
-    U32 ti=time(0);
+  U32 ti=time(0);
+  if (cseed>0) ti=cseed;
   srand(ti);
   current_best = GetEnergy(InitState);
+  btime=ctime;
   InitState->isactive=false;
   tune_best=current_best;
   CopyState(&BestState,InitState);
   total_runs=0;
   sum_deltaError=temperature=0.0;
-  printf(" SA InitState: %i bytes cooling rate=%0.5f, seed %d\n",current_best,cooling_rate,ti);
+  printf(" SA InitState: %i bytes cooling rate=%0.5f, seed %d, time: %d\n",current_best,cooling_rate,ti,btime);
 }
 
 void Tune(int maxruns, double radius) {
@@ -2762,8 +2940,7 @@ void Tune(int maxruns, double radius) {
      CopyState(&NewState,&ActualState);
      CreateProposal(&NewState,radius);
 
-     int proposal=GetEnergy(&NewState);
-
+     int proposal=GetEnergy(&NewState);//+btime-ctime;
      bool proposal_accepted=false;
 
      num_runs++;
@@ -2784,12 +2961,13 @@ void Tune(int maxruns, double radius) {
      if (proposal_accepted) {
        CopyState(&ActualState,&NewState);
        tune_best=proposal;
+       if (btime>ctime)btime=ctime;
        accepted++;
      } else rejected++;
 
      // we found new optimum
      double rate=accepted+rejected>0?double(accepted)/double(accepted+rejected):0.0;
-     printf("[%i] [rate: %4.1f%%], temperature: %0.9f\r",total_runs,rate*100.0,temperature);
+     printf("[%i] [rate: %4.1f%%], time: %d, temperature: %0.9f\r",total_runs,rate*100.0,btime,temperature);
 
      if ((proposal+2)<current_best) {
        CopyState(&BestState,&NewState);
@@ -2849,8 +3027,9 @@ public:
     x.bposshift=7-x.bpos;
     x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
     vm.updateComponents(x.blpos);
-    pr=(vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
-    if (pr!=0) quit();
+    //pr=
+    (vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
+    //if (pr!=0) quit();
     pr=vm.getPrediction( );
   }
 };
@@ -3531,9 +3710,9 @@ static char   pp[] ="int t[5]={};"
 " if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
 " for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
-"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0);"
-" vmi(DS,0,18,1023,4); vmi(AVG,0,0,0,1*256);"
-" vmi(AVG,1,0,0,2+3*256); vmi(AVG,2,0,0,4+5*256); vmi(APM1,0,256,7,6);}";
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);"
+" vmi(DS,0,18,1023,4); vmi(AVG,0,1|(1<<8),0,1*256);"
+" vmi(AVG,1,1|(1<<8),0,2+3*256); vmi(AVG,2,1|(1<<8),0,4+5*256); vmi(APM1,0,256,7,6);}";
 
 //
 // Autotune main
@@ -3574,6 +3753,8 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%d, ",parm2[streamid]->vm_cms_limit[i]);
     if (parm2[streamid]->vm_cms2[0]==true) printf("\ncms2 rate:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms2[i]==true) printf("%d, ",parm2[streamid]->vm_cms2_limit[i]);
+    if (parm2[streamid]->vm_cms3[0]==true) printf("\ncms3 rate:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms3[i]==true) printf("%d, ",parm2[streamid]->vm_cms3_limit[i]);
     if (parm2[streamid]->vm_sm[0]==true) printf("\nsm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_sm[i]==true) printf("%d, ",parm2[streamid]->vm_sm_limit[i]);
     if (parm2[streamid]->vm_rcm[0]==true) printf("\nrcm limit:\n");
@@ -3599,6 +3780,15 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     parm2[streamid]->vm_tapm_limitw2[i]);  
     if (parm2[streamid]->vm_lmx[0]==true) printf("\nlmx w:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_lmx[i]==true) printf("%d, ",parm2[streamid]->vm_lmx_w[i]);
+    if (parm2[streamid]->vm_nnst[0]==true) printf("\nstatetable limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_nnst[i]==true) printf(
+    "%d+(%d<<16),%d|(%d<<16),%d+(%d<<16)\n"
+    ,parm2[streamid]->vm_nnst_limit0[i],
+    parm2[streamid]->vm_nnst_limit1[i],
+    parm2[streamid]->vm_nnst_limit2[i],
+    parm2[streamid]->vm_nnst_limit3[i],
+    parm2[streamid]->vm_nnst_limit4[i],
+    parm2[streamid]->vm_nnst_limit5[i]);  
     printf("\n\n");
 } 
 
@@ -4099,6 +4289,7 @@ void DecompressType(FILE *out){
             decodeModel = (char *)calloc(len+1,1);
             for (int k=0;k<len;++k) decodeModel[k]=enm->decompress(); 
             //cread VM for type
+            //printf("%s",decodeModel[k]);
             vmDecode[i]= new VM(decodeModel,  z,VMDECODE);
             free(decodeModel);
         } else{
@@ -4187,6 +4378,7 @@ printf("\n");
             "                      r - err, default=false\n"
             "                      s - uas, default=false\n"
             "                      t - lmx, default=false\n"
+            "                      u - sta, default=false\n"
             "  -o<n>               n specifies percentage of tune, default=100%\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
@@ -4194,6 +4386,7 @@ printf("\n");
             "  -br                 br - enable bounds check at runtime, dafault=false\n"
             "  -j                  j - do JIT, dafault=false\n"
             "  -i                  i - show cfg component info, default=false\n"
+            "  -s<n>               s - seed for tune, default=random\n"
             "  -c<file>            c - use config file. dafault=conf.pxv\n"
             "  -d dir1/input       extract to dir1\n"
             "  -d dir1/input dir2  extract to dir2\n"
@@ -4229,7 +4422,7 @@ int getOption(int argc,char **argv) {
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
           bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
           bool cms=false; bool rcm=false; bool tapm=false; bool err=false;
-          bool uas=false; bool lmx=false;
+          bool uas=false; bool lmx=false; bool sta=false;
           if (tmp[2]=='t')    m=true; else if (tmp[2]=='f')    m=false; else printHelp();
           if (tmp[3]=='t')   ml=true; else if (tmp[3]=='f')   ml=false; else printHelp();
           if (tmp[4]=='t')  apm=true; else if (tmp[4]=='f')  apm=false; else printHelp();
@@ -4244,16 +4437,19 @@ int getOption(int argc,char **argv) {
           if (tmp[13]=='t') err=true; else if (tmp[13]=='f') err=false; else printHelp();
           if (tmp[14]=='t') uas=true; else if (tmp[14]=='f') uas=false; else printHelp();
           if (tmp[15]=='t') lmx=true; else if (tmp[15]=='f') lmx=false; else printHelp();
-          if (tmp[16]!=0) printHelp();
+          if (tmp[16]=='t') sta=true; else if (tmp[16]=='f') sta=false; else printHelp();
+          if (tmp[17]!=0) printHelp();
           // set stream parms active
-          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx);
+          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx,sta);
       }
 #ifdef MT
       else if (tmp[1]=='t') {
          if (strlen(tmp+2)>0) topt=clamp(atoi(tmp+2),1,9);
       }
 #endif       
-      
+      else if (tmp[1]=='s') {
+         if (strlen(tmp+2)>0) cseed=atoi(tmp+2);
+      }
       else if (tmp[1]=='o') {
          if (strlen(tmp+2)>0) max_fraction=clamp(atoi(tmp+2),0,100);
       } else if (tmp[1]=='r'){
@@ -4280,36 +4476,12 @@ int main(int argc, char** argv) {
         }
         if (strlen(config.c_str())==0) config="conf.pxv";
         clock_t start_time;  // in ticks
-        for (int i=0;i<256;i++)   nn2[i]=nex(i,0);//st0[i][0];
-        for (int i=256;i<512;i++) nn2[i]=nex(i-256,1);//st0[i-256][1];
-
         // precalculate tabeles
         for (int i=0; i<1024; ++i)
             dt[i]=16384/(i+i+3);
-
-        for (int i=0;i<256;i++) {
-            int n0=-!nex(i,2);
-            int n1=-!nex(i,3);
-            int r=0;
-            if ((n1-n0)==1 ) r=2;
-            if ((n1-n0)==-1 ) r=1;
-            n0n1[i]=r;
-        }
-        // precalc mix2 mixer inputs
-        for (int i=0;i<4096;i++) {
-            st12[i]=clp(sc(12*(i - 2048)));
-            for (int s=0;s<256;s++) {
-                int  s01=n0n1[s];
-                int  sp0=(s01<2)?4095:0;
-                int   ii=((s01&2)<<11)+i;
-                st8[ii] =clp(sc(8*(i-sp0)));
-                st32[ii]=clp(sc(32*stretch(i)));
-            }
-        } 
-        // set 2 -> 4096 so we can "and" array index in mix2
-        for (int s=0;s<256;s++) {
-            if (n0n1[s]==2) n0n1[s]=4096; 
-        }
+        // dt[1023]=1;
+        // dt[0]=4095;
+      
         // enable or disable tune
         if (level==2) {
             for (int s=0;s<256;s++) {
@@ -4780,6 +4952,7 @@ int main(int argc, char** argv) {
             for (int i=0; i<streamCount; ++i) {
                 datasegmentsize=(filestreamsize[i]); // get segment data offset
                 if (datasegmentsize>0){              // if segment contains data
+                    
                     fseek(filestreams[i],0,SEEK_SET);   
                     U64 total=datasegmentsize;
                     datasegmentpos=0;
@@ -4800,14 +4973,18 @@ int main(int argc, char** argv) {
                        len+=enm->decompress()<<16;
                        len+=enm->decompress()<<8;
                        len+=enm->decompress();
+                       printf("Model len: %d\n",len);
                        app = (char *)calloc(len+1,1); //alloc mem for decompressed buf
                        // decompress model into buf pp
                        for (int k=0;k<len;++k) app[k]=enm->decompress();
                        //printf("%s",app); //print model 
+                      
                        delete enm; //delete encoder and predictor
+                       //continue;
                     }
                     printf("DeCompressing ");
                     printf("%s   stream(%d).\n",vStreams[i].model,i); 
+                    printf("Stream size: %d\n",datasegmentsize);
                     //init encoder with decompressed model app
                     defaultencoder=new Encoder (mode, archive,app); 
                     while (datasegmentsize>0) {
