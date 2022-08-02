@@ -157,12 +157,12 @@ vmi(RCM,0,1024,0,0);
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
 // third parameter is memory*4096 in lower 24 bits (must be power of two), and statetable index in upper 8 bits
-// forth parameter is count of contexts x, run mul y (default 4), mixer prediction mul z (default 32) and w (dafault 12). y,z,w parameters are tunable.
+// forth parameter is count of contexts x, run mul y (default 4), mixer prediction mul z (default 32) and w (dafault 12), v (default 8) and u (dafault 32). Parameters y, z, w, v, u are tunable.
 // fifth parameter is predictionIndex
 
 //main
 //
-vmi(CM,0,32*4096,x+y*0x100+z*0x10000+w*0x1000000,0);
+vmi(CM,0,32*4096,x+y*0x100+z*0x10000+w*0x1000000,0+v*0x100+u*0x10000);
 ```
 ### MX
 ```c
@@ -170,10 +170,17 @@ vmi(CM,0,32*4096,x+y*0x100+z*0x10000+w*0x1000000,0);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// fifth parameter is 
-vmi(MX,0,0,1,2);
+// third parameter is shift (dafault 64), error (dafault 0), mul (dafault 28)
+// forth parameter is context size
+// fifth parameter is mixer index
+// Update:
+//  err=((y<<12)-pr)*mul/4;
+    if (err>=-error && err<=error) err=0;
+    train(..., err);
+// Predict:
+//  dot_product(...)*shift>>11;
+
+vmi(MX,0,shift+256*error+0x1000000*mul,1,0);
 ```
 ### ST
 ```c
@@ -367,13 +374,13 @@ vmi(LMX,0,x+y*256,z,0);
 // second parameter is component index upto number defined in vms.
 // third parameter is u and v (in range 1-63)
 // forth parameter is w and x (in range 1-63)
-// fifth parameter is y and z (y range 1-63) (z range 1-32) 
+// fifth parameter is y, z and u (y range 1-63) (z range 1-32) (u range 2-32) 
 // output: generates statetable;
-//         if parameters==0 use default values as 42,41,13,6,5,16
+//         if parameters==0 use default values as 42,41,13,6,5,16,14
 
 //main
 // creates STA
-vmi(STA,0,u+v*0x10000,w+x*0x10000,y+z*0x10000);
+vmi(STA,0,u+v*0x10000,w+x*0x10000,y+z*0x10000+u*0x1000000);
 
 // update
 // :none

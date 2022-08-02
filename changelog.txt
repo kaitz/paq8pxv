@@ -1,3 +1,7 @@
+pre23
+ Fix RND select in CM
+ Make StateTable discount as parameter
+ All CM component mixer inputs tunable
 pre22
  Add STA component for statetable generation (tunable)
  Use STA in DS,DHS,CM component if selected.

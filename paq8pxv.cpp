@@ -909,6 +909,7 @@ static const U8 State_table[256][4]={
 #else
 
 class StateTable {
+    int mdc;
   //Array<U8> ns;  // state*4 -> next state if 0, if 1, n0, n1
   enum {B=5, N=64}; // sizes of b, t
   int b[6];  // x -> max y, y -> max x
@@ -916,14 +917,15 @@ class StateTable {
   U8 ns[1024]; // state*4 -> next state if 0, if 1, n0, n1
   //  int bound[6];
   U8 t[N][N][2];
+  
   int num_states(int x, int y);  // compute t[x][y][1]
   void discount(int& x);  // set new value of x after 1 or y after 0
   void next_state(int& x, int& y, int b);  // new (x,y) after bit b
   void generate();  // compute t[x][y][1]
 public:
   int next(int state, int sel) {return ns[state*4+sel];}
-  StateTable(int s0,int s1,int s2,int s3,int s4,int s5);
-  void Init(int s0,int s1,int s2,int s3,int s4,int s5);
+  StateTable(int s0,int s1,int s2,int s3,int s4,int s5,int s6);
+  void Init(int s0,int s1,int s2,int s3,int s4,int s5,int s6);
 } ;
 
 //const int StateTable::b[B]={42,41,13,6,5};  // x -> max y, y -> max x
@@ -949,7 +951,12 @@ int StateTable::num_states(int x, int y) {
 
 // New value of count x if the opposite bit is observed
 void StateTable::discount(int& x) {
-  if (x>2) x=ilog(x)/6-1;
+  int y=0;
+  if (x>2){
+    for (int i=1;i<mdc;i++) y+=x>=i;
+    x=y;
+  }
+  //if (x>2) x=ilog(x)/6-1;
 }
 
 // compute next x,y (0 to N) given input b (0 or 1)
@@ -1042,14 +1049,14 @@ void StateTable::generate() {
 //  printf("%d states\n", state); exit(0);  // uncomment to print table above
 }
 // Initialize next state table ns[state*4] -> next if 0, next if 1, n0, n1
-StateTable::StateTable(int s0,int s1,int s2,int s3,int s4,int s5) {
-    b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;
+StateTable::StateTable(int s0,int s1,int s2,int s3,int s4,int s5,int s6) {
+    b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;mdc=s6;
     generate();
 
 }
 // Initialize next state table ns[state*4] -> next if 0, next if 1, n0, n1
-void StateTable::Init(int s0,int s1,int s2,int s3,int s4,int s5) {
-    b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;
+void StateTable::Init(int s0,int s1,int s2,int s3,int s4,int s5,int s6) {
+    b[0]=s0;b[1]=s1;b[2]=s2;b[3]=s3;b[4]=s4;b[5]=s5;mdc=s6;
     generate();
     /*
     printf("Statetable:\n");
@@ -2297,7 +2304,7 @@ class ContextMap {
       return nn[256 * y + i];
   }
 public:
-  ContextMap(U64 m, int c ,BlockData& bd,int s3,U8 *nn1,short *nn2);  // m = memory in bytes, a power of 2, C = c
+  ContextMap(U64 m, int c ,BlockData& bd,int s3,U8 *nn1,short *nn2,int cms4);  // m = memory in bytes, a power of 2, C = c
   ~ContextMap();
   void set(U32 cx, int next=-1);   // set next whole byte context to cx
     // if next is 0 then set order does not matter
@@ -2328,7 +2335,7 @@ inline U8* ContextMap::E::get(U16 ch) {
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2): C(c&255),  t(m>>6), cp(C), cp0(C),
+ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2,int cms4): C(c&255),  t(m>>6), cp(C), cp0(C),
     cxt(C), runp(C), cn(0),result(0),x(bd) {
     nn=nn1;                       // statetable
     nn01=nn2;                     
@@ -2367,14 +2374,14 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2): C
                 
     // precalc mix2 mixer inputs
     for (int i=0;i<4096;i++) {
-        st2[i]=clp(sc(12*(i - 2048)));
+        st2[i]=clp(sc(cms2*(i - 2048)));
         if (cms2<8) st2[i]=0;
         for (int s=0;s<256;s++) {
             int  s01=nn01[s]; if (s01==4096) s01=2;
             int  sp0=(s01<2)?4095:0;
             int   ii=((s01&2)<<11)+i;
-            st8[ii] =clp(sc(8*(i-sp0)));
-            st32[ii]=clp(sc(32*stretch(i)));
+            st8[ii] =clp(sc(cms4*(i-sp0)));
+            st32[ii]=clp(sc(s3*stretch(i)));
         }
     } 
 
@@ -2567,6 +2574,8 @@ struct VMParam {
   int vm_cms2_limit[256];
   bool vm_cms3[256];
   int vm_cms3_limit[256];
+    bool vm_cms4[256];
+  int vm_cms4_limit[256];
   bool vm_sm[256];
   int vm_sm_limit[256];
   bool vm_rcm[256];
@@ -2602,6 +2611,7 @@ struct VMParam {
   int vm_nnst_limit3[256];
   int vm_nnst_limit4[256];
   int vm_nnst_limit5[256];
+  int vm_nnst_limit6[256];
   bool isactive;
   void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx, bool sta){
    isactive=true;
@@ -2615,7 +2625,8 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_cm[i]=cm;
    for (int i=0;i<256;i++) vm_cms[i]=cms;
    for (int i=0;i<256;i++) vm_cms2[i]=cms;
-   for (int i=0;i<256;i++) vm_cms3[i]=false;
+   for (int i=0;i<256;i++) vm_cms3[i]=cms;
+   for (int i=0;i<256;i++) vm_cms4[i]=cms;
    for (int i=0;i<256;i++) vm_sm[i]=sm;
    for (int i=0;i<256;i++) vm_rcm[i]=rcm;
    for (int i=0;i<256;i++) vm_tapm[i]=tapm;
@@ -2726,6 +2737,12 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     parameters[n].min=3;parameters[n].max=32;
     n++;
   }
+    for (int i=0;i<256;i++)
+   if (Param->vm_nnst[i]) {
+    parameters[n].param=&Param->vm_nnst_limit6[i];
+    parameters[n].min=2;parameters[n].max=32;
+    n++;
+  }
   for (int i=0;i<256;i++)
    if (Param->vm_mixer[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_mixer_limit[i];
@@ -2789,6 +2806,11 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     for (int i=0;i<256;i++)
    if (Param->vm_cms3[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_cms3_limit[i];
+    parameters[n].min=1;parameters[n].max=60;
+    n++;
+  }    for (int i=0;i<256;i++)
+   if (Param->vm_cms4[i]) {parameters[n].t=0;
+    parameters[n].param=&Param->vm_cms4_limit[i];
     parameters[n].min=1;parameters[n].max=60;
     n++;
   }
@@ -3755,6 +3777,8 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms2[i]==true) printf("%d, ",parm2[streamid]->vm_cms2_limit[i]);
     if (parm2[streamid]->vm_cms3[0]==true) printf("\ncms3 rate:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms3[i]==true) printf("%d, ",parm2[streamid]->vm_cms3_limit[i]);
+        if (parm2[streamid]->vm_cms4[0]==true) printf("\ncms4 rate:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms4[i]==true) printf("%d, ",parm2[streamid]->vm_cms4_limit[i]);
     if (parm2[streamid]->vm_sm[0]==true) printf("\nsm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_sm[i]==true) printf("%d, ",parm2[streamid]->vm_sm_limit[i]);
     if (parm2[streamid]->vm_rcm[0]==true) printf("\nrcm limit:\n");
@@ -3782,13 +3806,14 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_lmx[i]==true) printf("%d, ",parm2[streamid]->vm_lmx_w[i]);
     if (parm2[streamid]->vm_nnst[0]==true) printf("\nstatetable limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_nnst[i]==true) printf(
-    "%d+(%d<<16),%d|(%d<<16),%d+(%d<<16)\n"
+    "%d+(%d<<16),%d|(%d<<16),%d+(%d<<16)+(%d<<24)\n"
     ,parm2[streamid]->vm_nnst_limit0[i],
     parm2[streamid]->vm_nnst_limit1[i],
     parm2[streamid]->vm_nnst_limit2[i],
     parm2[streamid]->vm_nnst_limit3[i],
     parm2[streamid]->vm_nnst_limit4[i],
-    parm2[streamid]->vm_nnst_limit5[i]);  
+    parm2[streamid]->vm_nnst_limit5[i],
+    parm2[streamid]->vm_nnst_limit6[i]);  
     printf("\n\n");
 } 
 
@@ -5038,4 +5063,5 @@ int main(int argc, char** argv) {
     }
     return 0;
 }
+
 

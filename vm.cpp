@@ -239,6 +239,8 @@ void printcomponent(int component){
 void initcomponent(VM* v,int component,int componentIndex, int f,int d, int indexOfInputs){
     assert(componentIndex>=0); //component index
     assert(d>=0); //component context
+    int cms3=0,cms4=0;
+    if (component==vmCM) cms3=(indexOfInputs>>8)&255,cms4=(indexOfInputs>>16)&255,indexOfInputs=indexOfInputs&255;
     //printcomponent(component); printf(" component %d,  componentIndex %d,   f %d,  d %d,   indexOfInputs %d\n",component, componentIndex,  f, d,  indexOfInputs);
     if (v->initdone==1) {kprintf("VM vmi error: vmi allowed only in main\n ");quit();}
     if (v->currentc>  v->totalc) {kprintf("VM vmi error: component %d not set %d - %d\n ",component,v->currentc, v->totalc);quit();}
@@ -315,7 +317,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
             if (v->parm->vm_smc[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_smc_limit[componentIndex]=smc_l;
                 smc_l=v->parm->vm_smc_limit[componentIndex];
-                //kprintf("%d ",smc_l);
             }
         }
          U8 *n=&v->vm_nn[0][0];
@@ -328,7 +329,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
             if (v->parm->vm_apm[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_apm_limit[componentIndex]=apm_l;
                 apm_l=v->parm->vm_apm_limit[componentIndex];
-                //kprintf("%d:",apm_l);
             }
         }
         v->apm1A[componentIndex].Init(f,apm_l,indexOfInputs);
@@ -340,7 +340,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
             if (v->parm->vm_apm2[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_apm2_limit[componentIndex]=apm_l;
                 apm_l=v->parm->vm_apm2_limit[componentIndex];
-                //kprintf("%d:",apm_l);
             }
         }
         v->apm2A[componentIndex].Init(f,apm_l,indexOfInputs);
@@ -376,8 +375,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 apm_w1=v->parm->vm_tapm_limitw1[componentIndex];
                 apm_w2=v->parm->vm_tapm_limitw2[componentIndex];
                 apm_wb1=v->parm->vm_tapm_limitwb1[componentIndex];
-                //kprintf("%d:",apm_l);
-               //printf("%d %d %d %d %d, %d %d %d ",apm_l0,apm_l1,apm_l2,apm_l3,apm_l4,apm_w1,apm_w2,apm_wb1);
             }
         }
         v->tapmA[componentIndex].Init(apm_l0,apm_l1,apm_l2,apm_l3,apm_l4,apm_w1,apm_w2,apm_wb1);
@@ -389,10 +386,10 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         int sta_l2=d&0xffff;
         int sta_l3=(d>>16);
         int sta_l4=indexOfInputs&0xffff;
-        int sta_l5=(indexOfInputs>>16);//8
-        int isSta=sta_l0|sta_l1|sta_l2|sta_l3|sta_l4|sta_l5;
-        if (isSta==0)sta_l0=42,sta_l1=41,sta_l2=13,sta_l3=6,sta_l4=5,sta_l5=16;
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
+        int sta_l5=(indexOfInputs>>16)&255;
+        int sta_l6=(indexOfInputs>>24)&255;
+        int isSta=sta_l0|sta_l1|sta_l2|sta_l3|sta_l4|sta_l5|sta_l6;
+        if (isSta==0)sta_l0=42,sta_l1=41,sta_l2=13,sta_l3=6,sta_l4=5,sta_l5=16,sta_l6=14;
         if (v->parm){
             if (v->parm->vm_nnst[componentIndex]){
                 if (v->parm->isactive==true) {
@@ -402,6 +399,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                     v->parm->vm_nnst_limit3[componentIndex]=sta_l3;
                     v->parm->vm_nnst_limit4[componentIndex]=sta_l4;
                     v->parm->vm_nnst_limit5[componentIndex]=sta_l5;
+                    v->parm->vm_nnst_limit6[componentIndex]=sta_l6;
                 }
                 sta_l0=v->parm->vm_nnst_limit0[componentIndex];
                 sta_l1=v->parm->vm_nnst_limit1[componentIndex];
@@ -409,10 +407,11 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 sta_l3=v->parm->vm_nnst_limit3[componentIndex];
                 sta_l4=v->parm->vm_nnst_limit4[componentIndex];
                 sta_l5=v->parm->vm_nnst_limit5[componentIndex];
+                sta_l6=v->parm->vm_nnst_limit6[componentIndex];
             }
         }
         //if (componentIndex>0)
-        v->vmstate.Init(sta_l0,sta_l1,sta_l2,sta_l3,sta_l4,sta_l5);
+        v->vmstate.Init(sta_l0,sta_l1,sta_l2,sta_l3,sta_l4,sta_l5,sta_l6);
         // states
         for (int i=0;i<256;i++) v->vm_nn[componentIndex+1][i]=v->vmstate.next(i,0);
         for (int i=256;i<512;i++) v->vm_nn[componentIndex+1][i]=v->vmstate.next(i-256,1);
@@ -427,9 +426,7 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
             if ((n1-n0)==1) r=2;
             if ((n1-n0)==-1) r=1;
             v->nn01[componentIndex+1][i]=r;
-            //printf("%d %d %d %d %d\n",r,n0,n1,v->vmstate.next(i,2),v->vmstate.next(i,3));
         }
-        
         // set 2 -> 4096 so we can "and" array index in mix2
         for (int s=0;s<256;s++) {
             if (v->nn01[componentIndex+1][s]==2) v->nn01[componentIndex+1][s]=4096; 
@@ -442,15 +439,12 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         bool domask=false;
         int rate=indexOfInputs;
         if (rate==0) rate=5;        
-        
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
         if (v->parm){
             if (v->parm->vm_uas[componentIndex]){
                 if (v->parm->isactive==true) {
                     v->parm->vm_uas_bits[componentIndex]=bits;
                 }
                 bits=v->parm->vm_uas_bits[componentIndex];
-                //kprintf("%d ",bits);
             }
             if (v->parm->vm_uasm[componentIndex]){
                 if (v->parm->isactive==true) {
@@ -458,14 +452,12 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 }
                 mask=v->parm->vm_uas_mask[componentIndex];
                 domask=true;
-                //kprintf("%x ",mask);
             }
             if (v->parm->vm_uasr[componentIndex]){
                 if (v->parm->isactive==true) {
                     v->parm->vm_uas_rate[componentIndex]=rate;
                 }
                 rate=v->parm->vm_uas_rate[componentIndex];
-                //kprintf("%x ",rate);
             }
         }
         vm_uas_mask_max[componentIndex]=(1<<bits)-1;//set max mask
@@ -475,12 +467,10 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     case vmDS: {
         int ds_l=d;
         int stable=f>>16;
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
         if (v->parm){
             if (v->parm->vm_ds[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_ds_limit[componentIndex]=ds_l;
                 ds_l=v->parm->vm_ds_limit[componentIndex];
-                //kprintf("%d ",ds_l);
             }
         }
         U8 *n=&v->vm_nn[stable][0];
@@ -494,12 +484,11 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
     case vmRCM: {    
         int rcm_ml=d&255;          // limit
         if (rcm_ml==0) rcm_ml=8;
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
+
         if (v->parm){
             if (v->parm->vm_rcm[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_rcm_limit[componentIndex]=rcm_ml;
                 rcm_ml=v->parm->vm_rcm_limit[componentIndex];
-                //kprintf("%d ",rcm_ml);
             }
         }
         v->rcmA[componentIndex].Init(f<=0?4096:f*4096,rcm_ml);
@@ -513,8 +502,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         //int avg_l3=(f>>24)&255;  
         if (avg_l0==0) avg_l0=1;
         if (avg_l1==0) avg_l1=1;
-        
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
         if (v->parm){
             if (v->parm->vm_avg[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_avg_limit0[componentIndex]=avg_l0;
@@ -529,7 +516,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
                 f0= nextPOTwo(avg_l0+avg_l1) ;
                 avg_l1=  f0  -avg_l0;
                 }
-                //kprintf("%d %d , ",avg_l0,avg_l1 );
             }
         }
         v->avA[componentIndex].Init(indexOfInputs&0xff,(indexOfInputs>>8)&255,f,d);
@@ -544,7 +530,6 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
             if (v->parm->vm_lmx[componentIndex] ){
                 if (v->parm->isactive==true) v->parm->vm_lmx_w[componentIndex]=w;
                 w=v->parm->vm_lmx_w[componentIndex];
-                //kprintf("%d ",w );
             }
         }
         v->lmxA[componentIndex].Init(lmx_l0,lmx_l1,w);
@@ -557,14 +542,13 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         if (e_l==0) e_l=2047;
         if (v->parm){
             if (v->parm->vm_err[componentIndex]){
-                if (v->parm->isactive==true ) v->parm->vm_err_limit[componentIndex]=e_l;//,v->parm->vm_err[componentIndex]=e_l?true:false;
+                if (v->parm->isactive==true ) v->parm->vm_err_limit[componentIndex]=e_l;
                 e_l=v->parm->vm_err_limit[componentIndex];
             }
             if (v->parm->vm_err1[componentIndex]){
-                if (v->parm->isactive==true ) v->parm->vm_err1_limit[componentIndex]=e_h;//,v->parm->vm_err1[componentIndex]=e1_l?true:false;
+                if (v->parm->isactive==true ) v->parm->vm_err1_limit[componentIndex]=e_h;
                 e_h=v->parm->vm_err1_limit[componentIndex];
            }
-           // printf("Err low %d high %d\n",e_l,e1_l);
         }
         v->emA[componentIndex].Init(e_l,e_h);
         break;
@@ -576,35 +560,33 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         if (cms_l==0) cms_l=32;
         int cms2_l=(U32(d)>>24)&255;          // sm2 rate
         if (cms2_l==0) cms2_l=12;
-        int cms3=(indexOfInputs>>8)&255;
         if (cms3==0) cms3=32;
+        if (cms4==0) cms4=12;
         int mem=f&0xffffff;
         int stindex=U32(f)>>24;
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
         if (v->parm){
             if (v->parm->vm_cm[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_cm_limit[componentIndex]=cm_l;
                 cm_l=v->parm->vm_cm_limit[componentIndex];
-                //kprintf("%d ",cm_l);
             }
             if (v->parm->vm_cms[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_cms_limit[componentIndex]=cms_l;
                 cms_l=v->parm->vm_cms_limit[componentIndex];
-                //kprintf("%d ",cms_l);
             }
             if (v->parm->vm_cms2[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_cms2_limit[componentIndex]=cms2_l;
                 cms2_l=v->parm->vm_cms2_limit[componentIndex];
-                //kprintf("%d ",cms2_l);
             }
             if (v->parm->vm_cms3[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_cms3_limit[componentIndex]=cms3;
                 cms3=v->parm->vm_cms3_limit[componentIndex];
-                //kprintf("%d ",cms3);
+            }if (v->parm->vm_cms4[componentIndex]){
+                if (v->parm->isactive==true) v->parm->vm_cms4_limit[componentIndex]=cms4;
+                cms4=v->parm->vm_cms4_limit[componentIndex];
             }
         }
         U8 *n=&v->vm_nn[stindex][0];short *n1=&v->nn01[stindex][0];
-        v->cmC[componentIndex] = (ContextMap*)new ContextMap(mem<=0?4096:mem*4096,(d&255)|(cm_l<<8)|(cms_l<<16)|(cms2_l<<24),v->x,cms3,n,n1);
+        v->cmC[componentIndex] = (ContextMap*)new ContextMap(mem<=0?4096:mem*4096,(d&255)|(cm_l<<8)|(cms_l<<16)|(cms2_l<<24),v->x,cms3,n,n1,cms4);
         break;}
     case vmMX: {
         // read model info
@@ -613,25 +595,18 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         if (mx_sh==0)mx_sh=64;
         int mx_ue=f>>24;
         if (mx_ue==0)mx_ue=28;
-
-        // tunable block
-        //const int cpar=9;
         if (v->parm ){
-            
             if (v->parm->vm_mixer[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_mixer_limit[componentIndex]=mx_err;
                 mx_err=v->parm->vm_mixer_limit[componentIndex];
-                //kprintf("%d, ",mx_err);
             }
             if (v->parm->vm_mixer_ml[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_mixer_limit_ml[componentIndex]=mx_sh;
                 mx_sh=v->parm->vm_mixer_limit_ml[componentIndex];
-                //kprintf("%d, ",mx_sh);
            }
            if (v->parm->vm_mixer_ue[componentIndex]){
                if (v->parm->isactive==true) v->parm->vm_mixer_limit_ue[componentIndex]=mx_ue;
                 mx_ue=v->parm->vm_mixer_limit_ue[componentIndex];
-                //kprintf("%d, ",mx_ue);
            }
         }
         v->mxA[componentIndex].Init(d,mx_sh,mx_err,mx_ue); //context,shift,err
@@ -645,12 +620,10 @@ void initcomponent(VM* v,int component,int componentIndex, int f,int d, int inde
         int sm_l=(d>>8)&255;          // limit
         int sm_b=d&255;  
         if (sm_l==0)sm_l=8<<1;
-        // If Autotune then ignore model parameters, first run is allways with model parameters.
         if (v->parm){
             if (v->parm->vm_sm[componentIndex]){
                 if (v->parm->isactive==true) v->parm->vm_sm_limit[componentIndex]=sm_l;
                 sm_l=v->parm->vm_sm_limit[componentIndex];
-                //kprintf("%d ",sm_l);
             }
         }
         v->smcA[componentIndex].Init(f,sm_b,sm_l); 
@@ -772,7 +745,7 @@ int writefile(VM* v,U8 *i,int size){
 }
  
 VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode(mode),mem(0),memSize(0),membound(0),prSize(0),mcomp(0),cmC(0),parm(p),
-    vmstate(42,41,13,6,5,16)  //statable
+    vmstate(42,41,13,6,5,16,14)  //statable
 {
     data=&data1[0];
     mod=m;
@@ -952,6 +925,8 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
         }
         if (parm->vm_cms3[0]==true) for (int i=maxCMS;i<256;i++){
             parm->vm_cms3[i]=false;
+        }if (parm->vm_cms4[0]==true) for (int i=maxCMS;i<256;i++){
+            parm->vm_cms4[i]=false;
         }
         for (int i=maxRCM1;i<256;i++){
             parm->vm_rcm[i]=false;
@@ -2136,5 +2111,6 @@ void* mmap(void *addr, size_t len, int prot, int flags, int fildes, off_t off){
     return map;
 }
 #endif
+
 
 
