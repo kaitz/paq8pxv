@@ -1,3 +1,6 @@
+pre24
+ Small changes
+ Fast text model
 pre23
  Fix RND select in CM
  Make StateTable discount as parameter

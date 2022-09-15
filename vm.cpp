@@ -237,8 +237,8 @@ void printcomponent(int component){
 }
 
 void initcomponent(VM* v,int component,int componentIndex, int f,int d, int indexOfInputs){
-    assert(componentIndex>=0); //component index
-    assert(d>=0); //component context
+    //assert(componentIndex>=0); //component index
+    //assert(d>=0); //component context
     int cms3=0,cms4=0;
     if (component==vmCM) cms3=(indexOfInputs>>8)&255,cms4=(indexOfInputs>>16)&255,indexOfInputs=indexOfInputs&255;
     //printcomponent(component); printf(" component %d,  componentIndex %d,   f %d,  d %d,   indexOfInputs %d\n",component, componentIndex,  f, d,  indexOfInputs);

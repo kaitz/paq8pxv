@@ -1031,6 +1031,7 @@ void StateTable::generate() {
 //        printf("{%3d,%3d,%2d,%2d},", ns[state*4], ns[state*4+1],
 //          ns[state*4+2], ns[state*4+3]);
 //        if (state%4==3) printf(" // %d-%d\n  ", state-3, state);
+        if (t[x][y][1]==0 || t[x0][y0][1]==0 || t[x1][y1][1]==0) return;
         assert(state>=0 && state<256);
         assert(t[x][y][1]>0);
         assert(t[x][y][0]<=state);
@@ -1043,6 +1044,7 @@ void StateTable::generate() {
         assert(ns1-t[x1][y1][0]<t[x1][y1][1]);
         assert(ns1-t[x1][y1][0]>=0);
         ++state;
+        if (state>255) return;
       }
     }
   }
@@ -1454,7 +1456,7 @@ struct StateMapContext {
         for (int i=0; i<N; ++i){
             U32 n0=next(i, 2)*3+1;
             U32 n1=next(i, 3)*3+1;
-            t[i]=((n1<<20) / (n0+n1)) << 12;
+            t[i]=(((n1<<20) / (n0+n1)) << 12);
         }
     }else{
         for (int i=0; i<N; ++i)
@@ -2011,19 +2013,14 @@ struct DynamicSMap {
   int index;
   int count;
   U8 *nn;
-  short *nnpre;
-  //Random rnd;
   void Init(int m,int lim,int c,U8 *nn1){nn=nn1;
     state=0, mask=(1<<m)-1,limit=lim,index=0,count=c;
     alloc(cxt,c);
     alloc(pr,c);
     alloc(CxtState,(mask+1));
     alloc(sm,c);
-    alloc(nnpre,256);
     for (int i=0; i<count; i++) 
       sm[i].Init(256,lim,nn1);
-    for (int i=0; i<256; i++) 
-      nnpre[i]=pre(i);
   }
   void Free(){
     free(cxt);
@@ -2034,23 +2031,19 @@ struct DynamicSMap {
        sm[i].Free();
     }
     free(sm);
-    free(nnpre);
   }
   int pre(int state) {  // initial probability of 1 * 2^23
     assert(state>=0 && state<256);
     return ((next(state,3)*2+1)<<11)/(next(state,2)+next(state,3)+1);
   }
-  U8 next(int i, int y){
-      U8 s=nn[256 * y + i];
-      //if (s>=204 && rnd() << ((452-s)>>3)) s-=4;  // probabilistic increment
-      return s;
+  const U8 next(int i, int y){
+      return  nn[256 * y + i];
   }
   void set(U32 cx,int y) {
     CxtState[cxt[index]]=next(CxtState[cxt[index]],y);       // update state
     cxt[index]=(cx)&mask;                                     // get new context
     sm[index].set(CxtState[cxt[index]],y);    // predict from new context
     pr[index]=sm[index].pr;
-    //pr[index]=nnpre[CxtState[cxt[index]]];
     index++;
     if (index==count) index=0;
   }
@@ -2290,7 +2283,7 @@ class ContextMap {
   int result;
   BlockData& x;
   short rc1[512];
-  short st1[8192];
+  short st1[4096];
   short st2[4096];
   short st32[8192];
   short st8[8192]; 
@@ -2361,27 +2354,21 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2,int
         if (cmul==1) c=0;
         rc1[rc+256]=clp(c);
         rc1[rc]=clp(-c);
-    } 
-    for (int i=0;i<4096;i++) {
-        for (int s=0;s<256;s++) {
-            int  s01=nn01[s];
-            if (s01==4096) s01=2;
-            //int  sp0=(s01<2)?4095:0;
-            int   ii=((s01&2)<<11)+i;
-            st1[ii]=clp(sc(cms*stretch(i)));
-        }
     }
-                
+
     // precalc mix2 mixer inputs
     for (int i=0;i<4096;i++) {
+        st1[i]=clp(sc(cms*stretch(i)));
         st2[i]=clp(sc(cms2*(i - 2048)));
         if (cms2<8) st2[i]=0;
         for (int s=0;s<256;s++) {
             int  s01=nn01[s]; if (s01==4096) s01=2;
             int  sp0=(s01<2)?4095:0;
             int   ii=((s01&2)<<11)+i;
+            if (s01) {
+            
             st8[ii] =clp(sc(cms4*(i-sp0)));
-            st32[ii]=clp(sc(s3*stretch(i)));
+            st32[ii]=clp(sc(s3*stretch(i)));}
         }
     } 
 
@@ -2441,14 +2428,12 @@ inline int ContextMap::mix4(BlockData& x, int m, int s, StateMapContext& sm) {
   const int c=4;
   if (s==0){
     x.mxInputs[m].add(0); 
-    //x.mxInputs[m].add(0);
     x.mxInputs[m].add(0);
     x.mxInputs[m].add(0);
     x.mxInputs[m].add(c*16);
     return 0;
   }else{
-    x.mxInputs[m].add(st1[p1]>>(int(s <= 2)));
-    //x.mxInputs[m].add(st2[p1]);
+    x.mxInputs[m].add(st1[p1]);
     const int  n01=nn01[s];
     if (n01){
         x.mxInputs[m].add(st8[(n01&4096)+p1]);
@@ -2523,7 +2508,6 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     if (cp[i]) s = *cp[i];
     if (s>0) result++;
     (this->*mix2)(x,m, s, sm[i]);
-//(vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
     // predict from last byte in context
     int b=x.c0shift_bpos ^ (runp[i][1] >> x.bposshift);
     if (b<=1) {
@@ -3769,7 +3753,7 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_smc[i]==true) printf("%d, ",parm2[streamid]->vm_smc_limit[i]);
     if (parm2[streamid]->vm_ds[0]==true) printf("\nds limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_ds[i]==true) printf("%d, ",parm2[streamid]->vm_ds_limit[i]);
-    if (parm2[streamid]->vm_cm[0]==true) printf("\ncm limit:\n");
+    if (parm2[streamid]->vm_cm[0]==true) printf("\ncm run limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cm[i]==true) printf("%d, ",parm2[streamid]->vm_cm_limit[i]);
     if (parm2[streamid]->vm_cms[0]==true) printf("\ncms rate:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%d, ",parm2[streamid]->vm_cms_limit[i]);
