@@ -18,6 +18,7 @@ Testfile is compressed, 1 thread, using JIT mode, array bounds are tested at com
 [Data detection, transform and compression](#data-detection-transform-and-compression)
 * [Main config](#main-config)
 * [lpaq1 config](#lpaq1-config)
+* [text config](#text-config)
 
 [General .cfg/.dec compression](#general-cfgdec-compression)
 
@@ -121,6 +122,16 @@ Usage example: __paq8pxv.exe -1 -t1 -j -clpaq1.pxv file__
 | Compressed size enwik8|19755948|19790459|
 | Compressed size enwik9|164508919|164876243|
 | Mem|1539 MB|1631 MB| 
+
+## text config
+
+Usage example: __paq8pxv.exe -1 -t1 -j -ctext.pxv file__
+
+| --- | enwik8 | --- |  --- |  enwik9 | --- |  --- |  Mem|
+| --- | --- | --- |  --- |  --- | --- |  --- | --- |
+| --- | Time sec(JIT)| size  (data)| size  (archive)| Time sec(JIT)| size (data)| size  (archive)|--- |
+| [txtfast.cfg](https://github.com/kaitz/paq8pxv/blob/c7639a6689f75c68fa273701010cd882582babd8/text/txtfast.cfg) | 841.93|18774819| 18777946  |8203.44 |  154261050 |  154264178 |1667 MB|
+| [txtfast.cfg](https://github.com/kaitz/paq8pxv/blob/2ed67d0809ba5727356661d60d01defe13a91ae7/text/txtfast.cfg)| 919.11 |  18502390 |  18505591 |  8920.17 |  151541809 |  151545011| 1667 MB|
 
 # General .cfg/.dec compression
 Main compression routine used when compressing .cfg/.dec files and main config file (conf.pxv).
