@@ -15,11 +15,12 @@
 |DynamicHashStateMap| [DHS](#dhs) |11|yes|no|
 |StationaryMap| [SM](#sm) |12|no|yes|
 |SkMap| [SK](#sk) |13|no|yes|
-|ERR| [ERR](#err)|15|yes|no|
+|ERR| [ERR](#err)|15|no|no|
 |TAPM| [TAPM](#tapm)|16|yes|no|
 |UAS| [UAS](#uas)|17|yes|no|
 |LMX| [LMX](#lmx)|18|yes|no|
 |STA| [STA](#sta)|19|no|no|
+|BYT| [BYT](#byt)|20|no|no|
 # Functions used to set up components
 ## vms - component counts
 vms(countOfSMC,countOfAPM1,countOfDS,...);
@@ -156,13 +157,18 @@ vmi(RCM,0,1024,0,0);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is memory*4096 in lower 24 bits (must be power of two), and statetable index in upper 8 bits
-// forth parameter is count of contexts x, run mul y (default 4), mixer prediction mul z (default 32) and w (dafault 12), v (default 8) and u (dafault 32). Parameters y, z, w, v, u are tunable.
-// fifth parameter is predictionIndex
+// third parameter is memory*4096 in lower 24 bits (must be power of two), and statetable index si in upper 8 bits (si=0 is default STA)
+// forth parameter is:
+//                   count of contexts x, 
+//                   run mul y (default 4), 
+//                   mixer prediction mul z (default 32) and w (dafault 12),
+//                   v (default 8) and u (dafault 32). 
+// fifth parameter is: mixer index mi
+// Parameters y, z, w, v, u are tunable.
 
 //main
 //
-vmi(CM,0,32*4096,x+y*0x100+z*0x10000+w*0x1000000,0+v*0x100+u*0x10000);
+vmi(CM,0,memory*4096+(si<<24),x+y*0x100+z*0x10000+w*0x1000000,mi+v*0x100+u*0x10000);
 ```
 ### MX
 ```c
@@ -170,9 +176,10 @@ vmi(CM,0,32*4096,x+y*0x100+z*0x10000+w*0x1000000,0+v*0x100+u*0x10000);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is shift (dafault 64), error (dafault 0), mul (dafault 28)
+// third parameter is shift (dafault 64), error (dafault 0), mul (dafault 28), all tunable
 // forth parameter is context size
 // fifth parameter is mixer index
+
 // Update:
 //  err=((y<<12)-pr)*mul/4;
     if (err>=-error && err<=error) err=0;
@@ -381,7 +388,31 @@ vmi(LMX,0,x+y*256,z,0);
 //main
 // creates STA
 vmi(STA,0,u+v*0x10000,w+x*0x10000,y+z*0x10000+u*0x1000000);
-
+// use STA (1<<24) in CM(0), with 2*4096 memory, one context, output to MX(0)
+vmi(CM,0,2*4096+(1<<24),1,0);
+// create MX(0) with default parameters, context size is 1
+vmi(MX,0,0,1,0);
 // update
 // :none
+```
+
+### BYT
+```c
+// Create BYT component (0)
+// Map byte value to new value in tune mode, otherwise output is same as input. 
+// Useful in model creation fase. Grouping chars, automatic "best" context selection for CM.
+//
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is value x in range 0-255, tunable
+// forth parameter is value y of output range, must be between value x
+// fifth parameter is nil
+
+//main
+// creates BYT with value x
+vmi(BYT,0,x,y,0);
+
+// update
+// get BYT value based on input val
+a=vmx(BYT, 0,val);
 ```
