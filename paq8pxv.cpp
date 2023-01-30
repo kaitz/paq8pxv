@@ -410,7 +410,6 @@ elements at a time.
 #include <sys/stat.h>
 #include <stdio.h>
 #include <time.h>
-//#include <math.h>
 #define NDEBUG  // remove for debugging (turns on Array bound checks)
 #include <assert.h>
 #ifdef MT
@@ -549,6 +548,7 @@ public:
     return data[U32(i)];
   }
   U64 size() const {return used_size;}
+  int size32() const {return int(used_size);}
   void resize(U64 new_size);
   void pop_back() {assert(used_size>0); --used_size; }  // decrement size
   void push_back(const T& x);  // increment size, append x
@@ -691,10 +691,10 @@ FILE* tmpfile2(void){
 
 // 32-bit pseudo random number generator
 class Random{
-  Array<U32> table;
+  U32 table[64];
   int i;
 public:
-  Random(): table(64) {
+  Random() {
     table[0]=123456789;
     table[1]=987654321;
     for (int j=0; j<62; j++) table[j+2]=table[j+1]*11+table[j]*23/16;
@@ -765,7 +765,6 @@ int defaultType;
 Segment segment; //for file segments type size info(if not -1)
  int streamCount;
 FILE **filestreams;
-const int datatypecount=39+1+1+1;
 bool doFullOpt=false;
 bool doBounds=false;
 bool doBoundsRun=false;
@@ -785,7 +784,6 @@ public:
     int c0shift_bpos;
     struct Inputs{
         int ncount;     // mixer input count
-        //int wcount;     // mixer weights count
         Array<short,32> n;      // input array
         void add(int p){ n[ncount++]=p; }
     } ;
@@ -797,20 +795,20 @@ BlockData():y(0), c0(1), c4(0),bpos(0),blpos(0),filetype(defaultType),finfo(-1),
 };
 ///////////////////////////// ilog //////////////////////////////
 
-// ilog(x) = round(log2(x) * 16), 0 <= x < 64K
+// ilog(x) = round(log2(x) * 16), 0 <= x < 256
 class Ilog {
-  Array<U8> t;
+  U8 t[256];
 public:
   int operator()(U16 x) const {return t[x];}
   Ilog();
 } ilog;
 
 // Compute lookup table by numerical integration of 1/x
-Ilog::Ilog(): t(65536) {
+Ilog::Ilog() {
   U32 x=14155776;
-  for (int i=2; i<65536; ++i) {
+  for (int i=2; i<257; ++i) {
     x+=774541002/(i*2-1);  // numerator is 2^29/ln 2
-    t[i]=x>>24;
+    t[i-1]=x>>24;
   }
 }
 
@@ -1231,7 +1229,6 @@ struct APM1 {
   }
 };
 
-
 struct Mixer1 { 
   int N, M;   // max inputs, max contexts, max context sets
   short*tx; // N inputs from add()  
@@ -1409,17 +1406,17 @@ void train(short *t, short *w, int n, int err) {
     pr=2048; //initial p=0.5
   }
   void Free(){
-      
-  // print N weights averaged over context
- /* printf("Mixer(%d,%d): ", N, M);
-  for (int i=0; i<N; ++i) {
-    int w=0;
-    for (int j=0; j<M; ++j)
-      w+=wx[j*N+i];//,printf("%d ",wx[j*N+i]);;
-    printf("%d ", w/M);
-  }
-  printf("\n");*/
-
+    // print N weights averaged over context
+    if (doDebugInfo==true){
+      printf("Mixer(%d,%d): ", N, M);
+      for (int i=0; i<N; ++i) {
+        int w=0;
+        for (int j=0; j<M; ++j)
+          w+=wx[j*N+i];//,printf("%d ",wx[j*N+i]);;
+        printf("%d ", w/M);
+      }
+      printf("\n");
+    }
     free(ptr);
   }
 };
@@ -1469,9 +1466,9 @@ struct StateMapContext {
   inline void update(int y) {    
     assert(y==0 || y==1);
     U32 *p=&t[cxt], p0=p[0];
-    int n=p0&1023, pr1=p0>>10;  // count, prediction
+    int n=p0&1023, pr1=p0>>12;  // count, prediction
     p0+=(n<limit);
-    p0+=((((y<<22)-pr1)/*+127*/)>>3)*dt[n]&0xfffffc00;
+    p0+=(((((y<<20)-pr1)))*dt[n]+512)&0xfffffc00;
     p[0]=p0;
   }
   // update bit y (0..1), predict next bit in context cx
@@ -1494,18 +1491,18 @@ struct APM2 {
   U32 *t;       // cxt -> prediction in high 22 bits, count in low 10 bits
   int pr;
   int mask;
-  int limit; 
+  int ulimit,slimit; 
   int  cx;
   int p1;
   int step;
   void Init(int n, int s,int d){ 
-    N=n*24, cxt=cx=0, pr=2048, mask=n-1,limit=255,p1=d,step=s&0xff;
+    cxt=cx=0, pr=2048, mask=n-1,ulimit=255,p1=d,step=s&0xff,slimit=s>>8, N=n*step;
     //assert(ispowerof2(n));
     alloc(t,N);
-    assert(limit>0 && limit<1024);
+    assert(ulimit>0 && ulimit<1024);
     for (int i=0; i<N; ++i) {
       int p=((i%step*2+1)*4096)/(step*2)-2048;
-      t[i]=(U32(squash(p))<<20)+(s>>8);
+      t[i]=(U32(squash(p))<<20)+slimit;
    }
   }
   void Free(){
@@ -1515,7 +1512,7 @@ struct APM2 {
     assert(y==0 || y==1);
     U32 *p=&t[cxt], p0=p[0];
     int n=p0&1023, pr1=p0>>10;  // count, prediction
-    p0+=(n<limit);
+    p0+=(n<ulimit);
     p0+=(((y<<22)-pr1)>>3)*dt[n]&0xfffffc00;
     p[0]=p0;
   }
@@ -1528,7 +1525,7 @@ struct APM2 {
     int wt=pr&0xfff;  // interpolation weight of next element
     cx=cx*step+(pr>>12);
     assert(cx>=0 && cx<N-1);
-    pr=(t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt>>19;
+    pr=((t[cx]>>13)*(0x1000-wt)+(t[cx+1]>>13)*wt)>>19;
     cxt=cx+(wt>>11);
     return pr;
   } 
@@ -1717,6 +1714,14 @@ inline int clp(int z){
     }
     return z;
 }
+inline int clp1(int z){
+    if (z<0){
+        z=0;
+    }else if (z>4095){
+        z=4095;
+    }
+    return z;
+}
 // A RunContextMap maps a context into the next byte and a repeat
 // count up to M.  Size should be a power of 2.  Memory usage is 3M/4.
 struct RunContextMap {
@@ -1733,7 +1738,7 @@ struct RunContextMap {
     for (int r=0;r<B;r++) tmp[r]=0;
     cp=&t[0]+1;
     for (int r=0;r<256;r++) {
-        int c=ilog(r+1)*rcm_ml;
+        int c=ilog(r)*rcm_ml;
 	    rc[r+256]=clp(c);
 	    rc[r]=clp(-c);
      }
@@ -1903,6 +1908,9 @@ struct SkMap {
   void mix(BlockData& x,int m) {
     x.mxInputs[m].add(pr);
   }
+  int p() {
+      return squash(pr);
+  }
 };
 
 struct MixMap1 {
@@ -2002,6 +2010,16 @@ struct ErrMap {
   }
 };
 
+struct ByteMap {
+  int b;
+  void Init(int v){
+     b=v;
+  }
+  inline int q(){
+    return b;
+  }
+};
+
 struct DynamicSMap {
   int state;
   StateMapContext *sm;
@@ -2027,17 +2045,13 @@ struct DynamicSMap {
     free(pr);
     free(CxtState);
     for (int i=0; i<count; i++) {
-       //if(count==1)sm[i].print();
+      //if(count==1)sm[i].print();
        sm[i].Free();
     }
     free(sm);
   }
-  int pre(int state) {  // initial probability of 1 * 2^23
-    assert(state>=0 && state<256);
-    return ((next(state,3)*2+1)<<11)/(next(state,2)+next(state,3)+1);
-  }
   const U8 next(int i, int y){
-      return  nn[256 * y + i];
+      return nn[256 * y + i];
   }
   void set(U32 cx,int y) {
     CxtState[cxt[index]]=next(CxtState[cxt[index]],y);       // update state
@@ -2089,7 +2103,7 @@ struct DynamicHSMap {
     // if (hashElementCount*hashSearchLimit>64) hashSearchLimit=64/hashElementCount,printf("DHS Search limit: %d\n",hashSearchLimit);
     alloc(cp,countOfContexts);
     alloc(pr,countOfContexts);
-    alloc1(t,(hashElementCount*(1<<(membits&255))),ptr,64);  
+    alloc1(t,(hashElementCount*(1<<(membits&255))+64),ptr,64);  
     alloc(sm,count);
     for (int i=0; i<count; i++) 
       sm[i].Init(256,limit,nn1);
@@ -2106,12 +2120,12 @@ struct DynamicHSMap {
   }
   void Free(){
       
-  /*int empty=0, once=0;
+/*  int empty=0, once=0;
   for (int i=1; i<tsize; i+=B) {
     if (t[i]==0) ++empty;
     else if (t[i]<2) ++once;
   }
-  printf("BH<%d> %d empty, %d once, %d replaced of %d\n", B,
+  printf("BH<%8d> %8d empty, %8d once, %8d replaced of %8d\n", B,
     empty, once, replaced, tsize/B);*/
     free(cp);
     free(pr);
@@ -2128,7 +2142,7 @@ struct DynamicHSMap {
   
   int set(U32 cx,const int y) {
     int a;
-    if (index==0 && cp[count-1])   {for (int i=0; i<count; ++i) *cp[i]=next(*cp[i],y);  } //update
+    if (index==0 /*&& cp[count-1]*/)   {for (int i=0; i<count; ++i) *cp[i]=next(*cp[i],y);  } //update
       if (cx>255){
         cp[index]=find(cx)+1;                                      // find new
         sm[index].set(*cp[index],y);
@@ -2169,7 +2183,7 @@ struct DynamicHSMap {
       else if (p[1]==0) return p[0]=chk, p;  // empty
       else if (p[1]<b) b=p[1], bi=i^j;  // best replacement so far
     }
-    //++replaced;
+    // ++replaced;
     p=&t[bi*hashElementCount];  // replacement element
     memset(p, 0, hashElementCount);
     p[0]=chk;
@@ -2249,11 +2263,7 @@ public:
 // contexts with 2-7 bits) are not updated until a context is seen for
 // a second time.  This is indicated by <count,d> = <1,0> (2).  After update,
 // <count,d> is updated to <2,0> or <1,1> (4 or 3).
-#if defined(__AVX2__)
-#define MALIGN 32
-#else
-#define MALIGN 16
-#endif
+
 inline int sc(int p){
     if (p>0) return p>>7;
     return (p+127)>>7;// p+((1<<s)-1);
@@ -2273,10 +2283,10 @@ class ContextMap {
   Array<E, 64> t;  // bit histories for bits 0-1, 2-4, 5-7
     // For 0-1, also contains a run count in bh[][4] and value in bh[][5]
     // and pending update count in bh[7]
-  Array<U8*> cp;   // C pointers to current bit history
-  Array<U8*> cp0;  // First element of 7 element array containing cp[i]
-  Array<U32> cxt;  // C whole byte contexts (hashes)
-  Array<U8*> runp; // C [0..3] = count, value, unused, unused
+  U8* cp[256];   // C pointers to current bit history
+  U8* cp0[256];  // First element of 7 element array containing cp[i]
+  U32 cxt[256];  // C whole byte contexts (hashes)
+  U8* runp[256]; // C [0..3] = count, value, unused, unused
   StateMapContext *sm;    // C maps of state -> p
   int cn;          // Next context to set by set()
   Random rnd;
@@ -2285,32 +2295,36 @@ class ContextMap {
   short rc1[512];
   short st1[4096];
   short st2[4096];
-  short st32[8192];
-  short st8[8192]; 
-  int cms;
+  short st32[256];
+  short st8[256]; 
+  int cms,cms2,cms3,cms4,ms4;
   bool dRND;
   U8 *nn;
-  short *nn01;
+  U8 *nn01;
   int mix1(int m, int cc, int bp, int c1, int y1);
     // mix() with global context passed as arguments to improve speed.
-  int next(int i, int y){
+  const U8 next(int i, int y){
       return nn[256 * y + i];
   }
 public:
-  ContextMap(U64 m, int c ,BlockData& bd,int s3,U8 *nn1,short *nn2,int cms4);  // m = memory in bytes, a power of 2, C = c
+  ContextMap(U64 m, int c ,BlockData& bd,int s3,U8 *nn1,U8 *nn2,int cs4,int rd);  // m = memory in bytes, a power of 2, C = c
   ~ContextMap();
-  void set(U32 cx, int next=-1);   // set next whole byte context to cx
+  void set(U32 cx);   // set next whole byte context to cx
     // if next is 0 then set order does not matter
   int mix(int m) {return mix1(m,  x.c0,  x.bpos, (U8) x.c4,  x.y);}
   int get() {return result;}
-  int inputs();
+  int inputs;
   int mix3(BlockData& x, int m, int s, StateMapContext& sm);
   int mix4(BlockData& x, int m, int s, StateMapContext& sm);
-  int (ContextMap::*mix2)(BlockData& , int , int , StateMapContext& );
+  int (ContextMap::*mix2)(BlockData& , int , int , StateMapContext&);
+  int pre(int state) {
+    assert(state>=0 && state<256);
+    U32 n0=next(state, 2)*3+1;
+    U32 n1=next(state, 3)*3+1;
+    return (n1<<12) / (n0+n1);
+  }
   
 };
-
- 
 
 // Find or create hash element matching checksum ch
 inline U8* ContextMap::E::get(U16 ch) {
@@ -2328,14 +2342,16 @@ inline U8* ContextMap::E::get(U16 ch) {
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
-ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2,int cms4): C(c&255),  t(m>>6), cp(C), cp0(C),
-    cxt(C), runp(C), cn(0),result(0),x(bd) {
+ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,U8 *nn2,int cs4,int rd): C(c&255),  t(m>>6), 
+     cn(0),result(0),x(bd) {
     nn=nn1;                       // statetable
     nn01=nn2;                     
     dRND=true;                    // do random state transision
     int cmul=(c>>8)&255;          // run context mul value
     cms=(c>>16)&255;              // mix prediction mul value
-    int cms2=(U32(c)>>24)&255;
+    cms2=(U32(c)>>24)&255;
+    ms4=cms4=cs4;
+    cms3=s3;
     assert(m>=64 && (m&m-1)==0);  // power of 2?
     assert(sizeof(E)==64);
     alloc(sm,C);
@@ -2345,10 +2361,10 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2,int
         cp0[i]=cp[i]=&t[0].bh[0][0];
         runp[i]=cp[i]+3;
     }
-    
+
     // precalc int c=ilog(rc+1)<<(2+(~rc&1));
     for (int rc=0;rc<256;rc++) {
-        int c=ilog(rc+1);
+        int c=ilog(rc);
         c=c<<(2+(~rc&1));
         c=c*cmul/4;
         if (cmul==1) c=0;
@@ -2361,33 +2377,36 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,short *nn2,int
         st1[i]=clp(sc(cms*stretch(i)));
         st2[i]=clp(sc(cms2*(i - 2048)));
         if (cms2<8) st2[i]=0;
-        for (int s=0;s<256;s++) {
-            int  s01=nn01[s]; if (s01==4096) s01=2;
-            int  sp0=(s01<2)?4095:0;
-            int   ii=((s01&2)<<11)+i;
-            if (s01) {
-            
-            st8[ii] =clp(sc(cms4*(i-sp0)));
-            st32[ii]=clp(sc(s3*stretch(i)));}
-        }
     } 
+    for (int s=0;s<256;s++) {
+        int  s01=nn01[s];
+        int  sp0=(s01<2)?4095:0;
+        if (s01) {            
+            st8[s] =clp(sc(cms4*(pre(s)-sp0)));
+            st32[s]=clp(sc(cms3*stretch(pre(s))));
+        }else{
+            st8[s] =0;
+            st32[s]=0;
+        }
+    }
 
     mix2=mix3;
+    inputs=6;
+    if (rd==1)dRND=false;
     // if second prediction falls off change to mix4
-    if (cms2<8) mix2=mix4,dRND=false;
+    if (cms2<8) mix2=mix4,dRND=false,inputs=5;
 }
 
 ContextMap::~ContextMap() {
     for (int i=0; i<C; i++) {
-       sm[i].Free();
+        sm[i].Free();
     }
     free(sm);
 }
 
 // Set the i'th context to cx
-inline void ContextMap::set(U32 cx, int next) {
+inline void ContextMap::set(U32 cx) {
   int i=cn++;
-  //i&=next;
   //assert(i>=0 && i<C);
   cx=cx*987654323+i;  // permute (don't hash) cx to spread the distribution
   cx=cx<<16|cx>>16;
@@ -2397,56 +2416,81 @@ inline void ContextMap::set(U32 cx, int next) {
 // a probability.
 
 inline int ContextMap::mix3(BlockData& x, int m, int s, StateMapContext& sm) {
-  sm.set(s,x.y);
-  int p1=sm.pr;
-  const int c=4;
   if (s==0){
     x.mxInputs[m].add(0); 
     x.mxInputs[m].add(0);
     x.mxInputs[m].add(0);
     x.mxInputs[m].add(0);
-    x.mxInputs[m].add(c*16);
+    x.mxInputs[m].add(64);
     return 0;
   }else{
-    x.mxInputs[m].add(st1[p1]>>(int(s <= 2)));
+    sm.set(s,x.y);
+    int p1=sm.pr;
+    x.mxInputs[m].add(st1[p1]);
     x.mxInputs[m].add(st2[p1]);
-    const int  n01=nn01[s];
-    if (n01){
-        x.mxInputs[m].add(st8[(n01&4096)+p1]);
-        x.mxInputs[m].add(st32[(n01&4096)+p1]);
-    }else {
-        x.mxInputs[m].add(0);
-        x.mxInputs[m].add(0);
-    }
+    x.mxInputs[m].add(st8[s]);
+    x.mxInputs[m].add(st32[s]);
     x.mxInputs[m].add(0);
     return 1;
   }
 }
 inline int ContextMap::mix4(BlockData& x, int m, int s, StateMapContext& sm) {
-  sm.set(s,x.y);
-  int p1=sm.pr;
-  const int c=4;
   if (s==0){
     x.mxInputs[m].add(0); 
     x.mxInputs[m].add(0);
     x.mxInputs[m].add(0);
-    x.mxInputs[m].add(c*16);
+    x.mxInputs[m].add(64);
     return 0;
   }else{
+    sm.set(s,x.y);
+    int p1=sm.pr;
     x.mxInputs[m].add(st1[p1]);
-    const int  n01=nn01[s];
-    if (n01){
-        x.mxInputs[m].add(st8[(n01&4096)+p1]);
-        x.mxInputs[m].add(st32[(n01&4096)+p1]);
-    }else {
-        x.mxInputs[m].add(0);
-        x.mxInputs[m].add(0);
-    }
+    x.mxInputs[m].add(st8[s]);
+    x.mxInputs[m].add(st32[s]);
     x.mxInputs[m].add(0);
     return 1;
   }
 }
 
+U32 getStateByteLocation(const int bpos, const int c0) {
+  //from paq8px
+  U32 pis = 0; //state byte position in slot
+  if (false) {
+    // this version is for readability
+    switch (bpos) {
+    case 0: //slot0
+      pis = 0;
+      break;
+    case 1: //slot0
+      pis = 1 + (c0 & 1);
+      break;
+    case 2: //slot1
+      pis = 0;
+      break;
+    case 3: //slot1
+      pis = 1 + (c0 & 1);
+      break;
+    case 4: //slot1
+      pis = 3 + (c0 & 3);
+      break;
+    case 5: //slot2
+      break;
+    case 6: //slot2
+      pis = 1 + (c0 & 1);
+      break;
+    case 7: //slot2
+      pis = 3 + (c0 & 3);
+      break;
+    }
+  }
+  else {
+    // this is a speed optimized (branchless) version of the above
+    const U32 smask = (U32(0x31031010) >> (bpos << 2)) & 0x0F;
+    pis = smask + (c0 & smask);
+  }
+
+  return pis;
+}
 // Update the model with bit y1, and predict next bit to mixer m.
 // Context: cc=c0, bp=bpos, c1=buf(1), y1=y.
 int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
@@ -2464,18 +2508,16 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
     }
 
     // Update context pointers
-    if (x.bpos>1 && runp[i][0]==0) {
+    int s = 0;
+    if (bp>1 && runp[i][0]==0) {
      cp[i]=0;
     } else {
      U16 chksum=(cxt[i]>>16)^i;
-     U64 tmask=t.size()-1;
-     switch(x.bpos)
-     {
-      case 1: case 3: case 6: cp[i]=cp0[i]+1+(cc&1); break;
-      case 4: case 7: cp[i]=cp0[i]+3+(cc&3); break;
-      case 2: case 5: cp0[i]=cp[i]=t[(cxt[i]+cc)&tmask].get(chksum); break;
-      default:
-      {
+     const U64 tmask=t.size()-1;
+     if (bp){
+        if ( bp==2 || bp== 5)cp0[i]=cp[i]=t[(cxt[i]+cc)&tmask].get(chksum);
+        else        cp[i]=cp0[i]+getStateByteLocation(bp,cc);
+    } else {// default:
        cp0[i]=cp[i]=t[(cxt[i]+cc)&tmask].get(chksum);
        // Update pending bit histories for bits 2-7
        if (cp0[i][3]==2) {
@@ -2500,14 +2542,12 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
        //else if (runp[i][0]==255)
        //  runp[i][0]=128;
        runp[i]=cp0[i]+3;
-      } break;
-     }
+      } 
+     s = *cp[i];
     }
     // predict from bit context
-    int s = 0;
-    if (cp[i]) s = *cp[i];
-    if (s>0) result++;
-    (this->*mix2)(x,m, s, sm[i]);
+
+    result=result+(this->*mix2)(x,m, s, sm[i]);
     // predict from last byte in context
     int b=x.c0shift_bpos ^ (runp[i][1] >> x.bposshift);
     if (b<=1) {
@@ -2521,18 +2561,19 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
   if (bp==7) cn=0;
   return result;
 }
-int ContextMap::inputs() {
-    return 6;
-}
+
 
 //
 // Autotune component parameters
 U32 cseed=0;
 
-void compressStream(int streamid,U64 size, FILE* in, FILE* out);
+void compressStream(U32 streamid,U64 size, FILE* in, FILE* out);
 
 double randfloat(){return (double(rand())+0.5)/double(RAND_MAX+1);};
-int randint(int min,int max){return (rand()%(max-min+1))+min;};
+int randint(int min,int max){
+  if (max<min) max=min;
+  return (rand()%(max-min+1))+min;
+};
 int vm_uas_mask_max[256];
 // Parameters for VM components
 struct VMParam {
@@ -2546,6 +2587,7 @@ struct VMParam {
   int vm_apm_limit[256];
   bool vm_apm2[256];
   int vm_apm2_limit[256];
+  int vm_apm2_step[256];
   bool vm_smc[256];
   int vm_smc_limit[256];
   bool vm_ds[256];
@@ -2558,7 +2600,7 @@ struct VMParam {
   int vm_cms2_limit[256];
   bool vm_cms3[256];
   int vm_cms3_limit[256];
-    bool vm_cms4[256];
+  bool vm_cms4[256];
   int vm_cms4_limit[256];
   bool vm_sm[256];
   int vm_sm_limit[256];
@@ -2596,14 +2638,17 @@ struct VMParam {
   int vm_nnst_limit4[256];
   int vm_nnst_limit5[256];
   int vm_nnst_limit6[256];
+  bool vm_byt[256];
+  int vm_byt_limit[256];
+  int vm_byt_limit_max[256];
   bool isactive;
-  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx, bool sta){
+  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx, bool sta, bool apm2, bool byt){
    isactive=true;
    for (int i=0;i<256;i++) vm_mixer[i]=m; 
    for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
    for (int i=0;i<256;i++) vm_mixer_ue[i]=mue;  
    for (int i=0;i<256;i++) vm_apm[i]=apm;
-   for (int i=0;i<256;i++) vm_apm2[i]=false;
+   for (int i=0;i<256;i++) vm_apm2[i]=apm2;
    for (int i=0;i<256;i++) vm_smc[i]=smc;
    for (int i=0;i<256;i++) vm_ds[i]=ds;
    for (int i=0;i<256;i++) vm_cm[i]=cm;
@@ -2619,16 +2664,16 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_uas[i]=uas;
    for (int i=0;i<256;i++) vm_lmx[i]=lmx;
    for (int i=0;i<256;i++) vm_nnst[i]=sta;
+   for (int i=0;i<256;i++) vm_byt[i]=byt;
    // no command line select
    for (int i=0;i<256;i++) vm_avg[i]=false;   
    for (int i=0;i<256;i++) vm_uasm[i]=false;//kmask
-   for (int i=0;i<256;i++) vm_uasr[i]=false;   
-
+   for (int i=0;i<256;i++) vm_uasr[i]=false;
   }
 };
 
-VMParam parm1[256];  // initial stream parameters
-VMParam *parm2[256]; // stream parameters for tuning
+VMParam parm1[256*4];  // initial stream parameters
+VMParam *parm2[256*4]; // stream parameters for tuning
 
 struct Parameter{
   int *param;
@@ -2639,14 +2684,14 @@ struct Parameter{
 class SimulatedAnnealing {
     VMParam *InitState;
     VMParam BestState,ActualState;
-    Parameter parameters[256*29];
+    Parameter parameters[256*64];
     int accepted,rejected;
-    int current_best,tune_best,total_runs;
+    int current_best,tune_best,total_runs,start_best;
     double init_prob_accepted;
     double cooling_rate; 
     double sum_deltaError,temperature;
     int maxbytes;
-    int streamid;
+    U32 streamid;
     FILE* in;
     bool full_search;
     int ctime; 
@@ -2664,9 +2709,11 @@ void StoreBestState(VMParam *Dst) {
 int GetBest() {
   return current_best;
 };
+int GetStart() {
+  return start_best;
+};
 int GetEnergy(VMParam *Param) {
   clock_t start;
-
   uint32_t size=0;
   parm2[streamid]=Param;
   FILE *tmp=tmpfile2();
@@ -2685,6 +2732,24 @@ void CopyState(VMParam *Dst,VMParam *Src) {
 
 int CreateVector(VMParam *Param,Parameter *parameters) {
   int n=0;
+    for (int i=0;i<256;i++)
+   if (Param->vm_byt[i]) {
+    parameters[n].param=&Param->vm_byt_limit[i];
+    parameters[n].min=0;parameters[n].max= Param->vm_byt_limit_max[i];
+    n++;
+  }
+  for (int i=0;i<256;i++)
+   if (Param->vm_apm2[i]) {
+    parameters[n].param=&Param->vm_apm2_limit[i];
+    parameters[n].min=0;parameters[n].max=254;
+    n++;
+  }
+    for (int i=0;i<256;i++)
+   if (Param->vm_apm2[i]) {
+    parameters[n].param=&Param->vm_apm2_step[i];
+    parameters[n].min=2;parameters[n].max=31;
+    n++;
+  }
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit0[i];
@@ -2910,6 +2975,9 @@ void ChangeParameter(int idx,double radius) {
    int min_param=parameters[idx].min;
    int max_param=parameters[idx].max;
    int r=(int)(radius*double(max_param-min_param)+0.5);
+   /*if (*p==0){
+       *p = randint(min_param,max_param);
+   }else*/
    *p = randint(max(min_param,*p-r),min(max_param,*p+r));
 }
 
@@ -2927,7 +2995,7 @@ void Init() {
   current_best = GetEnergy(InitState);
   btime=ctime;
   InitState->isactive=false;
-  tune_best=current_best;
+  tune_best=start_best=current_best;
   CopyState(&BestState,InitState);
   total_runs=0;
   sum_deltaError=temperature=0.0;
@@ -2945,8 +3013,8 @@ void Tune(int maxruns, double radius) {
      VMParam NewState;
      CopyState(&NewState,&ActualState);
      CreateProposal(&NewState,radius);
-
-     int proposal=GetEnergy(&NewState);//+btime-ctime;
+     int proposal=GetEnergy(&NewState);
+     
      bool proposal_accepted=false;
 
      num_runs++;
@@ -2996,6 +3064,8 @@ void Anneal(int maxruns) {
 }
 };
 bool doJIT=false;
+bool doPRT=false; //print out main compresser model for pxvc
+bool ePRT=false;
 #include "vm.cpp"
 
 //////////////////////////// Predictor /////////////////////////
@@ -3033,7 +3103,6 @@ public:
     x.bposshift=7-x.bpos;
     x.c0shift_bpos=(x.c0<<1)^(256>>(x.bposshift));
     vm.updateComponents(x.blpos);
-    //pr=
     (vm.*doupdate)(x.y,x.c0,x.bpos,x.c4,p());
     //if (pr!=0) quit();
     pr=vm.getPrediction( );
@@ -3213,7 +3282,7 @@ int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
        foundblock=-1;
        return defaultType;
     }
-    for (int j=0;j<vTypes.size();j++){
+    for (int j=0;j<vTypes.size32();j++){
         if ( vTypes[j].dsize!=-1){
             //reset states            
             vTypes[j].state=NONE;
@@ -3225,8 +3294,8 @@ int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
         if (c==EOF) return (-1);
         buf0=buf0<<8|c;
         
-        for (int j=0;j<vTypes.size();j++){
-            if (vTypes[j].dsize!=-1 && vTypes[j].state!=DISABLE){
+        for (int j=0;j<vTypes.size32();j++){
+            if (vTypes[j].dsize!=int(-1) && vTypes[j].state!=DISABLE){
                 //open type detection file and load into memory
                 int dstate=vmDetect[j]->detect(buf0,i);
                 if (dstate==START && type==defaultType){
@@ -3255,7 +3324,7 @@ int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
         if (foundblock >-1) {
             bool isrecursionType=false;
             // look for active recursive type
-            for (int j=0;j<vTypes.size();j++){
+            for (int j=0;j<vTypes.size32();j++){
                 if (vTypes[j].type<defaultType && vTypes[j].dsize!=-1 && (vTypes[j].state==END)){
                    isrecursionType=true;
                    foundblock=j;
@@ -3263,7 +3332,7 @@ int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
                 }
              }
             // search for type that still does detection
-            for (int j=0;j<vTypes.size();j++){
+            for (int j=0;j<vTypes.size32();j++){
                 if  (isrecursionType==true && vTypes[j].type>defaultType){ 
                 //disable nonrecursive type
                  if ((vTypes[j].state==START || vTypes[j].state==INFO)){ //return active type
@@ -3294,7 +3363,7 @@ int detect(FILE* in, U64 n, int type, int &info, int &info2, int it=0,int s1=0) 
              return  fseek ( in , start+vTypes[foundblock].start , SEEK_SET )  , foundblock;
         }
     }
-    for (int j=0;j<vTypes.size();j++){
+    for (int j=0;j<vTypes.size32();j++){
         if ( vTypes[j].state==START || vTypes[j].state==INFO){
             foundblock=j;
             vTypes[j].end=n-vTypes[j].start;
@@ -3383,17 +3452,17 @@ else if (level>0)  fprintf(stderr,"%6.2f%%\b\b\b\b\b\b\b", float(100)*n/(size+1)
 //////////////////// Compress, Decompress ////////////////////////////
 
 //for block statistics, levels 0-5
-U64 typenamess[datatypecount][5]={0}; //total type size for levels 0-5
-U32 typenamesc[datatypecount][5]={0}; //total type count for levels 0-5
+U64 typenamess[256][5]={0}; //total type size for levels 0-5
+U32 typenamesc[256][5]={0}; //total type count for levels 0-5
 int itcount=0;               //level count
 
 int getstreamid(int type){
-    if (type<vTypes.size())return vTypes[type].streamId;//return typet[type][STREAM];
+    if (type<vTypes.size32())return vTypes[type].streamId;//return typet[type][STREAM];
     return -1;
 }
 
-bool isstreamtype(int type,int streamid){
-    if (type<vTypes.size() && vTypes[type].streamId==streamid) return true;
+bool isstreamtype(int type,U32 streamid){
+    if (type<vTypes.size32() && vTypes[type].streamId==streamid) return true;
     return false;
 }
 
@@ -3429,7 +3498,7 @@ void transform_encode_block(int type, FILE*in, U64 len, Encoder &en, int info, i
       tfail=(diffFound || fgetc(tmp)!=EOF || ts ); 
         // Test fails, compress without transform
         if (tfail) {
-            printf(" Transform fails at %0lu, skipping...\n", diffFound-1);
+            printf(" Transform fails at %d, skipping...\n", U32(diffFound-1));
             fseek (in ,begin ,SEEK_SET);
             direct_encode_blockstream(defaultType, in, len, en, s1, s2);
             typenamess[type][it]-=len,  typenamesc[type][it]--;       // if type fails set
@@ -3558,7 +3627,7 @@ U64 decompressStreamRecursive(FILE*out, U64 size, Encoder& en, FMode mode, int i
         }
         else {
             for (U64 j=i+s1; j<i+s1+len; ++j) {
-                if (!(j&0x1fff)) printStatus(j, s2);
+                if (!(j&0x1ffff)) printStatus(j, s2);
                 if (mode==FDECOMPRESS) fputc(en.decompress(),out);
                 else if (mode==FCOMPARE) {
                     int a=fgetc(out);
@@ -3566,7 +3635,7 @@ U64 decompressStreamRecursive(FILE*out, U64 size, Encoder& en, FMode mode, int i
                     if (a!=b && !diffFound) {
                         mode=FDISCARD;
                         diffFound=j+1;
-                        printf("Diff found: %d",diffFound);
+                        printf("Diff found: %d",U32(diffFound));
                         quit("");
                     }
                 } else en.decompress();
@@ -3591,12 +3660,12 @@ void DecodeStreams(const char* filename, U64 filesize) {
     f = fopen(filename,"wb+");
     mode=FDECOMPRESS, printf("Extracting");
   }
-  printf(" %s %0lu -> \n", filename, filesize);
+  printf(" %s %d -> \n", filename, U32(filesize));
 
   // Decompress/Compare
   U64 r=decompressStreamRecursive(f, filesize, en, mode);
   if (mode==FCOMPARE && !r && fgetc(f)!=EOF) printf("file is longer\n");
-  else if (mode==FCOMPARE && r) printf("differ at %0lu\n",r-1);
+  else if (mode==FCOMPARE && r) printf("differ at %d\n",U32(r-1));
   else if (mode==FCOMPARE) printf("identical\n");
   else printf("done   \n");
   fclose(f);
@@ -3716,7 +3785,7 @@ static char   pp[] ="int t[5]={};"
 " if (bpos==0) {for (i=4; i>0; --i) t[i]=h2(h2(i,t[i-1]),c4&0xff);}"
 " for (i=1;i<5;++i) vmx(DS,0,c0|(t[i]<<8));"
 " vmx(APM1,0,c0); return 0;}"
-"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);"
+"void block(int a,int b){} int main(){ vms(0,1,1,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);"
 " vmi(DS,0,18,1023,4); vmi(AVG,0,1|(1<<8),0,1*256);"
 " vmi(AVG,1,1|(1<<8),0,2+3*256); vmi(AVG,2,1|(1<<8),0,4+5*256); vmi(APM1,0,256,7,6);}";
 
@@ -3749,20 +3818,26 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_mixer_ue[i]==true) printf("%d, ",parm2[streamid]->vm_mixer_limit_ue[i]);
     if (parm2[streamid]->vm_apm[0]==true) printf("\napm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_apm[i]==true) printf("%d, ",parm2[streamid]->vm_apm_limit[i]);
+    if (parm2[streamid]->vm_apm2[0]==true) printf("\napm2 limit:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_apm2[i]==true) printf("%d, ",parm2[streamid]->vm_apm2_limit[i]);
+    if (parm2[streamid]->vm_apm2[0]==true) printf("\napm2 step:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_apm2[i]==true) printf("%d, ",parm2[streamid]->vm_apm2_step[i]);
     if (parm2[streamid]->vm_smc[0]==true) printf("\nsmc limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_smc[i]==true) printf("%d, ",parm2[streamid]->vm_smc_limit[i]);
     if (parm2[streamid]->vm_ds[0]==true) printf("\nds limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_ds[i]==true) printf("%d, ",parm2[streamid]->vm_ds_limit[i]);
+    if (parm2[streamid]->vm_byt[0]==true) printf("\nbyt limit:\n");
+    if (parm2[streamid]->vm_byt[0]==true) for (int i=0;i<256;i++) printf("%d, ",parm2[streamid]->vm_byt_limit[i]);
     if (parm2[streamid]->vm_cm[0]==true) printf("\ncm run limit:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cm[i]==true) printf("%d, ",parm2[streamid]->vm_cm_limit[i]);
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cm[i]==true) printf("%2d, ",parm2[streamid]->vm_cm_limit[i]);
     if (parm2[streamid]->vm_cms[0]==true) printf("\ncms rate:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%d, ",parm2[streamid]->vm_cms_limit[i]);
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms[i]==true) printf("%2d, ",parm2[streamid]->vm_cms_limit[i]);
     if (parm2[streamid]->vm_cms2[0]==true) printf("\ncms2 rate:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms2[i]==true) printf("%d, ",parm2[streamid]->vm_cms2_limit[i]);
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms2[i]==true) printf("%2d, ",parm2[streamid]->vm_cms2_limit[i]);
     if (parm2[streamid]->vm_cms3[0]==true) printf("\ncms3 rate:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms3[i]==true) printf("%d, ",parm2[streamid]->vm_cms3_limit[i]);
-        if (parm2[streamid]->vm_cms4[0]==true) printf("\ncms4 rate:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms4[i]==true) printf("%d, ",parm2[streamid]->vm_cms4_limit[i]);
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms3[i]==true) printf("%2d, ",parm2[streamid]->vm_cms3_limit[i]);
+    if (parm2[streamid]->vm_cms4[0]==true) printf("\ncms4 rate:\n");
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_cms4[i]==true) printf("%2d, ",parm2[streamid]->vm_cms4_limit[i]);
     if (parm2[streamid]->vm_sm[0]==true) printf("\nsm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_sm[i]==true) printf("%d, ",parm2[streamid]->vm_sm_limit[i]);
     if (parm2[streamid]->vm_rcm[0]==true) printf("\nrcm limit:\n");
@@ -3799,13 +3874,15 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     parm2[streamid]->vm_nnst_limit5[i],
     parm2[streamid]->vm_nnst_limit6[i]);  
     printf("\n\n");
+    if (SA.GetStart()<=SA.GetBest() ){
+        printf("Tune failed. No improvment. Exit.\n");
+        //exit(0);
+    }
 } 
 
-void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
+void compressStream(U32 streamid,U64 size, FILE* in, FILE* out) {
     // call Autotune if enabled
     if (tune[streamid]==true) pTune(streamid,size,in,out);
-    int i; //stream
-    i=streamid;
     Encoder* threadencode;
     U64 datasegmentsize;
     U64 datasegmentlen=0;
@@ -3818,7 +3895,7 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
     // datastreams
     p=0;
     if (level>0){
-        FILE *moin=fopen(vStreams[i].model, "rb");
+        FILE *moin=fopen(vStreams[streamid].model, "rb");
         if(moin!=NULL){            
             FILE *modelo=tmpfile2();//open tmp file for compressed config file
             if(modelo==NULL) quit("compressStream temp file fail.");
@@ -3859,8 +3936,8 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
         }
         else quit("Config file not found.");        
     }
-
-    if (disableo[streamid]==false) printf("Compressing %s   stream(%d).  Total %d\n",vStreams[i].model,i,(U32)datasegmentsize); 
+    doPRT=ePRT;
+    if (disableo[streamid]==false) printf("Compressing %s   stream(%d).  Total %d\n",vStreams[streamid].model,streamid,(U32)datasegmentsize); 
     threadencode=new Encoder (COMPRESS, out,(char *)p,parm2[streamid]); 
     
     while (datasegmentsize>0) {
@@ -3868,7 +3945,7 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
             int datasegmenttype=segment(datasegmentpos++);
             for (int ii=0; ii<8; ii++) datasegmentlen<<=8,datasegmentlen+=segment(datasegmentpos++);
             for (int ii=0; ii<4; ii++) datasegmentinfo=(datasegmentinfo<<8)+segment(datasegmentpos++);
-            if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,i)))datasegmentlen=0;
+            if (vTypes[datasegmenttype].type<defaultType || !(isstreamtype(datasegmenttype,streamid)))datasegmentlen=0;
             //printf("Len %d Info %d \n",(U32)datasegmentlen,datasegmentinfo);
             if (level>0){
                 threadencode->predictor->x.filetype=datasegmenttype;
@@ -3882,7 +3959,7 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
             }
         }
         for (U64 k=0; k<datasegmentlen; ++k) {
-           if (disableo[streamid]==false) if (!(datasegmentsize&0x1fff)) printStatus(size-datasegmentsize, size,i);
+           if (disableo[streamid]==false) if (!(datasegmentsize&0x1ffff)) printStatus(size-datasegmentsize, size,streamid);
             threadencode->compress(fgetc(in));
             datasegmentsize--;
             if (datasegmentsize==0) break;
@@ -3893,10 +3970,11 @@ void compressStream(int streamid,U64 size, FILE* in, FILE* out) {
     
     delete threadencode;
    free(p);
+  
     if (disableo[streamid]==false){
-        printf("S[%d] compressed %d->%d bytes. Data %d->%d, model %d->%d.\n",i,
-        (U32)size+modelSize,ftell(out),
-         (U32)size,(ftell(out)-modelSizeCompressed),
+        printf("S[%d] compressed %d->%d bytes. Data %d->%d, model %d->%d.\n",streamid,
+        (U32)size+modelSize,U32(ftell(out)),
+         (U32)size,U32(ftell(out)-modelSizeCompressed),
          
          modelSize, modelSizeCompressed );
         //printf("    Model compressed from %d to %d bytes\n",modelSize, modelSizeCompressed);
@@ -4041,6 +4119,7 @@ void readConfigFile(FILE *fp){
         result = strcmp(ptr, "type");
         if (result==0){
             tsize=vTypes.size();
+            if (tsize==255) quit("bad config: max 255 types"); 
             vTypes.resize(tsize+1);
             // find next parameter
             ptr = strtok(NULL, " \t\n\r/");
@@ -4119,7 +4198,7 @@ void readConfigFile(FILE *fp){
     //mark stream enabled
     for (int i=0; i<(int)vTypes.size();i++){
         vTypes[i].used=0;
-        int sidt=vTypes[i].streamId;
+        U32 sidt=vTypes[i].streamId;
         for (int j=0; j<(int)vStreams.size();j++){          
             if (sidt==vStreams[j].stream){               
                vStreams[j].enabled=1;
@@ -4145,7 +4224,7 @@ void readConfigFile(FILE *fp){
 void createDetectVM(){
     char *detectModel;
     vmDetect = new VM*[vTypes.size()];
-    for (int i=0;i<vTypes.size();i++){
+    for (int i=0;i<vTypes.size32();i++){
         if ( vTypes[i].dsize!=-1){
             //open type detection file and load into memory
             //printf("File %s\n",vTypes[i].detect);
@@ -4167,7 +4246,7 @@ void createDetectVM(){
 void createEncodeVM(){
     char *encodeModel;
     vmEncode = new VM*[vTypes.size()];
-    for (int i=0;i<vTypes.size();i++){
+    for (int i=0;i<vTypes.size32();i++){
         if ( vTypes[i].ensize!=-1){
             //open type encode file and load into memory
             //printf("File %s\n",vTypes[i].encode);
@@ -4190,7 +4269,7 @@ void createEncodeVM(){
 void createDecodeVM(){
     char *decodeModel;
     vmDecode = new VM*[vTypes.size()];
-    for (int i=0;i<vTypes.size();i++){
+    for (int i=0;i<vTypes.size32();i++){
         if ( vTypes[i].desize!=-1){
             //printf("File %s\n",vTypes[i].decode);
             //open type decode file and load into memory
@@ -4216,7 +4295,7 @@ void createStreamVM(){
 }
 
 int getUnknownType(){    
-    for (int i=0;i<vTypes.size();i++){
+    for (int i=0;i<vTypes.size32();i++){
         if ( vTypes[i].dsize==-1) return i; //return index
     }
     //not found
@@ -4268,7 +4347,7 @@ void CompressType(FILE *out){
     free(p);
     delete enm;
     fclose(modelo);
-    printf("Decode compressed to : %d\n", ftell(out)-insize);
+    printf("Decode compressed to : %d\n", int(ftell(out)-insize));
 }
 
 // Decompress any decode function used by type and create decodeVM for it
@@ -4370,25 +4449,27 @@ printf("\n");
 #ifdef MT 
             "  -t<n>               where n is number of threds, default=1\n"
 #endif
-            "  -2<hijklmnop>       tune on file, output file is not created\n"
-            "                      set h, i, j, k, l, m, n, o, p to f-false or t-true\n"
+            "  -2<hijklmnopqrstuvx> tune on file, output file is not created\n"
+            "                      set h...x to f-false or t-true\n"
             "                      to activate tune on that parameter.\n"
-            "                      h - mixer update limit, default=0\n"
-            "                      i - mixer shift limit, default=64\n"
+            "                      h - mixer update limit\n"
+            "                      i - mixer shift limit\n"
             "                      j - apm rate\n"
             "                      k - smc limit\n"
             "                      l - ds limit\n"
-            "                      i - mixer error mul limit, default=28\n"
-            "                      m - cm run mul, default=4\n"
+            "                      i - mixer error mul limit\n"
+            "                      m - cm run mul\n"
             "                      n - sm limit\n"
-            "                      o - cm sm rate, default=32\n"
-            "                      p - rcm mul, default=8\n"
-            "                      q - tapm, default=false\n"
-            "                      r - err, default=false\n"
-            "                      s - uas, default=false\n"
-            "                      t - lmx, default=false\n"
-            "                      u - sta, default=false\n"
-            "  -o<n>               n specifies percentage of tune, default=100%\n"
+            "                      o - cm sm rate\n"
+            "                      p - rcm mul\n"
+            "                      q - tapm\n"
+            "                      r - err\n"
+            "                      s - uas\n"
+            "                      t - lmx\n"
+            "                      u - sta\n"
+            "                      v - apm2\n"
+            "                      x - byt\n"            
+            "  -o<n>               n specifies percentage of tune, default=100\n"
             "  -r<n>               number of tune runs, default=25\n"
             "  -f                  full tune on all parameters, default=false\n"
             "  -bc                 bc - enable bounds check at compile, dafault=false\n"
@@ -4418,7 +4499,8 @@ int getOption(int argc,char **argv) {
       if (tmp[1]=='d') doExtract=true;
       else if (tmp[1]=='l') doList=true;
       else if (tmp[1]=='f') doFullOpt=true;
-      else if (tmp[1]=='i') doDebugInfo=true;
+      else if (tmp[1]=='p') ePRT=true;
+      else if (tmp[1]=='i') doDebugInfo=true,printf("DBG: show info\n");
       else if (tmp[1]=='j') doJIT=true,printf("JIT: enabled\n");
       else if (tmp[1]=='0') level=0,printf("Mode: transform\n");
       else if (tmp[1]=='1') level=1;
@@ -4426,30 +4508,33 @@ int getOption(int argc,char **argv) {
       else if (tmp[1]=='b' && tmp[2]=='r' && tmp[3]==0) doBoundsRun=true,printf("Bounds: runtime time=enabled\n");
       else if (tmp[1]=='c' && tmp[2]!=0) config=(const char*)&tmp[2],printf("Config: %s\n",config.c_str());
       else if (tmp[1]=='2') {
-          printf("Mode: tune\n");
           level=2;
+          ePRT=false; // disable in tune mode
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
           bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
           bool cms=false; bool rcm=false; bool tapm=false; bool err=false;
-          bool uas=false; bool lmx=false; bool sta=false;
-          if (tmp[2]=='t')    m=true; else if (tmp[2]=='f')    m=false; else printHelp();
-          if (tmp[3]=='t')   ml=true; else if (tmp[3]=='f')   ml=false; else printHelp();
-          if (tmp[4]=='t')  apm=true; else if (tmp[4]=='f')  apm=false; else printHelp();
-          if (tmp[5]=='t')  smc=true; else if (tmp[5]=='f')  smc=false; else printHelp();
-          if (tmp[6]=='t')   ds=true; else if (tmp[6]=='f')   ds=false; else printHelp();
-          if (tmp[7]=='t')  mue=true; else if (tmp[7]=='f')  mue=false; else printHelp();
-          if (tmp[8]=='t')   cm=true; else if (tmp[8]=='f')   cm=false; else printHelp();
-          if (tmp[9]=='t')   sm=true; else if (tmp[9]=='f')   sm=false; else printHelp();
-          if (tmp[10]=='t') cms=true; else if (tmp[10]=='f') cms=false; else printHelp();
-          if (tmp[11]=='t') rcm=true; else if (tmp[11]=='f') rcm=false; else printHelp();
-          if (tmp[12]=='t') tapm=true; else if (tmp[12]=='f') tapm=false; else printHelp();
-          if (tmp[13]=='t') err=true; else if (tmp[13]=='f') err=false; else printHelp();
-          if (tmp[14]=='t') uas=true; else if (tmp[14]=='f') uas=false; else printHelp();
-          if (tmp[15]=='t') lmx=true; else if (tmp[15]=='f') lmx=false; else printHelp();
-          if (tmp[16]=='t') sta=true; else if (tmp[16]=='f') sta=false; else printHelp();
-          if (tmp[17]!=0) printHelp();
+          bool uas=false; bool lmx=false; bool sta=false; bool apm2=false;
+          bool byt=false;
+          if (tmp[2]=='t')    m=true,printf("m: enabled\n"); else if (tmp[2]=='f')    m=false; else printHelp();
+          if (tmp[3]=='t')   ml=true,printf("ml: enabled\n"); else if (tmp[3]=='f')   ml=false; else printHelp();
+          if (tmp[4]=='t')  apm=true,printf("apm: enabled\n"); else if (tmp[4]=='f')  apm=false; else printHelp();
+          if (tmp[5]=='t')  smc=true,printf("smc: enabled\n"); else if (tmp[5]=='f')  smc=false; else printHelp();
+          if (tmp[6]=='t')   ds=true,printf("ds: enabled\n"); else if (tmp[6]=='f')   ds=false; else printHelp();
+          if (tmp[7]=='t')  mue=true,printf("mue: enabled\n"); else if (tmp[7]=='f')  mue=false; else printHelp();
+          if (tmp[8]=='t')   cm=true,printf("cm: enabled\n");else if (tmp[8]=='f')   cm=false; else printHelp();
+          if (tmp[9]=='t')   sm=true,printf("sm: enabled\n"); else if (tmp[9]=='f')   sm=false; else printHelp();
+          if (tmp[10]=='t') cms=true,printf("cms: enabled\n"); else if (tmp[10]=='f') cms=false; else printHelp();
+          if (tmp[11]=='t') rcm=true,printf("rcm: enabled\n"); else if (tmp[11]=='f') rcm=false; else printHelp();
+          if (tmp[12]=='t') tapm=true,printf("tapm: enabled\n"); else if (tmp[12]=='f') tapm=false; else printHelp();
+          if (tmp[13]=='t') err=true,printf("err: enabled\n"); else if (tmp[13]=='f') err=false; else printHelp();
+          if (tmp[14]=='t') uas=true,printf("uas: enabled\n"); else if (tmp[14]=='f') uas=false; else printHelp();
+          if (tmp[15]=='t') lmx=true,printf("lmx: enabled\n"); else if (tmp[15]=='f') lmx=false; else printHelp();
+          if (tmp[16]=='t') sta=true,printf("sta: enabled\n"); else if (tmp[16]=='f') sta=false; else printHelp();
+          if (tmp[17]=='t') apm2=true,printf("apm2: enabled\n"); else if (tmp[17]=='f') apm2=false; else printHelp();
+          if (tmp[18]=='t') byt=true,printf("byt: enabled\n"); else if (tmp[18]=='f') byt=false; else printHelp();
+          if (tmp[19]!=0) printHelp();
           // set stream parms active
-          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx,sta);
+          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx,sta,apm2,byt);
       }
 #ifdef MT
       else if (tmp[1]=='t') {
@@ -4468,6 +4553,7 @@ int getOption(int argc,char **argv) {
       break;
     }
   }
+  if (level==2) printf("Mode: %s tune\n",doFullOpt==true?"Full":"Single");
   return i-1;  
 }
 
@@ -4475,7 +4561,7 @@ int getOption(int argc,char **argv) {
 // To decompress: paq8pxv file1.paq8pxv [output_dir]
 int main(int argc, char** argv) {
     bool pause=argc<=2;  // Pause when done?
-
+U32 tsize=0,asize=0;
         int args=getOption(argc,argv);
         argc=argc-args;
         argv=argv+args;
@@ -4485,11 +4571,13 @@ int main(int argc, char** argv) {
         }
         if (strlen(config.c_str())==0) config="conf.pxv";
         clock_t start_time;  // in ticks
+        start_time=clock();
         // precalculate tabeles
+        int o=2;
         for (int i=0; i<1024; ++i)
-            dt[i]=16384/(i+i+3);
-        // dt[1023]=1;
-        // dt[0]=4095;
+            dt[i]=4096/(o),o++;
+          dt[1023]=1;
+         //dt[0]=4095;
       
         // enable or disable tune
         if (level==2) {
@@ -4497,7 +4585,7 @@ int main(int argc, char** argv) {
                 tune[s]=true;
                 disableo[s]=false;
             }
-            //level=1;
+        //level=1;
         }else {
             for (int s=0;s<256;s++) {
                 tune[s]=false;
@@ -4662,7 +4750,7 @@ int main(int argc, char** argv) {
             en->compress(0); // block type 0
             en->compress(len>>24); en->compress(len>>16); en->compress(len>>8); en->compress(len); // block length
             for (int i=0; i<len; i++) en->compress(header_string[i]);
-            printf("File list compressed from %d to %d bytes.\n",len,(U32)en->size()-start);
+            printf("File list compressed from %d to %d bytes.\n",len,int(en->size()-start));
         }
 
         // Deompress header
@@ -4711,10 +4799,10 @@ int main(int argc, char** argv) {
             segment.put1(0xff); //end marker
             printf("\n Segment data size: %d bytes\n",segment.pos);
             // delete detect vm
-            for (int i=0;i<vTypes.size();i++){
-                if ( vTypes[i].dsize!=-1)      delete vmDetect[i];
-                if ( vTypes[i].ensize!=-1)      delete vmEncode[i];
-                 if ( vTypes[i].desize!=-1)      delete vmDecode[i];
+            for (int i=0;i<vTypes.size32();i++){
+                if (vTypes[i].dsize!=-1)  delete vmDetect[i];
+                if (vTypes[i].ensize!=-1) delete vmEncode[i];
+                if (vTypes[i].desize!=-1) delete vmDecode[i];
             }
             delete[] vmDetect;
             delete[] vmEncode;
@@ -4723,13 +4811,15 @@ int main(int argc, char** argv) {
             U32 ttc;
             U64 tts;
             for (int j=0; j<=itcount; ++j) {
-                printf("\n %-2s |%-9s |%-10s |%-10s\n","TN","Type name", "Count","Total size");
-                printf("-----------------------------------------\n");
+                printf("\n %-2s |%-19s |%-9s |%-11s\n","TN","Type name", "Count","Total size");
+                printf("------------------------------------------------\n");
                 ttc=0,tts=0;
-                for (int i=0; i<datatypecount; ++i)   if (typenamess[i][j]) printf(" %2d |%-9s |%10d |%10d\n",i,i==defaultType?"default":vTypes[i].detect, typenamesc[i][j],(U32)typenamess[i][j]),ttc+=typenamesc[i][j],tts+=typenamess[i][j];
-                printf("-----------------------------------------\n");
+                for (int i=0; i<vTypes.size32(); ++i)   if (typenamess[i][j]) printf(" %2d |%-19s |%9d |%11d\n",i,i==defaultType?"default":vTypes[i].detect, typenamesc[i][j],(U32)typenamess[i][j]),ttc+=typenamesc[i][j],tts+=typenamess[i][j];
+                printf("------------------------------------------------\n");
                 printf("%-13s%1d |%10d |%10d\n\n","Total level",j, ttc,(U32)tts);
             }
+            double ctime=double(clock()-start_time)/CLOCKS_PER_SEC;
+            printf("Time %1.2f sec.\n",ctime);
             CompressType(archive);
             
 #ifdef MT
@@ -4920,9 +5010,10 @@ int main(int argc, char** argv) {
                    put32(U32(filestreamsize[i]),archive);
                 }
             }
-            printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  ftell(archive)); 
-            
+            printf("Total %d bytes compressed to %d bytes.\n", (U32)total_size,  (U32)ftell(archive)); 
+            tsize=(U32)total_size;  asize= ftell(archive);
         }
+        
         // Decompress files to dir2: paq8pxv -d dir1/archive.paq8pxv dir2
         // If there is no dir2, then extract to dir1
         // If there is no dir1, then extract to .
@@ -4993,7 +5084,7 @@ int main(int argc, char** argv) {
                     }
                     printf("DeCompressing ");
                     printf("%s   stream(%d).\n",vStreams[i].model,i); 
-                    printf("Stream size: %d\n",datasegmentsize);
+                    printf("Stream size: %d\n",(U32)datasegmentsize);
                     //init encoder with decompressed model app
                     defaultencoder=new Encoder (mode, archive,app); 
                     while (datasegmentsize>0) {
@@ -5039,8 +5130,24 @@ int main(int argc, char** argv) {
             }
         }
         fclose(archive);
-        if (!doList) printf("Time %1.2f sec. Models peak memory usage %d MB.\n",double(clock()-start_time)/CLOCKS_PER_SEC, (getPeakMemory()/1000)/1000);
-    
+        double ctime=double(clock()-start_time)/CLOCKS_PER_SEC;
+        if (!doList) printf("Time %1.2f sec. Models peak memory usage %d MB.\n",ctime, (getPeakMemory()/1000)/1000);
+        if (mode==COMPRESS){
+            FILE *logfile=fopen("pxv.log","ab+");
+            
+            fseek(logfile, 0, SEEK_END);
+            fprintf(logfile,"%s %d -> %d",argv[1], tsize, asize);
+            fprintf(logfile," (%1.4f bpc) in %1.2f sec (%1.3f KB/sec), %d Kb",
+                              8.0*asize/tsize,ctime,(tsize/ctime)/1024, getPeakMemory()/1024);
+            
+            time_t rawtime;
+            struct tm *timeinfo;
+            time (&rawtime);
+            timeinfo = localtime(&rawtime);
+            fprintf(logfile,"  %s", asctime (timeinfo));
+
+            fclose(logfile);
+        }
     if (pause) {
         printf("\nClose this window or press ENTER to continue...\n");
         getchar();

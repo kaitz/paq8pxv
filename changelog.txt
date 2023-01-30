@@ -1,3 +1,12 @@
+pre25
+ APM2 tunable
+ Reduce compiler warnings
+ Cleanup
+ BYT as command line option
+ In JIT use VMX,VMI reverse functions
+ Create pxv.log file and append last compression info
+ -p option for output to pxvc
+ Fixes in jpeg.cfg
 text
  Update txtfast.cfg
   - one new mixer
