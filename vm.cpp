@@ -831,7 +831,7 @@ VM::VM(char* m,BlockData& bd,int mode, VMParam *p):data1(2024*1024),x(bd),vmMode
                 int input=mcomp[i]&0xff;
                 // set input 
                 mxA[index].setTxWx(x.mxInputs[input].n.size(),&x.mxInputs[input].n[0]);
-                maxMX=index;
+                maxMX=index+1;
             }
         }
     }
