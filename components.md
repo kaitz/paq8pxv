@@ -135,10 +135,10 @@ vmi(AVG,0,x+y*256,0,z+w*256);
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
-// third parameter is
-// forth parameter is 
-// fifth parameter is 
-vmi(SCM,0,0,1,2);
+// third parameter is input size in bits
+// forth parameter is nil
+// fifth parameter is mixer index
+vmi(SCM,0,8,0,0);  // input is 8 bits, use mixer 0
 ```
 ### RCM
 ```c
