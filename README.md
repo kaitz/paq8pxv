@@ -175,38 +175,7 @@ int main(){
 ```
 
 # Components
-|Name| Short name| ID|Prediction|Mixer input|
-| --- | --- | --- | --- | --- |  
-|StateMapContext| SMC|1|yes|yes|
-|APM1| APM1|2|yes|no|
-|DynamicStateMap| DS |3|yes|no|
-|AvgMap| AVG |4|yes|no|
-|SmallStationaryContextMap| SCM|5|no|yes|
-|RunContextMap |RCM|6|no|yes|
-|ContextMap| CM|7|no|yes|
-|Mixer |MX |8|yes|no|
-|StaticMap |ST|9|yes|yes|
-|MixMap| MM|10|no|yes|
-|DynamicHashStateMap| DHS |11|yes|no|
-|StationaryMap| SM |12|no|yes|
-|SkMap| SK |13|no|yes|
-|APM2| APM2|14|yes|no|
-|ERR| ERR|15|no|no|
-|TAPM| TAPM|16|yes|no|
-|UAS| UAS|17|yes|no|
-|LMX| LMX|18|yes|no|
-|STA| STA|19|no|no|
-|BYT| BYT|20|no|no|
-
-
 [See detailed info about components](components.md)
-
-Yes in prediction means that component outputs prediction into internal array pr[]
-
-Yes in mixer input means that component outputs prediction into internal array inputs[], witch is used in MX component as inputs.
-
-If both are yes then only one output can be selected in vmi function.
-
 
 # Forum
 https://encode.su/threads/3064-paq8pxv-virtual-machine
