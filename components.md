@@ -1,5 +1,5 @@
 # Components
-
+Table of avaliable components.
 |Name| Short name| ID|Prediction|Mixer input|
 | --- | --- | --- | --- | --- |  
 |StateMapContext| [SMC](#smc)|1|yes|yes|
@@ -15,12 +15,19 @@
 |DynamicHashStateMap| [DHS](#dhs) |11|yes|no|
 |StationaryMap| [SM](#sm) |12|no|yes|
 |SkMap| [SK](#sk) |13|no|yes|
+|APM2| [APM2](#apm2)|2|yes|no|
 |ERR| [ERR](#err)|15|no|no|
 |TAPM| [TAPM](#tapm)|16|yes|no|
 |UAS| [UAS](#uas)|17|yes|no|
 |LMX| [LMX](#lmx)|18|yes|no|
 |STA| [STA](#sta)|19|no|no|
 |BYT| [BYT](#byt)|20|no|no|
+
+Yes in prediction means that component outputs prediction into internal array pr[]
+
+Yes in mixer input means that component outputs prediction into internal array inputs[], witch is used in MX component as inputs.
+
+If both are yes then only one output can be selected in vmi function.
 # Functions used to set up components
 ## vms - component counts
 vms(countOfSMC,countOfAPM1,countOfDS,...);
@@ -57,7 +64,7 @@ vmx(APM1,index,c0);
 
 ### SMC
 ```c
-// Create SMC component (0)
+// Create SMC component (0) - StateMapContext
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -87,9 +94,10 @@ vmx(SMC,1,val2);      //  set component SMC(1) context to val2
 vmi(SMC,0,0x10,1023,-1);  //  pr[0]=smc(0).predict()
 vmi(SMC,1,0x10,1023,-1);  //  pr[1]=smc(1).predict()
 ```
+
 ### APM1
 ```c
-// Create APM1 component (0)
+// Create APM1 component (0) - Adaptive Probability Map
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -105,11 +113,11 @@ vmx(APM1,0,val2);      //  set component APM1(0) context to val2
 // in main
 vmi(SMC,0,0x10,1023,-1);  //  pr[0]=smc(0).predict()
 vmi(APM1,0,0x1000,7,0);   //  pr[1]=apm(pr[0])
-
 ```
+
 ### DS
 ```c
-// Create DS component (0)
+// Create DS component (0) - Dynamic StateMap
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -118,9 +126,10 @@ vmi(APM1,0,0x1000,7,0);   //  pr[1]=apm(pr[0])
 // fifth parameter is number of contexts N
 vmi(DS,0,x+y*0x10000,1023,N);
 ```
+
 ### AVG
 ```c
-// Create AVG component (0)
+// Create AVG component (0) - Average Map
 // Calculate average and output prediction - pr[3]=(pr[1]+pr[2]+1)>>1
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -129,9 +138,10 @@ vmi(DS,0,x+y*0x10000,1023,N);
 // fifth parameter is index into pr[] array as z and w
 vmi(AVG,0,x+y*256,0,z+w*256);
 ```
+
 ### SCM
 ```c
-// Create SCM component (0)
+// Create SCM component (0) - Small Stationary ContextMap
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -140,9 +150,10 @@ vmi(AVG,0,x+y*256,0,z+w*256);
 // fifth parameter is mixer index
 vmi(SCM,0,8,0,0);  // input is 8 bits, use mixer 0
 ```
+
 ### RCM
 ```c
-// Create RCM component (0)
+// Create RCM component (0) - Run ContextMap
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -151,9 +162,10 @@ vmi(SCM,0,8,0,0);  // input is 8 bits, use mixer 0
 // fifth parameter is predictionIndex
 vmi(RCM,0,1024,0,0);
 ```
+
 ### CM
 ```c
-// Create CM component (0)
+// Create CM component (0) - ContextMap
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -170,9 +182,10 @@ vmi(RCM,0,1024,0,0);
 //
 vmi(CM,0,memory*4096+(si<<24),x+y*0x100+z*0x10000+w*0x1000000,mi+v*0x100+u*0x10000);
 ```
+
 ### MX
 ```c
-// Create MX component (0)
+// Create MX component (0) - Mixer
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -189,9 +202,10 @@ vmi(CM,0,memory*4096+(si<<24),x+y*0x100+z*0x10000+w*0x1000000,mi+v*0x100+u*0x100
 
 vmi(MX,0,shift+256*error+0x1000000*mul,1,0);
 ```
+
 ### ST
 ```c
-// Create ST component (0)
+// Create ST component (0) - Statc Prediction
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -205,9 +219,10 @@ vmi(MX,0,shift+256*error+0x1000000*mul,1,0);
 //
 vmi(ST,0,144,0,0);
 ```
+
 ### MM
 ```c
-// Create MM component (0)
+// Create MM component (0) - Mixer Map
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -223,9 +238,10 @@ vmi(ST,0,144,0,0);
 // mixer[2].add(strech(pr[1]))
 vmi(MM,0,0,1,2);
 ```
+
 ### DHS
 ```c
-// Create DHS component (0)
+// Create DHS component (0) - Dynamic Hash StateMap
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -243,11 +259,11 @@ for ( i=0; i<10; i++) {  vmx(DHS,0,cxt[i]);}
 
 // update DHS contexts states where j is in range 0...16
 vmx(DHS,0,j);
-
 ```
+
 ### SM
 ```c
-// Create SM component (0)
+// Create SM component (0) - StationaryMap
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -263,11 +279,10 @@ vmi(SM,0,16,3,0);
 // set SM contexts at the start of state update
 vmx(SM, 0,val);
 
-
 ```
 ### SK
 ```c
-// Create SK component (0)
+// Create SK component (0) - Direct prediction
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -276,7 +291,7 @@ vmx(SM, 0,val);
 // fifth parameter is mixer index
 
 //main
-// creates SM
+// creates SK
 vmi(SK,0,0,0,0);
 
 // update
@@ -284,9 +299,29 @@ vmi(SK,0,0,0,0);
 vmx(SK, 0,val);
 ```
 
+### APM2
+```c
+// Create APM2 component (0) - Adaptive Probability Map
+// 
+// first parameter is component ID
+// second parameter is component index upto number defined in vms
+// third parameter is size
+// forth parameter is x
+// fifth parameter is predictionIndex
+//
+// vmi(APM1,index,size,rate,predictionIndex);
+
+// in update
+vmx(SMC,0,val1);          //  set component SMC(0) context to val1
+vmx(APM2,0,val2);      //  set component APM1(0) context to val2
+// in main
+vmi(SMC,0,0x10,1023,-1);  //  pr[0]=smc(0).predict()
+vmi(APM2,0,0x1000,7,0);   //  pr[1]=apm(pr[0])
+```
+
 ### ERR
 ```c
-// Create ERR component (0)
+// Create ERR component (0) - Error Treshold
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -307,7 +342,7 @@ val=y?pr^4095:pr;
 a=vmx(ERR, 0,val);
 ```
 
-### TAPM
+### TAPM 
 ```c
 // Create TAPM component (0)
 // 
@@ -328,7 +363,7 @@ vmx(TAPM, 0,val);
 
 ### UAS
 ```c
-// Create UAS component (0) - unaligned sparse
+// Create UAS component (0) - Unaligned Sparse Map
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -356,7 +391,7 @@ vmx(UAS, 0,val);
 
 ### LMX
 ```c
-// Create LMX component (0)
+// Create LMX component (0) - Linear Mixer
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms
@@ -375,7 +410,7 @@ vmi(LMX,0,x+y*256,z,0);
 
 ### STA
 ```c
-// Create STA component (0)
+// Create STA component (0) - State Table
 // 
 // first parameter is component ID
 // second parameter is component index upto number defined in vms.
@@ -398,7 +433,7 @@ vmi(MX,0,0,1,0);
 
 ### BYT
 ```c
-// Create BYT component (0)
+// Create BYT component (0) - Byte Table
 // Map byte value to new value in tune mode, otherwise output is same as input. 
 // Useful in model creation fase. Grouping chars, automatic "best" context selection for CM.
 //
