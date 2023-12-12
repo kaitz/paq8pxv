@@ -343,23 +343,7 @@ a=vmx(ERR, 0,val);
 ```
 
 ### TAPM 
-```c
-// Create TAPM component (0)
-// 
-// first parameter is component ID
-// second parameter is component index upto number defined in vms
-// third parameter is parameters, tunable
-// forth parameter is parameters, tunable
-// fifth parameter is parameters, tunable
-
-//main
-// creates TAPM
-vmi(TAPM,0,0,0,0);
-
-// update
-// set TAPM value
-vmx(TAPM, 0,val);
-```
+Obsolete component.
 
 ### UAS
 ```c
