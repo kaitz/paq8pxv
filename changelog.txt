@@ -1,3 +1,10 @@
+pre26
+ Remove TAPM component.
+ Minimum tune improvemnt limit on command line
+ Remove some code.
+ Individual STA component tune option in command line.
+ Remove FS model.
+ Add final fxcm model in cfg. (https://github.com/kaitz/fxcm/)
 pre25
  APM2 tunable
  Reduce compiler warnings

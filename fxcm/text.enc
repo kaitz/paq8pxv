@@ -1,0 +1,30 @@
+// Text byte swap transform - encode
+int y;
+char inbuf[4]={},outbuf[1024]={};
+
+void putc(int c){
+    outbuf[y]=c;
+    y++;
+    if (y==1024) {
+        y=0;
+        write(outbuf,1024);
+    }
+}
+
+int encode(int info,int len) {
+    int c,pos;
+    pos=y=0;
+    while (pos<len){
+        read(inbuf, 1);
+        c=inbuf[0];
+        pos++;
+        if (c>='{' && c<127) c=c+('P'-'{');
+        else if (c>='P' && c<'T') c=c-('P'-'{');
+        else if ( (c>=':' && c<='?') || (c>='J' && c<='O') ) c=c^0x70;
+	    if (c=='X' || c=='`') c=c^('X'^'`');
+        putc(c);
+    }
+    if (y>0) {write(outbuf,y);}
+}
+int main() {
+}

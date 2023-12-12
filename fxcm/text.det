@@ -1,0 +1,60 @@
+// For text detection
+int txtStart,txtLen;
+int txtMinLen=65536;
+int type,state,jstart,jend,of;
+enum {DEFAULT=1,TEXT}; //internal enum
+enum {NONE=0,START,INFO,END,RESET=0xfffffffe,REQUEST=0xffffffff}; //external enum
+// function will report its state 
+// or if i=-1 then state results otherwise i is pos
+// c4 is last 4 bytes
+void reset(){
+    state=NONE,type=DEFAULT,jstart=jend=0;
+    txtStart=txtLen=of=0;
+}
+int detect(int c4,int i) {
+    int p ,c;
+    //if state parameters recuested
+    if (i==REQUEST){
+        if (state==NONE)  return 0xffffffff;
+        if (state==START) return jstart;
+        if (state==END)   {p=jend;reset();return p;}
+        if (state==INFO)  return 1;
+    }
+    if (i==RESET) {
+        reset();
+        return 0xffffffff;
+    }
+    c=c4&0xff;
+    //detect header
+    if (txtStart==0) txtStart=1,of=i;
+    if (txtStart) {
+       if (c>=0) {
+            ++txtLen;
+            if (txtLen>txtMinLen && type==DEFAULT){
+                type=TEXT;
+                state=START;
+                jstart=of;
+                return state;
+            }
+            return NONE;
+       }
+       //txtLen=0;
+       if (type==TEXT && state==START) {
+            state=INFO;
+            jend=i;
+            return state;
+       } else if (type==TEXT && state==INFO && i>=jend) {
+            state=END;
+            type=DEFAULT;
+           return state;
+       } else if (type==TEXT){
+            reset();
+       } else txtStart=txtLen=0;
+     }
+      
+    return NONE;
+}
+
+int main() {
+    reset();
+}

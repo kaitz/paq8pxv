@@ -831,6 +831,73 @@ Ilog::Ilog() {
 // pair, so another state with about the same ratio of n0/n1 is substituted.
 // Also, when a bit is observed and the count of the opposite bit is large,
 // then part of this count is discarded to favor newer data over old.
+static const U8 State_table[256][4]={
+  {  1,  2, 0, 0},{  3,  5, 1, 0},{  4,  6, 0, 1},{  7, 10, 2, 0}, // 0-3
+  {  8, 12, 1, 1},{  9, 13, 1, 1},{ 11, 14, 0, 2},{ 15, 19, 3, 0}, // 4-7
+  { 16, 23, 2, 1},{ 17, 24, 2, 1},{ 18, 25, 2, 1},{ 20, 27, 1, 2}, // 8-11
+  { 21, 28, 1, 2},{ 22, 29, 1, 2},{ 26, 30, 0, 3},{ 31, 33, 4, 0}, // 12-15
+  { 32, 35, 3, 1},{ 32, 35, 3, 1},{ 32, 35, 3, 1},{ 32, 35, 3, 1}, // 16-19
+  { 34, 37, 2, 2},{ 34, 37, 2, 2},{ 34, 37, 2, 2},{ 34, 37, 2, 2}, // 20-23
+  { 34, 37, 2, 2},{ 34, 37, 2, 2},{ 36, 39, 1, 3},{ 36, 39, 1, 3}, // 24-27
+  { 36, 39, 1, 3},{ 36, 39, 1, 3},{ 38, 40, 0, 4},{ 41, 43, 5, 0}, // 28-31
+  { 42, 45, 4, 1},{ 42, 45, 4, 1},{ 44, 47, 3, 2},{ 44, 47, 3, 2}, // 32-35
+  { 46, 49, 2, 3},{ 46, 49, 2, 3},{ 48, 51, 1, 4},{ 48, 51, 1, 4}, // 36-39
+  { 50, 52, 0, 5},{ 53, 43, 6, 0},{ 54, 57, 5, 1},{ 54, 57, 5, 1}, // 40-43
+  { 56, 59, 4, 2},{ 56, 59, 4, 2},{ 58, 61, 3, 3},{ 58, 61, 3, 3}, // 44-47
+  { 60, 63, 2, 4},{ 60, 63, 2, 4},{ 62, 65, 1, 5},{ 62, 65, 1, 5}, // 48-51
+  { 50, 66, 0, 6},{ 67, 55, 7, 0},{ 68, 57, 6, 1},{ 68, 57, 6, 1}, // 52-55
+  { 70, 73, 5, 2},{ 70, 73, 5, 2},{ 72, 75, 4, 3},{ 72, 75, 4, 3}, // 56-59
+  { 74, 77, 3, 4},{ 74, 77, 3, 4},{ 76, 79, 2, 5},{ 76, 79, 2, 5}, // 60-63
+  { 62, 81, 1, 6},{ 62, 81, 1, 6},{ 64, 82, 0, 7},{ 83, 69, 8, 0}, // 64-67
+  { 84, 71, 7, 1},{ 84, 71, 7, 1},{ 86, 73, 6, 2},{ 86, 73, 6, 2}, // 68-71
+  { 44, 59, 5, 3},{ 44, 59, 5, 3},{ 58, 61, 4, 4},{ 58, 61, 4, 4}, // 72-75
+  { 60, 49, 3, 5},{ 60, 49, 3, 5},{ 76, 89, 2, 6},{ 76, 89, 2, 6}, // 76-79
+  { 78, 91, 1, 7},{ 78, 91, 1, 7},{ 80, 92, 0, 8},{ 93, 69, 9, 0}, // 80-83
+  { 94, 87, 8, 1},{ 94, 87, 8, 1},{ 96, 45, 7, 2},{ 96, 45, 7, 2}, // 84-87
+  { 48, 99, 2, 7},{ 48, 99, 2, 7},{ 88,101, 1, 8},{ 88,101, 1, 8}, // 88-91
+  { 80,102, 0, 9},{103, 69,10, 0},{104, 87, 9, 1},{104, 87, 9, 1}, // 92-95
+  {106, 57, 8, 2},{106, 57, 8, 2},{ 62,109, 2, 8},{ 62,109, 2, 8}, // 96-99
+  { 88,111, 1, 9},{ 88,111, 1, 9},{ 80,112, 0,10},{113, 85,11, 0}, // 100-103
+  {114, 87,10, 1},{114, 87,10, 1},{116, 57, 9, 2},{116, 57, 9, 2}, // 104-107
+  { 62,119, 2, 9},{ 62,119, 2, 9},{ 88,121, 1,10},{ 88,121, 1,10}, // 108-111
+  { 90,122, 0,11},{123, 85,12, 0},{124, 97,11, 1},{124, 97,11, 1}, // 112-115
+  {126, 57,10, 2},{126, 57,10, 2},{ 62,129, 2,10},{ 62,129, 2,10}, // 116-119
+  { 98,131, 1,11},{ 98,131, 1,11},{ 90,132, 0,12},{133, 85,13, 0}, // 120-123
+  {134, 97,12, 1},{134, 97,12, 1},{136, 57,11, 2},{136, 57,11, 2}, // 124-127
+  { 62,139, 2,11},{ 62,139, 2,11},{ 98,141, 1,12},{ 98,141, 1,12}, // 128-131
+  { 90,142, 0,13},{143, 95,14, 0},{144, 97,13, 1},{144, 97,13, 1}, // 132-135
+  { 68, 57,12, 2},{ 68, 57,12, 2},{ 62, 81, 2,12},{ 62, 81, 2,12}, // 136-139
+  { 98,147, 1,13},{ 98,147, 1,13},{100,148, 0,14},{149, 95,15, 0}, // 140-143
+  {150,107,14, 1},{150,107,14, 1},{108,151, 1,14},{108,151, 1,14}, // 144-147
+  {100,152, 0,15},{153, 95,16, 0},{154,107,15, 1},{108,155, 1,15}, // 148-151
+  {100,156, 0,16},{157, 95,17, 0},{158,107,16, 1},{108,159, 1,16}, // 152-155
+  {100,160, 0,17},{161,105,18, 0},{162,107,17, 1},{108,163, 1,17}, // 156-159
+  {110,164, 0,18},{165,105,19, 0},{166,117,18, 1},{118,167, 1,18}, // 160-163
+  {110,168, 0,19},{169,105,20, 0},{170,117,19, 1},{118,171, 1,19}, // 164-167
+  {110,172, 0,20},{173,105,21, 0},{174,117,20, 1},{118,175, 1,20}, // 168-171
+  {110,176, 0,21},{177,105,22, 0},{178,117,21, 1},{118,179, 1,21}, // 172-175
+  {110,180, 0,22},{181,115,23, 0},{182,117,22, 1},{118,183, 1,22}, // 176-179
+  {120,184, 0,23},{185,115,24, 0},{186,127,23, 1},{128,187, 1,23}, // 180-183
+  {120,188, 0,24},{189,115,25, 0},{190,127,24, 1},{128,191, 1,24}, // 184-187
+  {120,192, 0,25},{193,115,26, 0},{194,127,25, 1},{128,195, 1,25}, // 188-191
+  {120,196, 0,26},{197,115,27, 0},{198,127,26, 1},{128,199, 1,26}, // 192-195
+  {120,200, 0,27},{201,115,28, 0},{202,127,27, 1},{128,203, 1,27}, // 196-199
+  {120,204, 0,28},{205,115,29, 0},{206,127,28, 1},{128,207, 1,28}, // 200-203
+  {120,208, 0,29},{209,125,30, 0},{210,127,29, 1},{128,211, 1,29}, // 204-207
+  {130,212, 0,30},{213,125,31, 0},{214,137,30, 1},{138,215, 1,30}, // 208-211
+  {130,216, 0,31},{217,125,32, 0},{218,137,31, 1},{138,219, 1,31}, // 212-215
+  {130,220, 0,32},{221,125,33, 0},{222,137,32, 1},{138,223, 1,32}, // 216-219
+  {130,224, 0,33},{225,125,34, 0},{226,137,33, 1},{138,227, 1,33}, // 220-223
+  {130,228, 0,34},{229,125,35, 0},{230,137,34, 1},{138,231, 1,34}, // 224-227
+  {130,232, 0,35},{233,125,36, 0},{234,137,35, 1},{138,235, 1,35}, // 228-231
+  {130,236, 0,36},{237,125,37, 0},{238,137,36, 1},{138,239, 1,36}, // 232-235
+  {130,240, 0,37},{241,125,38, 0},{242,137,37, 1},{138,243, 1,37}, // 236-239
+  {130,244, 0,38},{245,135,39, 0},{246,137,38, 1},{138,247, 1,38}, // 240-243
+  {140,248, 0,39},{249,135,40, 0},{250, 69,39, 1},{ 80,251, 1,39}, // 244-247
+  {140,252, 0,40},{249,135,41, 0},{250, 69,40, 1},{ 80,251, 1,40}, // 248-251
+  {140,252, 0,41}};  // 252, 253-255 are reserved
+
+#define nex(state,sel) State_table[state][sel]
 
 #if 0 // change to #if 0 to generate this table at run time (4% slower)
 static const U8 State_table[256][4]={
@@ -934,7 +1001,7 @@ int StateTable::num_states(int x, int y) {
   if (x<0 || y<0 || x>=N || y>=N || y>=B || x>=b[y]) return 0;
 
   // States 0-30 are a history of the last 0-4 bits
-  if (x+y<=4) {  // x+y choose x = (x+y)!/x!y!
+/*  if (x+y<=4) {  // x+y choose x = (x+y)!/x!y!
     int r=1;
     for (int i=x+1; i<=x+y; ++i) r*=i;
     for (int i=2; i<=y; ++i) r/=i;
@@ -943,7 +1010,7 @@ int StateTable::num_states(int x, int y) {
 
   // States 31-255 represent a 0,1 count and possibly the last bit
   // if the state is reachable by either a 0 or 1.
-  else
+  else*/
     return 1+(y>0 && x+y<b[5]);
 }
 
@@ -1006,7 +1073,7 @@ void StateTable::generate() {
       for (int k=0; k<t[x][y][1]; ++k) {
         int x0=x, y0=y, x1=x, y1=y;  // next x,y for input 0,1
         int ns0=0, ns1=0;
-        if (state<15) {
+       /* if (state<15) {
           ++x0;
           ++y1;
           ns0=t[x0][y0][0]+state-t[x][y][0];
@@ -1017,7 +1084,7 @@ void StateTable::generate() {
           ns[state*4+2]=x;
           ns[state*4+3]=y;
         }
-        else if (t[x][y][1]) {
+        else if (t[x][y][1])*/ {
           next_state(x0, y0, 0);
           next_state(x1, y1, 1);
           ns[state*4]=ns0=t[x0][y0][0];
@@ -1391,7 +1458,7 @@ void train(short *t, short *w, int n, int err) {
   }
  
   // predict next bit
-  int p( ) {
+  int p() {
     assert(cxt<M);
     int dp=dot_product(&tx[0], &wx[cxt*N], N)*shift1>>11;
     return pr=squash(dp);
@@ -1432,7 +1499,6 @@ void train(short *t, short *w, int n, int err) {
 //     prediction.  Larger values are better for stationary sources.
 
 static int dt[1024];  // i -> 16K/(i+i+3)
-
 struct StateMapContext {
   int N;        // Number of contexts
   int cxt;      // Context of last prediction
@@ -1481,6 +1547,7 @@ struct StateMapContext {
       for (int i=0;i<N;i++){
           printf("%d\n",t[i]>>20);
       }
+      printf("\n");
   }
 }; 
 
@@ -1532,7 +1599,7 @@ struct APM2 {
 };
  
 // based on https://encode.su/downloads/fpaq0p-sb_sh_full.rar
-struct TAPM {
+/*struct TAPM {
   U16 *t;    
   int cxt;
   int pr,pr1;
@@ -1592,7 +1659,7 @@ struct TAPM {
   } 
   int trim(int x) { return __max(1,__min(4095,x)); }
 };  
-
+*/
 // unaligned (sparse)
 // used with ERR
 struct UAS {
@@ -2314,21 +2381,18 @@ public:
   int mix(int m) {return mix1(m,  x.c0,  x.bpos, (U8) x.c4,  x.y);}
   int get() {return result;}
   int inputs;
-  int mix3(BlockData& x, int m, int s, StateMapContext& sm);
-  int mix4(BlockData& x, int m, int s, StateMapContext& sm);
-  int (ContextMap::*mix2)(BlockData& , int , int , StateMapContext&);
+
   int pre(int state) {
     assert(state>=0 && state<256);
     U32 n0=next(state, 2)*3+1;
     U32 n1=next(state, 3)*3+1;
     return (n1<<12) / (n0+n1);
   }
-  
+
 };
 
 // Find or create hash element matching checksum ch
 inline U8* ContextMap::E::get(U16 ch) {
-    
   if (chk[last&15]==ch) return &bh[last&15][0];
   int b=0xffff, bi=0;
  
@@ -2338,7 +2402,6 @@ inline U8* ContextMap::E::get(U16 ch) {
     if (pri<b && (last&15)!=i && last>>4!=i) b=pri, bi=i;
   }
   return last=0xf0|bi, chk[bi]=ch, (U8*)memset(&bh[bi][0], 0, 7);
- 
 }
 
 // Construct using m bytes of memory for c contexts(c+7)&-8
@@ -2361,12 +2424,11 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,U8 *nn2,int cs
         cp0[i]=cp[i]=&t[0].bh[0][0];
         runp[i]=cp[i]+3;
     }
-
     // precalc int c=ilog(rc+1)<<(2+(~rc&1));
     for (int rc=0;rc<256;rc++) {
         int c=ilog(rc);
         c=c<<(2+(~rc&1));
-        c=c*cmul/4;
+        if (rc&1==0) c=c*cmul/4;
         if (cmul==1) c=0;
         rc1[rc+256]=clp(c);
         rc1[rc]=clp(-c);
@@ -2384,17 +2446,15 @@ ContextMap::ContextMap(U64 m, int c, BlockData& bd,int s3,U8 *nn1,U8 *nn2,int cs
         if (s01) {            
             st8[s] =clp(sc(cms4*(pre(s)-sp0)));
             st32[s]=clp(sc(cms3*stretch(pre(s))));
+            if (s<8)st32[s]=0;
         }else{
             st8[s] =0;
             st32[s]=0;
         }
     }
 
-    mix2=mix3;
     inputs=6;
-    if (rd==1)dRND=false;
-    // if second prediction falls off change to mix4
-    if (cms2<8) mix2=mix4,dRND=false,inputs=5;
+    if (rd==1) dRND=false;
 }
 
 ContextMap::~ContextMap() {
@@ -2412,83 +2472,12 @@ inline void ContextMap::set(U32 cx) {
   cx=cx<<16|cx>>16;
   cxt[i]=cx*123456791+i;
 }
-// Predict to mixer m from bit history state s, using sm to map s to
-// a probability.
-
-inline int ContextMap::mix3(BlockData& x, int m, int s, StateMapContext& sm) {
-  if (s==0){
-    x.mxInputs[m].add(0); 
-    x.mxInputs[m].add(0);
-    x.mxInputs[m].add(0);
-    x.mxInputs[m].add(0);
-    x.mxInputs[m].add(64);
-    return 0;
-  }else{
-    sm.set(s,x.y);
-    int p1=sm.pr;
-    x.mxInputs[m].add(st1[p1]);
-    x.mxInputs[m].add(st2[p1]);
-    x.mxInputs[m].add(st8[s]);
-    x.mxInputs[m].add(st32[s]);
-    x.mxInputs[m].add(0);
-    return 1;
-  }
-}
-inline int ContextMap::mix4(BlockData& x, int m, int s, StateMapContext& sm) {
-  if (s==0){
-    x.mxInputs[m].add(0); 
-    x.mxInputs[m].add(0);
-    x.mxInputs[m].add(0);
-    x.mxInputs[m].add(64);
-    return 0;
-  }else{
-    sm.set(s,x.y);
-    int p1=sm.pr;
-    x.mxInputs[m].add(st1[p1]);
-    x.mxInputs[m].add(st8[s]);
-    x.mxInputs[m].add(st32[s]);
-    x.mxInputs[m].add(0);
-    return 1;
-  }
-}
 
 U32 getStateByteLocation(const int bpos, const int c0) {
   //from paq8px
   U32 pis = 0; //state byte position in slot
-  if (false) {
-    // this version is for readability
-    switch (bpos) {
-    case 0: //slot0
-      pis = 0;
-      break;
-    case 1: //slot0
-      pis = 1 + (c0 & 1);
-      break;
-    case 2: //slot1
-      pis = 0;
-      break;
-    case 3: //slot1
-      pis = 1 + (c0 & 1);
-      break;
-    case 4: //slot1
-      pis = 3 + (c0 & 3);
-      break;
-    case 5: //slot2
-      break;
-    case 6: //slot2
-      pis = 1 + (c0 & 1);
-      break;
-    case 7: //slot2
-      pis = 3 + (c0 & 3);
-      break;
-    }
-  }
-  else {
-    // this is a speed optimized (branchless) version of the above
-    const U32 smask = (U32(0x31031010) >> (bpos << 2)) & 0x0F;
-    pis = smask + (c0 & smask);
-  }
-
+  const U32 smask = (U32(0x31031010) >> (bpos << 2)) & 0x0F;
+  pis = smask + (c0 & smask);
   return pis;
 }
 // Update the model with bit y1, and predict next bit to mixer m.
@@ -2539,15 +2528,28 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
          runp[i][0]=1, runp[i][1]=c1;
        else if (runp[i][0]<254)  // same byte in context
          runp[i][0]+=2;
-       //else if (runp[i][0]==255)
-       //  runp[i][0]=128;
        runp[i]=cp0[i]+3;
       } 
      s = *cp[i];
     }
     // predict from bit context
 
-    result=result+(this->*mix2)(x,m, s, sm[i]);
+    if (s==0){
+        x.mxInputs[m].add(0); 
+        x.mxInputs[m].add(0);
+        x.mxInputs[m].add(0);
+        x.mxInputs[m].add(0);
+        x.mxInputs[m].add(32*2);
+    }else{
+        sm[i].set(s,x.y);
+        const int p1=sm[i].pr;
+        x.mxInputs[m].add(st1[p1]);
+        x.mxInputs[m].add(st2[p1]);
+        x.mxInputs[m].add(st8[s]);
+        x.mxInputs[m].add(st32[s]);
+        x.mxInputs[m].add(0);
+        result++;
+    }
     // predict from last byte in context
     int b=x.c0shift_bpos ^ (runp[i][1] >> x.bposshift);
     if (b<=1) {
@@ -2565,8 +2567,10 @@ int ContextMap::mix1(int m, int cc, int bp, int c1, int y1) {
 
 //
 // Autotune component parameters
+bool doRad=true;
 U32 cseed=0;
-
+U32 minTune=2;
+bool e_nn[256];
 void compressStream(U32 streamid,U64 size, FILE* in, FILE* out);
 
 double randfloat(){return (double(rand())+0.5)/double(RAND_MAX+1);};
@@ -2613,7 +2617,7 @@ struct VMParam {
   int vm_err_limit[256];
   bool vm_err1[256];
   int vm_err1_limit[256];
-  bool vm_tapm[256];
+ /* bool vm_tapm[256];
   int vm_tapm_limit0[256];
   int vm_tapm_limit1[256];
   int vm_tapm_limit2[256];
@@ -2621,7 +2625,7 @@ struct VMParam {
   int vm_tapm_limit4[256];
   int vm_tapm_limitw1[256];
   int vm_tapm_limitw2[256];
-  int vm_tapm_limitwb1[256];
+  int vm_tapm_limitwb1[256];*/
   bool vm_uas[256];
   bool vm_uasm[256];
   int vm_uas_mask[256];
@@ -2642,7 +2646,7 @@ struct VMParam {
   int vm_byt_limit[256];
   int vm_byt_limit_max[256];
   bool isactive;
-  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx, bool sta, bool apm2, bool byt){
+  void set(bool m, bool ml, bool apm, bool smc, bool ds,bool mue,bool cm,bool sm,bool cms,bool rcm,bool tapm, bool err, bool uas, bool lmx, bool *sta, bool apm2, bool byt){
    isactive=true;
    for (int i=0;i<256;i++) vm_mixer[i]=m; 
    for (int i=0;i<256;i++) vm_mixer_ml[i]=ml;
@@ -2658,12 +2662,12 @@ struct VMParam {
    for (int i=0;i<256;i++) vm_cms4[i]=cms;
    for (int i=0;i<256;i++) vm_sm[i]=sm;
    for (int i=0;i<256;i++) vm_rcm[i]=rcm;
-   for (int i=0;i<256;i++) vm_tapm[i]=tapm;
+   //for (int i=0;i<256;i++) vm_tapm[i]=tapm;
    for (int i=0;i<256;i++) vm_err[i]=err;
    for (int i=0;i<256;i++) vm_err1[i]=err;
    for (int i=0;i<256;i++) vm_uas[i]=uas;
    for (int i=0;i<256;i++) vm_lmx[i]=lmx;
-   for (int i=0;i<256;i++) vm_nnst[i]=sta;
+   for (int i=0;i<256;i++) vm_nnst[i]=sta[i];
    for (int i=0;i<256;i++) vm_byt[i]=byt;
    // no command line select
    for (int i=0;i<256;i++) vm_avg[i]=false;   
@@ -2753,43 +2757,43 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit0[i];
-    parameters[n].min=0;parameters[n].max=63;
+    parameters[n].min=0;parameters[n].max=33;
     n++;
   }
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit1[i];
-    parameters[n].min=0;parameters[n].max=63;
+    parameters[n].min=0;parameters[n].max=33;
     n++;
   }
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit2[i];
-    parameters[n].min=0;parameters[n].max=63;
+    parameters[n].min=0;parameters[n].max=33;
     n++;
   }
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit3[i];
-    parameters[n].min=0;parameters[n].max=63;
+    parameters[n].min=0;parameters[n].max=33;
     n++;
   }
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit4[i];
-    parameters[n].min=0;parameters[n].max=63;
+    parameters[n].min=0;parameters[n].max=33;
     n++;
   }
   for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit5[i];
-    parameters[n].min=3;parameters[n].max=32;
+    parameters[n].min=3;parameters[n].max=33;
     n++;
   }
     for (int i=0;i<256;i++)
    if (Param->vm_nnst[i]) {
     parameters[n].param=&Param->vm_nnst_limit6[i];
-    parameters[n].min=2;parameters[n].max=32;
+    parameters[n].min=2;parameters[n].max=33;
     n++;
   }
   for (int i=0;i<256;i++)
@@ -2863,6 +2867,7 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     parameters[n].min=1;parameters[n].max=60;
     n++;
   }
+
   for (int i=0;i<256;i++)
    if (Param->vm_rcm[i]) {parameters[n].t=0;
     parameters[n].param=&Param->vm_rcm_limit[i];
@@ -2900,7 +2905,7 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     parameters[n].min=2047;parameters[n].max=4094;
     n++;
   }
-  for (int i=0;i<256;i++)
+  /*for (int i=0;i<256;i++)
    if (Param->vm_tapm[i]) {
     parameters[n].param=&Param->vm_tapm_limit0[i];
     parameters[n].min=0;parameters[n].max=2048+1024;
@@ -2947,7 +2952,7 @@ int CreateVector(VMParam *Param,Parameter *parameters) {
     parameters[n].param=&Param->vm_tapm_limitwb1[i];
     parameters[n].min=1;parameters[n].max=70*2;
     n++;
-  }
+  }*/
   for (int i=0;i<256;i++)
    if (Param->vm_uasm[i]) {
     parameters[n].param=&Param->vm_uas_mask[i];
@@ -2975,10 +2980,12 @@ void ChangeParameter(int idx,double radius) {
    int min_param=parameters[idx].min;
    int max_param=parameters[idx].max;
    int r=(int)(radius*double(max_param-min_param)+0.5);
-   /*if (*p==0){
-       *p = randint(min_param,max_param);
-   }else*/
-   *p = randint(max(min_param,*p-r),min(max_param,*p+r));
+   if (doRad==true)  
+        *p = randint(max(min_param,*p-r),min(max_param,*p+r));
+   else
+        *p = randint(min_param,max_param);
+
+   
 }
 
 void CreateProposal(VMParam *Param, double radius) {
@@ -3041,9 +3048,9 @@ void Tune(int maxruns, double radius) {
 
      // we found new optimum
      double rate=accepted+rejected>0?double(accepted)/double(accepted+rejected):0.0;
-     printf("[%i] [rate: %4.1f%%], time: %d, temperature: %0.9f\r",total_runs,rate*100.0,btime,temperature);
+     printf("[%i] [rate: %4.1f%%], time: %d, temperature: %0.9f, proposal: %d\r",total_runs,rate*100.0,btime,temperature,proposal);
 
-     if ((proposal+2)<current_best) {
+     if ((proposal+minTune)<current_best) {
        CopyState(&BestState,&NewState);
        current_best=proposal;
        printf("\n best: %i (radius: %0.5f)\n",current_best,radius);
@@ -3202,7 +3209,6 @@ public:
       int c=0;
       for (int i=0; i<8; ++i)
         c+=c+decode();
-      
       return c;
     }
   }
@@ -3825,9 +3831,15 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     if (parm2[streamid]->vm_smc[0]==true) printf("\nsmc limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_smc[i]==true) printf("%d, ",parm2[streamid]->vm_smc_limit[i]);
     if (parm2[streamid]->vm_ds[0]==true) printf("\nds limit:\n");
-    for (int i=0;i<256;i++) if (parm2[streamid]->vm_ds[i]==true) printf("%d, ",parm2[streamid]->vm_ds_limit[i]);
+    for (int i=0;i<256;i++) if (parm2[streamid]->vm_ds[i]==true) printf("%d ",parm2[streamid]->vm_ds_limit[i]);
     if (parm2[streamid]->vm_byt[0]==true) printf("\nbyt limit:\n");
-    if (parm2[streamid]->vm_byt[0]==true) for (int i=0;i<256;i++) printf("%d, ",parm2[streamid]->vm_byt_limit[i]);
+    if (parm2[streamid]->vm_byt[0]==true) {for (int i=0;i<256;i++) printf("%d, ",parm2[streamid]->vm_byt_limit[i]);
+    
+   /* printf("\nGroup\n");
+    for (int i=0;i<7;i++) {printf("\nGroup:%d\n",i);
+    for (int j=0;j<127;j++) if (parm2[streamid]->vm_byt_limit[j]==i)printf("%c",j);
+    }*/
+    }
     if (parm2[streamid]->vm_cm[0]==true) printf("\ncm run limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_cm[i]==true) printf("%2d, ",parm2[streamid]->vm_cm_limit[i]);
     if (parm2[streamid]->vm_cms[0]==true) printf("\ncms rate:\n");
@@ -3851,7 +3863,7 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_uas[i]==true) printf("%d, ",parm2[streamid]->vm_uas_bits[i]);
     if (parm2[streamid]->vm_uasm[0]==true) printf("\nuas mask:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_uasm[i]==true) printf("%d, ",parm2[streamid]->vm_uas_mask[i]);
-    if (parm2[streamid]->vm_tapm[0]==true) printf("\ntapm limit:\n");
+    /*if (parm2[streamid]->vm_tapm[0]==true) printf("\ntapm limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_tapm[i]==true) printf(
     "%d+(%d<<16),%d|(%d<<12)|(%d<<24),%d+(%d<<16)+(%d<<24)\n"
     ,parm2[streamid]->vm_tapm_limit0[i],
@@ -3860,19 +3872,26 @@ void pTune(int streamid,U64 size, FILE* in, FILE* out) {
     parm2[streamid]->vm_tapm_limit3[i],parm2[streamid]->vm_tapm_limitwb1[i],
     parm2[streamid]->vm_tapm_limit4[i],
     parm2[streamid]->vm_tapm_limitw1[i],
-    parm2[streamid]->vm_tapm_limitw2[i]);  
+    parm2[streamid]->vm_tapm_limitw2[i]);  */
     if (parm2[streamid]->vm_lmx[0]==true) printf("\nlmx w:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_lmx[i]==true) printf("%d, ",parm2[streamid]->vm_lmx_w[i]);
     if (parm2[streamid]->vm_nnst[0]==true) printf("\nstatetable limit:\n");
     for (int i=0;i<256;i++) if (parm2[streamid]->vm_nnst[i]==true) printf(
-    "%d+(%d<<16),%d|(%d<<16),%d+(%d<<16)+(%d<<24)\n"
+    "(%d): %d+(%d<<16),%d|(%d<<16),%d+(%d<<16)+(%d<<24) ",i
     ,parm2[streamid]->vm_nnst_limit0[i],
     parm2[streamid]->vm_nnst_limit1[i],
     parm2[streamid]->vm_nnst_limit2[i],
     parm2[streamid]->vm_nnst_limit3[i],
     parm2[streamid]->vm_nnst_limit4[i],
     parm2[streamid]->vm_nnst_limit5[i],
-    parm2[streamid]->vm_nnst_limit6[i]);  
+    parm2[streamid]->vm_nnst_limit6[i]),
+    printf("%d %d %d %d %d %d %d\n",parm2[streamid]->vm_nnst_limit0[i],
+    parm2[streamid]->vm_nnst_limit1[i],
+    parm2[streamid]->vm_nnst_limit2[i],
+    parm2[streamid]->vm_nnst_limit3[i],
+    parm2[streamid]->vm_nnst_limit4[i],
+    parm2[streamid]->vm_nnst_limit5[i],
+    parm2[streamid]->vm_nnst_limit6[i]);
     printf("\n\n");
     if (SA.GetStart()<=SA.GetBest() ){
         printf("Tune failed. No improvment. Exit.\n");
@@ -4462,7 +4481,7 @@ printf("\n");
             "                      n - sm limit\n"
             "                      o - cm sm rate\n"
             "                      p - rcm mul\n"
-            "                      q - tapm\n"
+            "                      q - tapm - not available\n"
             "                      r - err\n"
             "                      s - uas\n"
             "                      t - lmx\n"
@@ -4471,9 +4490,11 @@ printf("\n");
             "                      x - byt\n"            
             "  -o<n>               n specifies percentage of tune, default=100\n"
             "  -r<n>               number of tune runs, default=25\n"
+            "  -m<n>               minimum tune improvment in bytes, default=2\n"
             "  -f                  full tune on all parameters, default=false\n"
             "  -bc                 bc - enable bounds check at compile, dafault=false\n"
             "  -br                 br - enable bounds check at runtime, dafault=false\n"
+            "  -k                  k - disable radius in tune, dafault=true\n"
             "  -j                  j - do JIT, dafault=false\n"
             "  -i                  i - show cfg component info, default=false\n"
             "  -s<n>               s - seed for tune, default=random\n"
@@ -4500,6 +4521,7 @@ int getOption(int argc,char **argv) {
       else if (tmp[1]=='l') doList=true;
       else if (tmp[1]=='f') doFullOpt=true;
       else if (tmp[1]=='p') ePRT=true;
+      else if (tmp[1]=='k') doRad=false,printf("tune: radius disabled\n");
       else if (tmp[1]=='i') doDebugInfo=true,printf("DBG: show info\n");
       else if (tmp[1]=='j') doJIT=true,printf("JIT: enabled\n");
       else if (tmp[1]=='0') level=0,printf("Mode: transform\n");
@@ -4509,6 +4531,7 @@ int getOption(int argc,char **argv) {
       else if (tmp[1]=='c' && tmp[2]!=0) config=(const char*)&tmp[2],printf("Config: %s\n",config.c_str());
       else if (tmp[1]=='2') {
           level=2;
+          int n=0;
           ePRT=false; // disable in tune mode
           bool   m=false; bool  ml=false; bool apm=false; bool smc=false; 
           bool  ds=false; bool mue=false; bool  cm=false; bool  sm=false;
@@ -4525,16 +4548,29 @@ int getOption(int argc,char **argv) {
           if (tmp[9]=='t')   sm=true,printf("sm: enabled\n"); else if (tmp[9]=='f')   sm=false; else printHelp();
           if (tmp[10]=='t') cms=true,printf("cms: enabled\n"); else if (tmp[10]=='f') cms=false; else printHelp();
           if (tmp[11]=='t') rcm=true,printf("rcm: enabled\n"); else if (tmp[11]=='f') rcm=false; else printHelp();
-          if (tmp[12]=='t') tapm=true,printf("tapm: enabled\n"); else if (tmp[12]=='f') tapm=false; else printHelp();
+          if (tmp[12]=='t') /*tapm=true,printf("tapm: enabled\n"); else if (tmp[12]=='f') tapm=false; else*/ printHelp();
           if (tmp[13]=='t') err=true,printf("err: enabled\n"); else if (tmp[13]=='f') err=false; else printHelp();
           if (tmp[14]=='t') uas=true,printf("uas: enabled\n"); else if (tmp[14]=='f') uas=false; else printHelp();
           if (tmp[15]=='t') lmx=true,printf("lmx: enabled\n"); else if (tmp[15]=='f') lmx=false; else printHelp();
-          if (tmp[16]=='t') sta=true,printf("sta: enabled\n"); else if (tmp[16]=='f') sta=false; else printHelp();
-          if (tmp[17]=='t') apm2=true,printf("apm2: enabled\n"); else if (tmp[17]=='f') apm2=false; else printHelp();
-          if (tmp[18]=='t') byt=true,printf("byt: enabled\n"); else if (tmp[18]=='f') byt=false; else printHelp();
-          if (tmp[19]!=0) printHelp();
+          if (tmp[16]=='t') {
+          /*sta=true,*/printf("sta: enabled\n");
+          if (tmp[17]=='1' || tmp[17]=='0'){
+          
+          for (int j=0;j<256;j++) 
+             if (tmp[17+j]=='1' || tmp[17+j]=='0') {
+             e_nn[j]=(tmp[17+j]=='1'?true:false);
+             }else {n=j;
+             break;
+             }
+          
+          for (int j=n;j<256;j++) e_nn[j]=false;
+          }else for (int j=0;j<256;j++) e_nn[j]=true;
+          } else if (tmp[16]=='f')  for (int j=0;j<256;j++) e_nn[j]=false; else printHelp();
+          if (tmp[17+n]=='t') apm2=true,printf("apm2: enabled\n"); else if (tmp[17+n]=='f') apm2=false; else printHelp();
+          if (tmp[18+n]=='t') byt=true,printf("byt: enabled\n"); else if (tmp[18+n]=='f') byt=false; else printHelp();
+          if (tmp[19+n]!=0) printHelp();
           // set stream parms active
-          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx,sta,apm2,byt);
+          for (int i=0;i<256;i++) parm1[i].set(m, ml, apm, smc, ds, mue, cm, sm, cms, rcm, tapm, err, uas, lmx,&e_nn[0],apm2,byt);
       }
 #ifdef MT
       else if (tmp[1]=='t') {
@@ -4548,6 +4584,8 @@ int getOption(int argc,char **argv) {
          if (strlen(tmp+2)>0) max_fraction=clamp(atoi(tmp+2),0,100);
       } else if (tmp[1]=='r'){
         max_runs=clamp(atoi(tmp+2),0,1000);
+       } else if (tmp[1]=='m'){
+        minTune=atoi(tmp+2),printf("minTune: %d\n",minTune);
       } else printf("unknown option '%s'\n",tmp);
     } else {
       break;
