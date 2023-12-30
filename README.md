@@ -13,6 +13,8 @@ __paq8pxv.exe  -1 -t1 -j -bc -br -cconf.pxv data__
 Compress with 1 thread (t1), using JIT mode (j), array bounds are tested at compile (bc) and runtime (br), config file is __conf.pxv__ and input file is __data__.
 
 # Contents
+[Overview](#overview)
+
 [Config files](#config-files)
 * [Example detection conf](#example-detection-conf)
 
@@ -30,6 +32,10 @@ Compress with 1 thread (t1), using JIT mode (j), array bounds are tested at comp
 [History](#history)
 
 [Testing results](#testing-results)
+
+# Overview
+![image](https://github.com/kaitz/paq8pxv/assets/7313300/4a01a19b-e561-46d7-9c79-19d0a95dee7f)
+
 
 # Config files
 Main configuration is in conf.pxv file. 
